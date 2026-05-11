@@ -32,6 +32,23 @@ export const startWork = async (req: Request, res: Response) => {
   }
 };
 
+export const startActivity = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.userId;
+    const { shiftId, activityType } = req.body;
+
+    const result = await AttendanceService.startActivity(
+      userId,
+      shiftId,
+      activityType
+    );
+
+    res.status(201).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 // Start Break
 export const startBreak = async (req: Request, res: Response) => {
   try {

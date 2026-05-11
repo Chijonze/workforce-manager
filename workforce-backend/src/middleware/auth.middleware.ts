@@ -18,6 +18,7 @@ export const protect = async (
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as {
       userId?: string;
+      mfaVerified?: boolean;
     };
 
     if (!decoded.userId) {
@@ -35,7 +36,20 @@ export const protect = async (
       name: user.name,
       email: user.email,
       role: user.role,
+      mfaVerified: decoded.mfaVerified !== false,
     };
+
+    const mfaRequired = process.env.MFA_REQUIRED !== "false";
+    const authMfaPath =
+      req.baseUrl === "/api/auth" &&
+      ["/me", "/mfa/setup", "/mfa/confirm"].includes(req.path);
+
+    if (mfaRequired && decoded.mfaVerified === false && !authMfaPath) {
+      return res.status(403).json({
+        message: "MFA setup is required before accessing the dashboard",
+        mfaSetupRequired: true,
+      });
+    }
 
     next();
   } catch (error) {

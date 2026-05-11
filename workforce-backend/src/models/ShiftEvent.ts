@@ -10,6 +10,14 @@ export interface IShiftEvent extends Document {
     | "WORK_START"
     | "BREAK_START"
     | "BREAK_END"
+    | "LUNCH_START"
+    | "LUNCH_END"
+    | "MEETING_START"
+    | "MEETING_END"
+    | "TRAINING_START"
+    | "TRAINING_END"
+    | "AFTER_CALL_WORK_START"
+    | "AFTER_CALL_WORK_END"
     | "SHIFT_END";
 
   timestamp: Date;
@@ -46,6 +54,14 @@ const shiftEventSchema = new Schema<IShiftEvent>(
         "WORK_START",
         "BREAK_START",
         "BREAK_END",
+        "LUNCH_START",
+        "LUNCH_END",
+        "MEETING_START",
+        "MEETING_END",
+        "TRAINING_START",
+        "TRAINING_END",
+        "AFTER_CALL_WORK_START",
+        "AFTER_CALL_WORK_END",
         "SHIFT_END",
       ],
       required: true,

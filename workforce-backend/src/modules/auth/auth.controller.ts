@@ -4,6 +4,10 @@ import {
   loginUser,
   getCurrentUser,
   getUsers,
+  startMfaSetup,
+  confirmMfaSetup,
+  verifyLoginMfa,
+  verifyReturnMfa,
 } from "./auth.service";
 
 export const register = async (req: Request, res: Response) => {
@@ -20,9 +24,52 @@ export const register = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, mfaCode } = req.body;
 
-    const data = await loginUser(email, password);
+    const data = await loginUser(email, password, mfaCode);
+
+    res.status(200).json(data);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const setupMfa = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.userId;
+    const data = await startMfaSetup(userId);
+
+    res.status(200).json(data);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const confirmMfa = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.userId;
+    const user = await confirmMfaSetup(userId, req.body.code);
+
+    res.status(200).json(user);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const verifyMfa = async (req: Request, res: Response) => {
+  try {
+    const data = await verifyLoginMfa(req.body.mfaToken, req.body.code);
+
+    res.status(200).json(data);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const verifyReturn = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.userId;
+    const data = await verifyReturnMfa(userId, req.body.code);
 
     res.status(200).json(data);
   } catch (error: any) {

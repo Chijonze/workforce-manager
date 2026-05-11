@@ -5,6 +5,9 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: "admin" | "agent";
+  mfaEnabled: boolean;
+  mfaSecret?: string;
+  mfaPendingSecret?: string;
 }
 
 const userSchema = new Schema<IUser>(
@@ -13,6 +16,9 @@ const userSchema = new Schema<IUser>(
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     role: { type: String, enum: ["admin", "agent"], default: "agent" },
+    mfaEnabled: { type: Boolean, default: false },
+    mfaSecret: { type: String, select: false },
+    mfaPendingSecret: { type: String, select: false },
   },
   { timestamps: true }
 );

@@ -5,6 +5,7 @@ export type User = {
   name: string;
   email: string;
   role: Role;
+  mfaEnabled?: boolean;
 };
 
 export type ShiftTemplate = {
@@ -47,7 +48,20 @@ export type ShiftEvent = {
   _id: string;
   shiftId: string;
   userId: string;
-  type: "SHIFT_START" | "WORK_START" | "BREAK_START" | "BREAK_END" | "SHIFT_END";
+  type:
+    | "SHIFT_START"
+    | "WORK_START"
+    | "BREAK_START"
+    | "BREAK_END"
+    | "LUNCH_START"
+    | "LUNCH_END"
+    | "MEETING_START"
+    | "MEETING_END"
+    | "TRAINING_START"
+    | "TRAINING_END"
+    | "AFTER_CALL_WORK_START"
+    | "AFTER_CALL_WORK_END"
+    | "SHIFT_END";
   timestamp: string;
 };
 
@@ -92,4 +106,18 @@ export type AdminOverview = {
     performance: DailyPerformance;
   }[];
   schedules: Schedule[];
+};
+
+export type LeaveRequest = {
+  _id: string;
+  userId: string;
+  leaveType: "annual" | "sick" | "personal" | "unpaid" | "other";
+  startDate: string;
+  endDate: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  managerComment?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  createdAt?: string;
 };

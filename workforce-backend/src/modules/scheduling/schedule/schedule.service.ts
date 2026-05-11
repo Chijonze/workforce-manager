@@ -1,8 +1,13 @@
 import Schedule from "../../../models/schedule.model";
 import { normalizeToUtcDate } from "../enforcement/enforcement.utils";
+import { hasApprovedLeave } from "../../leave/leave.service";
 
 export const assignSchedule = async (data: any) => {
   const workDate = normalizeToUtcDate(data.workDate);
+
+  if (await hasApprovedLeave(data.userId, workDate)) {
+    throw new Error("Cannot assign a schedule on an approved leave day");
+  }
 
   return await Schedule.create({
     ...data,

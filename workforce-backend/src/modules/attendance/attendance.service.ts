@@ -49,7 +49,15 @@ const calculateShiftTotals = (
       lastWorkStart = timestamp;
     }
 
-    if (event.type === "BREAK_START") {
+    if (
+      [
+        "BREAK_START",
+        "LUNCH_START",
+        "MEETING_START",
+        "TRAINING_START",
+        "AFTER_CALL_WORK_START",
+      ].includes(event.type)
+    ) {
       if (lastWorkStart) {
         totalWorkedMinutes += Math.floor(
           (timestamp.getTime() - lastWorkStart.getTime()) / 60000
@@ -57,10 +65,15 @@ const calculateShiftTotals = (
         lastWorkStart = null;
       }
 
-      lastBreakStart = timestamp;
+      if (event.type === "BREAK_START" || event.type === "LUNCH_START") {
+        lastBreakStart = timestamp;
+      }
     }
 
-    if (event.type === "BREAK_END" && lastBreakStart) {
+    if (
+      (event.type === "BREAK_END" || event.type === "LUNCH_END") &&
+      lastBreakStart
+    ) {
       totalBreakMinutes += Math.floor(
         (timestamp.getTime() - lastBreakStart.getTime()) / 60000
       );
@@ -286,9 +299,18 @@ export const endShift = async (
   throw new Error("Shift already ended");
 }
 
-if (lastEvent?.type === "BREAK_START") {
+if (
+  lastEvent &&
+  [
+    "BREAK_START",
+    "LUNCH_START",
+    "MEETING_START",
+    "TRAINING_START",
+    "AFTER_CALL_WORK_START",
+  ].includes(lastEvent.type)
+) {
   throw new Error(
-    "Cannot end shift during active break"
+    "Return to Available before ending shift"
   );
 }
 
@@ -342,7 +364,20 @@ if (lastEvent?.type === "BREAK_START") {
 export const createEvent = async (
   userId: string,
   shiftId: string,
-  type: "SHIFT_START" | "SHIFT_END" | "WORK_START" | "BREAK_START" | "BREAK_END"
+  type:
+    | "SHIFT_START"
+    | "SHIFT_END"
+    | "WORK_START"
+    | "BREAK_START"
+    | "BREAK_END"
+    | "LUNCH_START"
+    | "LUNCH_END"
+    | "MEETING_START"
+    | "MEETING_END"
+    | "TRAINING_START"
+    | "TRAINING_END"
+    | "AFTER_CALL_WORK_START"
+    | "AFTER_CALL_WORK_END"
 ) => {
   // Validate shiftId format
   if (!mongoose.Types.ObjectId.isValid(shiftId)) {
@@ -380,6 +415,61 @@ export const createEvent = async (
   });
 
   return event;
+};
+
+export const startActivity = async (
+  userId: string,
+  shiftId: string,
+  activityType:
+    | "AVAILABLE"
+    | "BREAK"
+    | "LUNCH"
+    | "MEETING"
+    | "TRAINING"
+    | "AFTER_CALL_WORK"
+    | "END_SHIFT"
+) => {
+  if (!shiftId) {
+    throw new Error("shiftId is required");
+  }
+
+  if (activityType === "END_SHIFT") {
+    return endShift(userId, shiftId);
+  }
+
+  const lastEvent = await ShiftEvent.findOne({
+    shiftId,
+    userId,
+  }).sort({ createdAt: -1 });
+
+  const currentType = lastEvent?.type || null;
+  const nextEventByActivity = {
+    AVAILABLE:
+      currentType === "BREAK_START"
+        ? "BREAK_END"
+        : currentType === "LUNCH_START"
+          ? "LUNCH_END"
+          : currentType === "MEETING_START"
+            ? "MEETING_END"
+            : currentType === "TRAINING_START"
+              ? "TRAINING_END"
+              : currentType === "AFTER_CALL_WORK_START"
+                ? "AFTER_CALL_WORK_END"
+                : "WORK_START",
+    BREAK: "BREAK_START",
+    LUNCH: "LUNCH_START",
+    MEETING: "MEETING_START",
+    TRAINING: "TRAINING_START",
+    AFTER_CALL_WORK: "AFTER_CALL_WORK_START",
+  } as const;
+
+  const nextEvent = nextEventByActivity[activityType];
+
+  if (!nextEvent) {
+    throw new Error("Unsupported activity type");
+  }
+
+  return createEvent(userId, shiftId, nextEvent);
 };
 
 // Optional: Add helper function to get shift status
