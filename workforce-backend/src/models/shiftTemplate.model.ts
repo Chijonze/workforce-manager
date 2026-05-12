@@ -7,6 +7,9 @@ export interface IShiftTemplate extends Document {
 
   breaks: {
     label: string;
+    type: "break" | "lunch";
+    startTime?: string;
+    endTime?: string;
     durationMinutes: number;
   }[];
 
@@ -23,6 +26,13 @@ const shiftTemplateSchema = new Schema<IShiftTemplate>(
     breaks: [
       {
         label: String,
+        type: {
+          type: String,
+          enum: ["break", "lunch"],
+          default: "break",
+        },
+        startTime: String,
+        endTime: String,
         durationMinutes: Number,
       },
     ],

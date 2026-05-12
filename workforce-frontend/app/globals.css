@@ -47,6 +47,10 @@ button:disabled {
   min-height: 100vh;
 }
 
+.desktop-only-notice {
+  display: none;
+}
+
 .topbar {
   position: sticky;
   top: 0;
@@ -592,12 +596,27 @@ button:disabled {
 
 .break-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px;
+  grid-template-columns: minmax(160px, 1fr) 140px 132px 132px auto;
   gap: 10px;
+  align-items: end;
   padding: 12px;
   background: #fbfcfb;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.break-duration-pill {
+  display: grid;
+  place-items: center;
+  min-width: 58px;
+  min-height: 42px;
+  padding: 8px 10px;
+  color: var(--primary-strong);
+  background: #e2f4ee;
+  border: 1px solid #b9ddd2;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 label {
@@ -618,10 +637,55 @@ select {
   outline: none;
 }
 
+select {
+  appearance: none;
+  padding-right: 38px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--primary) 50%),
+    linear-gradient(135deg, var(--primary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 20px) 18px,
+    calc(100% - 14px) 18px;
+  background-size:
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+select:hover {
+  border-color: #b9ddd2;
+  background-color: #f4faf7;
+}
+
 input:focus,
 select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.assigned-breaks {
+  display: grid;
+  gap: 8px;
+}
+
+.assigned-break {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  background: #fbfcfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.assigned-break strong {
+  font-size: 14px;
+}
+
+.assigned-break span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .record-list {
@@ -644,6 +708,12 @@ select:focus {
 
 .record-title {
   font-weight: 800;
+}
+
+.schedule-delete-button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 8px 11px;
 }
 
 .muted {
@@ -833,6 +903,20 @@ select:focus {
   background: var(--primary);
 }
 
+@media (max-width: 900px) {
+  .auth-wrap,
+  .app-shell {
+    display: none !important;
+  }
+
+  .desktop-only-notice {
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    padding: 22px;
+  }
+}
+
 @media (max-width: 1120px) {
   .dashboard-grid,
   .metrics,
@@ -865,13 +949,13 @@ select:focus {
 
   .dashboard-grid,
   .metrics,
-    .metrics.compact,
-    .metrics.admin-metrics,
-    .execution-grid,
-    .execution-metrics,
-    .controls,
-    .form-grid,
-    .break-row {
+  .metrics.compact,
+  .metrics.admin-metrics,
+  .execution-grid,
+  .execution-metrics,
+  .controls,
+  .form-grid,
+  .break-row {
     grid-template-columns: 1fr;
   }
 

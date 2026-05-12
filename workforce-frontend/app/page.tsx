@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Square,
   TimerReset,
+  Trash2,
   UserRound,
   XCircle,
 } from "lucide-react";
@@ -40,7 +41,13 @@ import type {
 } from "@/types/workforce";
 
 type AuthMode = "login" | "register";
-type BreakForm = { label: string; durationMinutes: number };
+type BreakForm = {
+  label: string;
+  type: "break" | "lunch";
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+};
 type Toast = { id: number; type: "success" | "error"; message: string };
 type ActivityState =
   | "AVAILABLE"
@@ -82,7 +89,8 @@ const eventLabels: Record<ShiftEvent["type"], string> = {
 };
 
 const defaultBreaks: BreakForm[] = [
-  { label: "Break 1", durationMinutes: 15 },
+  { label: "Morning break", type: "break", startTime: "10:00", endTime: "10:15", durationMinutes: 15 },
+  { label: "Lunch", type: "lunch", startTime: "14:00", endTime: "15:00", durationMinutes: 60 },
 ];
 
 const activityOptions: { value: ActivityState; label: string }[] = [
@@ -136,6 +144,31 @@ function minutesBetween(start?: string, end?: string) {
   if (!start) return 0;
   const endTime = end ? new Date(end).getTime() : Date.now();
   return Math.max(0, Math.floor((endTime - new Date(start).getTime()) / 60000));
+}
+
+function minutesBetweenTimes(startTime?: string, endTime?: string) {
+  if (!startTime || !endTime) return 0;
+
+  const [startHours, startMinutes] = startTime.split(":").map(Number);
+  const [endHours, endMinutes] = endTime.split(":").map(Number);
+  const startTotal = startHours * 60 + startMinutes;
+  const endTotal = endHours * 60 + endMinutes;
+
+  return Math.max(0, endTotal - startTotal);
+}
+
+function formatTimeRange(startTime?: string, endTime?: string) {
+  if (!startTime || !endTime) return "Time not set";
+
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const baseDate = "2026-01-01";
+
+  return `${formatter.format(new Date(`${baseDate}T${startTime}:00`))} - ${formatter.format(
+    new Date(`${baseDate}T${endTime}:00`)
+  )}`;
 }
 
 function formatDuration(totalSeconds: number) {
@@ -212,6 +245,11 @@ export default function Home() {
     userId: "",
     shiftTemplateId: "",
     workDate: new Date().toISOString().slice(0, 10),
+  });
+  const [scheduleDeleteForm, setScheduleDeleteForm] = useState({
+    userId: "",
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
   });
   const [templates, setTemplates] = useState<ShiftTemplate[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -384,6 +422,10 @@ export default function Home() {
         userId: current.userId || userList[0]?._id || "",
         shiftTemplateId: current.shiftTemplateId || templateList[0]?._id || "",
       }));
+      setScheduleDeleteForm((current) => ({
+        ...current,
+        userId: current.userId || userList[0]?._id || "",
+      }));
       return;
     }
 
@@ -535,13 +577,17 @@ export default function Home() {
   }
 
   function setBreakCount(count: number) {
-    const nextCount = Math.min(3, Math.max(1, count));
+    const nextCount = Math.min(4, Math.max(1, count));
     setTemplateForm((current) => {
       const nextBreaks = [...current.breaks];
       while (nextBreaks.length < nextCount) {
+        const isLunch = nextBreaks.length === 1;
         nextBreaks.push({
-          label: `Break ${nextBreaks.length + 1}`,
-          durationMinutes: 15,
+          label: isLunch ? "Lunch" : `Break ${nextBreaks.length + 1}`,
+          type: isLunch ? "lunch" : "break",
+          startTime: isLunch ? "14:00" : "10:00",
+          endTime: isLunch ? "15:00" : "10:15",
+          durationMinutes: isLunch ? 60 : 15,
         });
       }
 
@@ -556,9 +602,17 @@ export default function Home() {
   function updateBreak(index: number, key: keyof BreakForm, value: string | number) {
     setTemplateForm((current) => ({
       ...current,
-      breaks: current.breaks.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, [key]: value } : item
-      ),
+      breaks: current.breaks.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+
+        const updated = { ...item, [key]: value };
+        const durationMinutes = minutesBetweenTimes(updated.startTime, updated.endTime);
+
+        return {
+          ...updated,
+          durationMinutes: durationMinutes || updated.durationMinutes,
+        };
+      }),
     }));
   }
 
@@ -576,7 +630,12 @@ export default function Home() {
           endTime: templateForm.endTime,
           breaks: templateForm.breaks.map((item, index) => ({
             label: item.label || `Break ${index + 1}`,
-            durationMinutes: Math.min(45, Math.max(15, Number(item.durationMinutes))),
+            type: item.type,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            durationMinutes:
+              minutesBetweenTimes(item.startTime, item.endTime) ||
+              Math.min(60, Math.max(15, Number(item.durationMinutes))),
           })),
         },
       });
@@ -596,6 +655,85 @@ export default function Home() {
       });
       await refreshWorkspace();
     }, "Schedule assigned");
+  }
+
+  async function deleteSchedules(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token || !isAdmin) return;
+
+    if (scheduleDeleteForm.endDate < scheduleDeleteForm.startDate) {
+      notify("error", "End date cannot be before start date");
+      return;
+    }
+
+    const member = users.find((item) => item._id === scheduleDeleteForm.userId);
+    const dateLabel =
+      scheduleDeleteForm.startDate === scheduleDeleteForm.endDate
+        ? formatDate(scheduleDeleteForm.startDate)
+        : `${formatDate(scheduleDeleteForm.startDate)} to ${formatDate(scheduleDeleteForm.endDate)}`;
+
+    if (
+      !window.confirm(
+        `Delete schedules for ${member?.name || "this user"} from ${dateLabel}?`
+      )
+    ) {
+      return;
+    }
+
+    const result = await runAction(async () => {
+      const response = await apiRequest<{ deletedCount: number }>("/api/scheduling/schedule", {
+        method: "DELETE",
+        token,
+        body: scheduleDeleteForm,
+      });
+      await refreshWorkspace();
+      return response;
+    });
+
+    if (result) {
+      notify(
+        "success",
+        result.deletedCount
+          ? `${result.deletedCount} schedule${result.deletedCount === 1 ? "" : "s"} deleted`
+          : "No matching schedules found"
+      );
+    }
+  }
+
+  async function deleteSingleSchedule(schedule: Schedule) {
+    if (!token || !isAdmin) return;
+
+    const member = users.find((item) => item._id === schedule.userId);
+    const workDate = toDateKey(schedule.workDate);
+
+    if (
+      !window.confirm(
+        `Delete ${formatDate(workDate)} schedule for ${member?.name || "this user"}?`
+      )
+    ) {
+      return;
+    }
+
+    const result = await runAction(async () => {
+      const response = await apiRequest<{ deletedCount: number }>("/api/scheduling/schedule", {
+        method: "DELETE",
+        token,
+        body: {
+          userId: schedule.userId,
+          startDate: workDate,
+          endDate: workDate,
+        },
+      });
+      await refreshWorkspace();
+      return response;
+    });
+
+    if (result) {
+      notify(
+        "success",
+        result.deletedCount ? "Schedule deleted" : "No matching schedule found"
+      );
+    }
   }
 
   async function shiftAction(path: string, success: string) {
@@ -822,9 +960,11 @@ export default function Home() {
 
   if (!token || !user) {
     return (
-      <main className="auth-wrap">
-        <ToastStack toasts={toasts} />
-        <section className="auth-panel">
+      <>
+        <DesktopOnlyNotice />
+        <main className="auth-wrap">
+          <ToastStack toasts={toasts} />
+          <section className="auth-panel">
           <div className="brand">
             <div className="brand-mark">
               <ShieldCheck size={22} />
@@ -934,14 +1074,17 @@ export default function Home() {
             </button>
           </form>
           )}
-        </section>
-      </main>
+          </section>
+        </main>
+      </>
     );
   }
 
   return (
-    <main className="app-shell">
-      <ToastStack toasts={toasts} />
+    <>
+      <DesktopOnlyNotice />
+      <main className="app-shell">
+        <ToastStack toasts={toasts} />
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">
@@ -1119,6 +1262,7 @@ export default function Home() {
                       <option value={1}>1 break</option>
                       <option value={2}>2 breaks</option>
                       <option value={3}>3 breaks</option>
+                      <option value={4}>4 breaks</option>
                     </select>
                   </div>
                   <div className="field">
@@ -1154,7 +1298,7 @@ export default function Home() {
                     {templateForm.breaks.map((breakItem, index) => (
                       <div className="break-row" key={index}>
                         <div className="field">
-                          <label htmlFor={`break-label-${index}`}>Break {index + 1}</label>
+                          <label htmlFor={`break-label-${index}`}>Name</label>
                           <input
                             id={`break-label-${index}`}
                             value={breakItem.label}
@@ -1162,18 +1306,36 @@ export default function Home() {
                           />
                         </div>
                         <div className="field">
-                          <label htmlFor={`break-duration-${index}`}>Minutes</label>
+                          <label htmlFor={`break-type-${index}`}>Type</label>
+                          <select
+                            id={`break-type-${index}`}
+                            value={breakItem.type}
+                            onChange={(event) => updateBreak(index, "type", event.target.value)}
+                          >
+                            <option value="break">Break</option>
+                            <option value="lunch">Lunch</option>
+                          </select>
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`break-start-${index}`}>From</label>
                           <input
-                            id={`break-duration-${index}`}
-                            max={45}
-                            min={15}
-                            step={5}
-                            type="number"
-                            value={breakItem.durationMinutes}
-                            onChange={(event) =>
-                              updateBreak(index, "durationMinutes", Number(event.target.value))
-                            }
+                            id={`break-start-${index}`}
+                            type="time"
+                            value={breakItem.startTime}
+                            onChange={(event) => updateBreak(index, "startTime", event.target.value)}
                           />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`break-end-${index}`}>To</label>
+                          <input
+                            id={`break-end-${index}`}
+                            type="time"
+                            value={breakItem.endTime}
+                            onChange={(event) => updateBreak(index, "endTime", event.target.value)}
+                          />
+                        </div>
+                        <div className="break-duration-pill">
+                          {breakItem.durationMinutes || minutesBetweenTimes(breakItem.startTime, breakItem.endTime)}m
                         </div>
                       </div>
                     ))}
@@ -1248,6 +1410,66 @@ export default function Home() {
                     Assign schedule
                   </button>
                 </form>
+
+                <form className="form-grid" onSubmit={deleteSchedules}>
+                  <div className="field">
+                    <label htmlFor="delete-assignee">Team member</label>
+                    <select
+                      id="delete-assignee"
+                      value={scheduleDeleteForm.userId}
+                      onChange={(event) =>
+                        setScheduleDeleteForm((current) => ({
+                          ...current,
+                          userId: event.target.value,
+                        }))
+                      }
+                      required
+                    >
+                      <option value="">Select user</option>
+                      {users.map((member) => (
+                        <option key={member._id} value={member._id}>
+                          {member.name} ({member.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="delete-start-date">From date</label>
+                    <input
+                      id="delete-start-date"
+                      type="date"
+                      value={scheduleDeleteForm.startDate}
+                      onChange={(event) =>
+                        setScheduleDeleteForm((current) => ({
+                          ...current,
+                          startDate: event.target.value,
+                          endDate:
+                            current.endDate < event.target.value ? event.target.value : current.endDate,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="delete-end-date">To date</label>
+                    <input
+                      id="delete-end-date"
+                      type="date"
+                      value={scheduleDeleteForm.endDate}
+                      onChange={(event) =>
+                        setScheduleDeleteForm((current) => ({
+                          ...current,
+                          endDate: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+                  <button className="button danger" disabled={loading} type="submit">
+                    <Trash2 size={17} />
+                    Delete schedules
+                  </button>
+                </form>
               </div>
             </section>
 
@@ -1287,7 +1509,10 @@ export default function Home() {
                       </div>
                       <span className="muted">
                         {template.breaks
-                          ?.map((item) => `${item.label}: ${item.durationMinutes}m`)
+                          ?.map(
+                            (item) =>
+                              `${item.label}: ${formatTimeRange(item.startTime, item.endTime)} (${item.durationMinutes}m)`
+                          )
                           .join(" | ") || "No breaks"}
                       </span>
                     </article>
@@ -1298,7 +1523,7 @@ export default function Home() {
               </div>
             </section>
 
-            <AssignedSchedules schedules={schedules} users={users} />
+            <AssignedSchedules schedules={schedules} users={users} onDeleteSchedule={deleteSingleSchedule} />
           </div>
         )}
 
@@ -1314,6 +1539,29 @@ export default function Home() {
           </div>
         )}
       </div>
+      </main>
+    </>
+  );
+}
+
+function DesktopOnlyNotice() {
+  return (
+    <main className="desktop-only-notice">
+      <section className="auth-panel">
+        <div className="brand">
+          <div className="brand-mark">
+            <ShieldCheck size={22} />
+          </div>
+          <div>
+            <h1>ShiftSync</h1>
+            <p>Desktop access required</p>
+          </div>
+        </div>
+        <p className="muted">
+          This workforce management system is restricted to laptop and desktop screens. Please open
+          it on a computer to continue.
+        </p>
+      </section>
     </main>
   );
 }
@@ -1343,6 +1591,11 @@ function MonthlyActivityCalendar({
   const scheduleKeys = new Set(schedules.map((schedule) => toDateKey(schedule.workDate)));
   const todayKey = toDateKey(today);
   const selectedSchedule = schedules.find((schedule) => toDateKey(schedule.workDate) === selectedDay);
+  const selectedTemplate =
+    selectedSchedule && typeof selectedSchedule.shiftTemplateId !== "string"
+      ? selectedSchedule.shiftTemplateId
+      : null;
+  const assignedBreaks = selectedTemplate?.breaks || [];
   const selectedLeave = leaveRequests.find((request) =>
     selectedDay ? isDateInLeave(new Date(`${selectedDay}T00:00:00`), request) : false
   );
@@ -1412,10 +1665,10 @@ function MonthlyActivityCalendar({
           <strong>
             {selectedLeave
               ? "Approved leave"
-              : selectedSchedule
-                ? typeof selectedSchedule.shiftTemplateId === "string"
+              : selectedTemplate
+                ? `${formatTimeRange(selectedTemplate.startTime, selectedTemplate.endTime)}`
+                : selectedSchedule
                   ? "Assigned shift"
-                  : `${selectedSchedule.shiftTemplateId.startTime} to ${selectedSchedule.shiftTemplateId.endTime}`
                 : "No work expected"}
           </strong>
           <span>Logged activities</span>
@@ -1426,6 +1679,25 @@ function MonthlyActivityCalendar({
               ? `${Math.round((activeShift.shift.totalWorkedMinutes || minutesBetween(activeShift.shift.clockInTime)) / 60)}h`
               : "-"}
           </strong>
+          <span>Assigned breaks</span>
+          <div className="assigned-breaks">
+            {selectedLeave ? (
+              <strong>No breaks on approved leave</strong>
+            ) : assignedBreaks.length ? (
+              assignedBreaks.map((breakItem, index) => (
+                <div className="assigned-break" key={`${breakItem.label}-${index}`}>
+                  <strong>{breakItem.label}</strong>
+                  <span>
+                    {(breakItem.type || "break") === "lunch" ? "Lunch" : "Break"} -{" "}
+                    {formatTimeRange(breakItem.startTime, breakItem.endTime)} -{" "}
+                    {breakItem.durationMinutes || minutesBetweenTimes(breakItem.startTime, breakItem.endTime)}m
+                  </span>
+                </div>
+              ))
+            ) : (
+              <strong>No assigned breaks</strong>
+            )}
+          </div>
         </div>
       </div>
     </section>
@@ -1836,9 +2108,11 @@ function ShiftEventsPanel({ events }: { events: ShiftEvent[] }) {
 }
 
 function AssignedSchedules({
+  onDeleteSchedule,
   schedules,
   users,
 }: {
+  onDeleteSchedule?: (schedule: Schedule) => void;
   schedules: Schedule[];
   users: User[];
 }) {
@@ -1870,6 +2144,16 @@ function AssignedSchedules({
                 <span className="muted">
                   {member ? `User: ${member.name}` : `User ID: ${schedule.userId}`}
                 </span>
+                {onDeleteSchedule && (
+                  <button
+                    className="button danger schedule-delete-button"
+                    type="button"
+                    onClick={() => onDeleteSchedule(schedule)}
+                  >
+                    <Trash2 size={16} />
+                    Delete
+                  </button>
+                )}
               </article>
             );
           })
