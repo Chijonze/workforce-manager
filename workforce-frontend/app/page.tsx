@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -17,6 +17,8 @@ import {
   KeyRound,
   LogIn,
   LogOut,
+  MessageSquare,
+  Monitor,
   Play,
   Plus,
   RefreshCw,
@@ -26,15 +28,19 @@ import {
   TimerReset,
   Trash2,
   UserRound,
+  X,
   XCircle,
 } from "lucide-react";
-import { apiRequest, formatDate, formatDateTime } from "@/lib/api";
+import { apiRequest, formatDate, formatDateTime, getScreenMonitorWsUrl } from "@/lib/api";
 import type {
   ActiveShiftResponse,
   AdminOverview,
+  ChatConversation,
+  ChatMessage,
   DailyPerformance,
   LeaveRequest,
   Schedule,
+  ScreenMonitorPresence,
   ShiftEvent,
   ShiftTemplate,
   User,
@@ -258,7 +264,17 @@ export default function Home() {
   const [dailyPerformance, setDailyPerformance] = useState<DailyPerformance | null>(null);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [chatRecipients, setChatRecipients] = useState<User[]>([]);
+  const [chatConversations, setChatConversations] = useState<ChatConversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatRecipientId, setChatRecipientId] = useState("");
+  const [chatDraft, setChatDraft] = useState("");
   const [selectedActivity, setSelectedActivity] = useState<ActivityState>("AVAILABLE");
+  const [onlineMonitorIds, setOnlineMonitorIds] = useState<string[]>([]);
+  const [selectedMonitorId, setSelectedMonitorId] = useState("");
+  const [monitorStatus, setMonitorStatus] = useState("Disconnected");
+  const [isMonitoring, setIsMonitoring] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<string | null>(toDateKey(new Date()));
   const [leaveForm, setLeaveForm] = useState({
     leaveType: "annual" as LeaveRequest["leaveType"],
@@ -270,6 +286,10 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [loading, setLoading] = useState(false);
+  const monitorSocketRef = useRef<WebSocket | null>(null);
+  const monitorPresenceSocketRef = useRef<WebSocket | null>(null);
+  const monitorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const monitorObjectUrlRef = useRef<string | null>(null);
 
   const isAdmin = user?.role === "admin";
   const currentShiftId = activeShift?.shift._id;
@@ -287,6 +307,8 @@ export default function Home() {
   const myLeaveRequests = isAdmin
     ? leaveRequests
     : leaveRequests.filter((request) => request.userId === user?._id);
+  const selectedConversation =
+    chatConversations.find((conversation) => conversation._id === selectedConversationId) || null;
 
   const attendanceTone = useMemo(() => {
     const status = activeShift?.shift.attendanceStatus;
@@ -338,6 +360,58 @@ export default function Home() {
     if (!user || isAdmin || scheduleForm.userId) return;
     setScheduleForm((current) => ({ ...current, userId: user._id }));
   }, [isAdmin, scheduleForm.userId, user]);
+
+  useEffect(() => {
+    if (!token || !isAdmin || !user?._id) {
+      monitorPresenceSocketRef.current?.close();
+      monitorPresenceSocketRef.current = null;
+      setOnlineMonitorIds([]);
+      setSelectedMonitorId("");
+      return;
+    }
+
+    const url = new URL(getScreenMonitorWsUrl());
+    url.searchParams.set("type", "admin");
+    url.searchParams.set("id", `presence-${user._id}`);
+    url.searchParams.set("token", token);
+
+    const socket = new WebSocket(url.toString());
+    monitorPresenceSocketRef.current = socket;
+
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(String(event.data)) as ScreenMonitorPresence;
+        if (message.type !== "presence") return;
+
+        setOnlineMonitorIds(message.employees);
+        setSelectedMonitorId((current) =>
+          current && message.employees.includes(current) ? current : message.employees[0] || ""
+        );
+      } catch {
+        // Presence messages are JSON only; binary frames use the dedicated stream socket.
+      }
+    };
+
+    socket.onclose = () => {
+      if (monitorPresenceSocketRef.current === socket) {
+        monitorPresenceSocketRef.current = null;
+      }
+    };
+
+    return () => {
+      socket.close();
+      if (monitorPresenceSocketRef.current === socket) {
+        monitorPresenceSocketRef.current = null;
+      }
+    };
+  }, [isAdmin, token, user?._id]);
+
+  useEffect(() => {
+    return () => {
+      stopScreenMonitor();
+      revokeMonitorObjectUrl();
+    };
+  }, []);
 
   function notify(type: Toast["type"], message: string) {
     const id = Date.now();
@@ -391,6 +465,7 @@ export default function Home() {
 
     setActiveShift(active);
     setDailyPerformance(performance);
+    await refreshChat(authToken, selectedConversationId);
 
     if (active?.shift._id) {
       const shiftEvents = await apiRequest<ShiftEvent[]>(
@@ -440,6 +515,36 @@ export default function Home() {
     setTemplates([]);
     setUsers([]);
     setAdminOverview(null);
+  }
+
+  async function refreshChat(authToken = token, conversationId = selectedConversationId) {
+    if (!authToken) return;
+
+    const [recipientList, conversationList] = await Promise.all([
+      apiRequest<User[]>("/api/chat/recipients", { token: authToken }),
+      apiRequest<ChatConversation[]>("/api/chat/conversations", { token: authToken }),
+    ]);
+
+    setChatRecipients(recipientList);
+    setChatConversations(conversationList);
+    setChatRecipientId((current) => current || recipientList[0]?._id || "");
+
+    const activeConversationId =
+      conversationId && conversationList.some((conversation) => conversation._id === conversationId)
+        ? conversationId
+        : conversationList[0]?._id || null;
+
+    setSelectedConversationId(activeConversationId);
+
+    if (activeConversationId) {
+      const messageList = await apiRequest<ChatMessage[]>(
+        `/api/chat/conversations/${activeConversationId}/messages`,
+        { token: authToken }
+      );
+      setChatMessages(messageList);
+    } else {
+      setChatMessages([]);
+    }
   }
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
@@ -736,6 +841,38 @@ export default function Home() {
     }
   }
 
+  async function deleteUserAccount(member: User) {
+    if (!token || !isAdmin) return;
+
+    if (member._id === user?._id) {
+      notify("error", "You cannot delete your own account");
+      return;
+    }
+
+    if (member.role === "admin") {
+      notify("error", "Admin accounts cannot be deleted from the dashboard");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Delete ${member.name}'s account permanently? This removes their schedules, shifts, leave requests, and chat history.`
+      )
+    ) {
+      return;
+    }
+
+    await runAction(async () => {
+      await apiRequest<{ deletedUserId: string }>(`/api/auth/users/${member._id}`, {
+        method: "DELETE",
+        token,
+      });
+      setSelectedConversationId(null);
+      setChatMessages([]);
+      await refreshWorkspace();
+    }, `${member.name} deleted`);
+  }
+
   async function shiftAction(path: string, success: string) {
     if (!token) return;
 
@@ -809,6 +946,61 @@ export default function Home() {
     }, `Leave ${status}`);
   }
 
+  async function selectConversation(conversationId: string) {
+    if (!token) return;
+
+    setSelectedConversationId(conversationId);
+    await runAction(async () => {
+      const messageList = await apiRequest<ChatMessage[]>(
+        `/api/chat/conversations/${conversationId}/messages`,
+        { token }
+      );
+      setChatMessages(messageList);
+      await refreshChat(token, conversationId);
+    });
+  }
+
+  async function startConversation() {
+    if (!token || !chatRecipientId) return;
+
+    await runAction(async () => {
+      const conversation = await apiRequest<ChatConversation>("/api/chat/conversations", {
+        method: "POST",
+        token,
+        body: { recipientId: chatRecipientId },
+      });
+      setSelectedConversationId(conversation._id);
+      await refreshChat(token, conversation._id);
+    }, "Conversation ready");
+  }
+
+  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+
+    const recipientId = selectedConversation?.otherParticipant?._id || chatRecipientId;
+    if (!recipientId || !chatDraft.trim()) return;
+
+    const body = chatDraft.trim();
+    setChatDraft("");
+
+    await runAction(async () => {
+      await apiRequest<ChatMessage>("/api/chat/messages", {
+        method: "POST",
+        token,
+        body: { recipientId, body },
+      });
+
+      const conversation = await apiRequest<ChatConversation>("/api/chat/conversations", {
+        method: "POST",
+        token,
+        body: { recipientId },
+      });
+      setSelectedConversationId(conversation._id);
+      await refreshChat(token, conversation._id);
+    });
+  }
+
   async function runMaintenance() {
     if (!token || !isAdmin) return;
 
@@ -826,6 +1018,7 @@ export default function Home() {
   }
 
   function logout() {
+    stopScreenMonitor();
     window.localStorage.removeItem("workforce_token");
     setToken(null);
     setUser(null);
@@ -833,7 +1026,145 @@ export default function Home() {
     setActiveShift(null);
     setEvents([]);
     setLeaveRequests([]);
+    setChatRecipients([]);
+    setChatConversations([]);
+    setSelectedConversationId(null);
+    setChatMessages([]);
+    setChatDraft("");
+    setOnlineMonitorIds([]);
+    setSelectedMonitorId("");
     setToasts([]);
+  }
+
+  function revokeMonitorObjectUrl() {
+    if (monitorObjectUrlRef.current) {
+      URL.revokeObjectURL(monitorObjectUrlRef.current);
+      monitorObjectUrlRef.current = null;
+    }
+  }
+
+  function clearMonitorCanvas() {
+    const canvas = monitorCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function drawMonitorFrame(blob: Blob) {
+    const canvas = monitorCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(blob);
+    const previousUrl = monitorObjectUrlRef.current;
+    monitorObjectUrlRef.current = objectUrl;
+
+    image.onload = () => {
+      canvas.width = image.naturalWidth || 1280;
+      canvas.height = image.naturalHeight || 720;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl);
+      }
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      if (monitorObjectUrlRef.current === objectUrl) {
+        monitorObjectUrlRef.current = null;
+      }
+    };
+
+    image.src = objectUrl;
+  }
+
+  function stopScreenMonitor() {
+    const socket = monitorSocketRef.current;
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ action: "STOP_STREAM", id: selectedMonitorId }));
+      socket.close(1000, "Admin closed stream");
+    } else if (socket) {
+      socket.close();
+    }
+
+    monitorSocketRef.current = null;
+    setIsMonitoring(false);
+    setMonitorStatus("Disconnected");
+    clearMonitorCanvas();
+    revokeMonitorObjectUrl();
+  }
+
+  function startScreenMonitor() {
+    if (!token || !selectedMonitorId) return;
+
+    stopScreenMonitor();
+    setMonitorStatus("Connecting");
+
+    const url = new URL(getScreenMonitorWsUrl());
+    url.searchParams.set("type", "admin");
+    url.searchParams.set("id", selectedMonitorId);
+    url.searchParams.set("token", token);
+
+    const socket = new WebSocket(url.toString());
+    monitorSocketRef.current = socket;
+    socket.binaryType = "blob";
+
+    socket.onopen = () => {
+      setIsMonitoring(true);
+      setMonitorStatus("Live");
+      socket.send(JSON.stringify({ action: "START_STREAM", id: selectedMonitorId }));
+    };
+
+    socket.onmessage = (event) => {
+      if (event.data instanceof Blob) {
+        drawMonitorFrame(event.data);
+        return;
+      }
+
+      try {
+        const message = JSON.parse(String(event.data)) as ScreenMonitorPresence & {
+          event?: string;
+          message?: string;
+        };
+
+        if (message.type === "presence") {
+          setOnlineMonitorIds(message.employees);
+          setSelectedMonitorId((current) => current || message.employees[0] || "");
+          return;
+        }
+
+        if (message.event === "employee_unavailable" || message.event === "employee_offline") {
+          notify("error", "Selected employee is not available for monitoring");
+          stopScreenMonitor();
+        }
+
+        if (message.message) {
+          setMonitorStatus(message.message);
+        }
+      } catch {
+        setMonitorStatus("Live");
+      }
+    };
+
+    socket.onerror = () => {
+      setMonitorStatus("Connection error");
+      notify("error", "Screen monitor connection failed");
+    };
+
+    socket.onclose = () => {
+      if (monitorSocketRef.current === socket) {
+        monitorSocketRef.current = null;
+      }
+      setIsMonitoring(false);
+      setMonitorStatus("Disconnected");
+      clearMonitorCanvas();
+      revokeMonitorObjectUrl();
+    };
   }
 
   const dailyPerformancePanel = dailyPerformance ? (
@@ -1227,6 +1558,36 @@ export default function Home() {
           />
         </div>
 
+        <ChatPanel
+          conversations={chatConversations}
+          currentUser={user}
+          draft={chatDraft}
+          loading={loading}
+          messages={chatMessages}
+          recipients={chatRecipients}
+          selectedConversationId={selectedConversationId}
+          selectedRecipientId={chatRecipientId}
+          onChangeDraft={setChatDraft}
+          onChangeRecipient={setChatRecipientId}
+          onRefresh={() => refreshChat()}
+          onSelectConversation={selectConversation}
+          onSendMessage={sendChatMessage}
+          onStartConversation={startConversation}
+        />
+
+        {isAdmin && (
+          <ScreenMonitorPanel
+            canvasRef={monitorCanvasRef}
+            employees={onlineMonitorIds}
+            isMonitoring={isMonitoring}
+            selectedEmployeeId={selectedMonitorId}
+            status={monitorStatus}
+            onChangeEmployee={setSelectedMonitorId}
+            onStart={startScreenMonitor}
+            onStop={stopScreenMonitor}
+          />
+        )}
+
         {isAdmin && (
           <div className="dashboard-grid">
             <section className="panel">
@@ -1477,6 +1838,15 @@ export default function Home() {
           </div>
         )}
 
+        {isAdmin && (
+          <UserAccountsPanel
+            currentUserId={user._id}
+            loading={loading}
+            users={users}
+            onDeleteUser={deleteUserAccount}
+          />
+        )}
+
         {!isAdmin && (
           <div className="dashboard-grid">
             <AssignedSchedules schedules={schedules} users={[user]} />
@@ -1563,6 +1933,90 @@ function DesktopOnlyNotice() {
         </p>
       </section>
     </main>
+  );
+}
+
+function ScreenMonitorPanel({
+  canvasRef,
+  employees,
+  isMonitoring,
+  onChangeEmployee,
+  onStart,
+  onStop,
+  selectedEmployeeId,
+  status,
+}: {
+  canvasRef: RefObject<HTMLCanvasElement>;
+  employees: string[];
+  isMonitoring: boolean;
+  selectedEmployeeId: string;
+  status: string;
+  onChangeEmployee: (employeeId: string) => void;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  const canMonitor = Boolean(selectedEmployeeId && employees.includes(selectedEmployeeId));
+
+  return (
+    <section className="panel screen-monitor-panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <Monitor size={20} />
+          <div>
+            <h2>Screen Monitor</h2>
+            <p className="panel-subtitle">On-demand live view for online desktop agents</p>
+          </div>
+        </div>
+        <span className={`pill ${isMonitoring ? "" : status === "Connecting" ? "warn" : "danger"}`}>
+          {status}
+        </span>
+      </div>
+
+      <div className="screen-monitor-grid">
+        <div className="screen-monitor-controls">
+          <div className="field">
+            <label htmlFor="screen-monitor-employee">Online employee</label>
+            <select
+              id="screen-monitor-employee"
+              value={selectedEmployeeId}
+              onChange={(event) => onChangeEmployee(event.target.value)}
+              disabled={isMonitoring || employees.length === 0}
+            >
+              {employees.length ? (
+                employees.map((employeeId) => (
+                  <option key={employeeId} value={employeeId}>
+                    {employeeId}
+                  </option>
+                ))
+              ) : (
+                <option value="">No employees online</option>
+              )}
+            </select>
+          </div>
+
+          <button className="button" disabled={!canMonitor || isMonitoring} type="button" onClick={onStart}>
+            <Monitor size={17} />
+            Monitor Screen
+          </button>
+        </div>
+
+        <div className={`screen-frame ${isMonitoring ? "live" : ""}`}>
+          <canvas ref={canvasRef} aria-label="Live employee screen feed" />
+          {!isMonitoring && <span className="screen-placeholder">No active stream</span>}
+          {isMonitoring && (
+            <button
+              aria-label="Close stream"
+              className="screen-close-button"
+              type="button"
+              onClick={onStop}
+            >
+              <X size={17} />
+              Close Stream
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1884,6 +2338,238 @@ function LeavePanel({
         ) : (
           <p className="muted">No leave requests yet.</p>
         )}
+      </div>
+    </section>
+  );
+}
+
+function ChatPanel({
+  conversations,
+  currentUser,
+  draft,
+  loading,
+  messages,
+  onChangeDraft,
+  onChangeRecipient,
+  onRefresh,
+  onSelectConversation,
+  onSendMessage,
+  onStartConversation,
+  recipients,
+  selectedConversationId,
+  selectedRecipientId,
+}: {
+  conversations: ChatConversation[];
+  currentUser: User;
+  draft: string;
+  loading: boolean;
+  messages: ChatMessage[];
+  recipients: User[];
+  selectedConversationId: string | null;
+  selectedRecipientId: string;
+  onChangeDraft: (value: string) => void;
+  onChangeRecipient: (value: string) => void;
+  onRefresh: () => void;
+  onSelectConversation: (conversationId: string) => void;
+  onSendMessage: (event: FormEvent<HTMLFormElement>) => void;
+  onStartConversation: () => void;
+}) {
+  const activeConversation =
+    conversations.find((conversation) => conversation._id === selectedConversationId) || null;
+  const activeRecipient =
+    activeConversation?.otherParticipant ||
+    recipients.find((recipient) => recipient._id === selectedRecipientId);
+
+  return (
+    <section className="panel chat-panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <MessageSquare size={20} />
+          <div>
+            <h2>Team Chat</h2>
+            <p className="panel-subtitle">
+              {currentUser.role === "admin"
+                ? "Message users and admins"
+                : "Message an admin directly"}
+            </p>
+          </div>
+        </div>
+        <button className="icon-button" type="button" onClick={onRefresh} aria-label="Refresh chat">
+          <RefreshCw size={17} />
+        </button>
+      </div>
+
+      <div className="chat-layout">
+        <aside className="chat-sidebar">
+          <div className="chat-compose">
+            <div className="field">
+              <label htmlFor="chat-recipient">Start or open chat</label>
+              <select
+                id="chat-recipient"
+                value={selectedRecipientId}
+                onChange={(event) => onChangeRecipient(event.target.value)}
+                disabled={!recipients.length}
+              >
+                {recipients.length ? (
+                  recipients.map((recipient) => (
+                    <option key={recipient._id} value={recipient._id}>
+                      {recipient.name} ({recipient.role})
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No recipients available</option>
+                )}
+              </select>
+            </div>
+            <button
+              className="button secondary"
+              disabled={loading || !selectedRecipientId}
+              type="button"
+              onClick={onStartConversation}
+            >
+              <MessageSquare size={17} />
+              Open
+            </button>
+          </div>
+
+          <div className="chat-conversations">
+            {conversations.length ? (
+              conversations.map((conversation) => (
+                <button
+                  className={`conversation-button ${
+                    conversation._id === selectedConversationId ? "active" : ""
+                  }`}
+                  key={conversation._id}
+                  type="button"
+                  onClick={() => onSelectConversation(conversation._id)}
+                >
+                  <span>
+                    <strong>{conversation.otherParticipant?.name || "Conversation"}</strong>
+                    <small>{conversation.lastMessage || "No messages yet"}</small>
+                  </span>
+                  {conversation.unreadCount > 0 && (
+                    <i aria-label={`${conversation.unreadCount} unread messages`}>
+                      {conversation.unreadCount}
+                    </i>
+                  )}
+                </button>
+              ))
+            ) : (
+              <p className="muted">No conversations yet.</p>
+            )}
+          </div>
+        </aside>
+
+        <div className="chat-thread">
+          <div className="chat-thread-head">
+            <div>
+              <strong>{activeRecipient?.name || "Select a conversation"}</strong>
+              <span>{activeRecipient?.email || "Choose who you want to message."}</span>
+            </div>
+            {activeRecipient && <span className="pill">{activeRecipient.role}</span>}
+          </div>
+
+          <div className="message-list">
+            {messages.length ? (
+              messages.map((message) => {
+                const mine = message.senderId._id === currentUser._id;
+                return (
+                  <article className={`message-bubble ${mine ? "mine" : ""}`} key={message._id}>
+                    <strong>{mine ? "You" : message.senderId.name}</strong>
+                    <p>{message.body}</p>
+                    <span>{formatDateTime(message.createdAt)}</span>
+                  </article>
+                );
+              })
+            ) : (
+              <p className="muted">No messages in this conversation yet.</p>
+            )}
+          </div>
+
+          <form className="chat-input" onSubmit={onSendMessage}>
+            <input
+              aria-label="Message"
+              maxLength={2000}
+              placeholder={activeRecipient ? `Message ${activeRecipient.name}` : "Select a recipient"}
+              value={draft}
+              onChange={(event) => onChangeDraft(event.target.value)}
+              disabled={!activeRecipient}
+            />
+            <button className="button" disabled={loading || !activeRecipient || !draft.trim()} type="submit">
+              <Send size={17} />
+              Send
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function UserAccountsPanel({
+  currentUserId,
+  loading,
+  onDeleteUser,
+  users,
+}: {
+  currentUserId: string;
+  loading: boolean;
+  users: User[];
+  onDeleteUser: (user: User) => void;
+}) {
+  return (
+    <section className="panel user-accounts-panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <UserRound size={20} />
+          <div>
+            <h2>User Accounts</h2>
+            <p className="panel-subtitle">Manage registered dashboard access</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>MFA</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((member) => {
+              const isCurrentUser = member._id === currentUserId;
+              const canDelete = !isCurrentUser && member.role !== "admin";
+
+              return (
+                <tr key={member._id}>
+                  <td>
+                    <strong>{member.name}</strong>
+                    {isCurrentUser && <span>Signed-in account</span>}
+                  </td>
+                  <td>{member.email}</td>
+                  <td>{member.role}</td>
+                  <td>{member.mfaEnabled ? "Enabled" : "Not enabled"}</td>
+                  <td>
+                    <button
+                      className="button danger account-delete-button"
+                      disabled={loading || !canDelete}
+                      type="button"
+                      onClick={() => onDeleteUser(member)}
+                    >
+                      <Trash2 size={16} />
+                      {member.role === "admin" ? "Protected" : "Delete"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </section>
   );

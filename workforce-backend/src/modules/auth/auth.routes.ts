@@ -4,6 +4,7 @@ import {
   login,
   me,
   listUsers,
+  deleteUser,
   setupMfa,
   confirmMfa,
   verifyMfa,
@@ -21,6 +22,7 @@ router.post("/mfa/setup", protect, setupMfa);
 router.post("/mfa/confirm", protect, confirmMfa);
 router.post("/mfa/verify-return", protect, verifyReturn);
 router.get("/users", protect, requireAdmin, listUsers);
+router.delete("/users/:userId", protect, requireAdmin, deleteUser);
 
 // 🧪 TEST PROTECTED ROUTE
 router.get("/test", protect, (req, res) => {

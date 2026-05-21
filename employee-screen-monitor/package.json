@@ -1,0 +1,56 @@
+{
+  "name": "employee-screen-monitor",
+  "version": "1.0.0",
+  "description": "Employee desktop client for on-demand Workforce Manager screen monitoring.",
+  "author": "Workforce Manager",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron .",
+    "pack": "electron-builder --dir",
+    "build:win": "electron-builder --win portable",
+    "build:win-installer": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "screenshot-desktop": "^1.15.2",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "electron": "^42.2.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.workforcemanager.screenmonitor",
+    "productName": "Workforce Screen Monitor",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/screenshot-desktop/lib/win32/**/*"
+    ],
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "screen-monitor.config.json",
+        "to": "screen-monitor.config.json"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    },
+    "portable": {
+      "artifactName": "Workforce-Screen-Monitor-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "artifactName": "Workforce-Screen-Monitor-${version}-setup.exe"
+    }
+  }
+}

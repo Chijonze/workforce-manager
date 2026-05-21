@@ -1,0 +1,86 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            avs-frontend/package-lock.json
+            workforce-frontend/package-lock.json
+            workforce-backend/package-lock.json
+
+      - name: Build AVS frontend
+        working-directory: avs-frontend
+        env:
+          NEXT_PUBLIC_SITE_URL: https://advancedvirtualsolutions.com
+          NEXT_PUBLIC_CALENDLY_URL: https://calendly.com/advancedvirtualsolutions/consultation
+          NEXT_PUBLIC_WHATSAPP_URL: https://wa.me/10000000000
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Workforce frontend
+        working-directory: workforce-frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://api.advancedvirtualsolutions.com
+          NEXT_PUBLIC_SCREEN_MONITOR_WS_URL: wss://api.advancedvirtualsolutions.com/screen-monitor
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Workforce backend
+        working-directory: workforce-backend
+        run: |
+          npm ci
+          npm run build
+
+  deploy:
+    name: Deploy to VPS
+    needs: verify
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          VPS_ENV_FILE: ${{ secrets.VPS_ENV_FILE }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          envs: VPS_APP_DIR,VPS_ENV_FILE
+          script: |
+            set -euo pipefail
+            APP_DIR="${VPS_APP_DIR:-/opt/workforce-manager}"
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+            if [ -n "${VPS_ENV_FILE:-}" ]; then
+              printf "%s" "$VPS_ENV_FILE" > .env.production
+            fi
+            test -f .env.production
+            docker compose --env-file .env.production -f docker-compose.prod.yml pull postgres redis mongo caddy chatwoot chatwoot-worker evolution-api
+            docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+            docker compose --env-file .env.production -f docker-compose.prod.yml run --rm chatwoot bundle exec rails db:chatwoot_prepare
+            docker compose --env-file .env.production -f docker-compose.prod.yml up -d

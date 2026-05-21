@@ -8,7 +8,9 @@ import {
   confirmMfaSetup,
   verifyLoginMfa,
   verifyReturnMfa,
+  deleteUserAccount,
 } from "./auth.service";
+import { notifyTelegramLogin } from "../../utils/telegramNotifier";
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -27,6 +29,10 @@ export const login = async (req: Request, res: Response) => {
     const { email, password, mfaCode } = req.body;
 
     const data = await loginUser(email, password, mfaCode);
+
+    if (data.token && !data.mfaRequired && !data.mfaSetupRequired) {
+      void notifyTelegramLogin(data.user, req);
+    }
 
     res.status(200).json(data);
   } catch (error: any) {
@@ -50,6 +56,10 @@ export const confirmMfa = async (req: Request, res: Response) => {
     const userId = (req as any).user.userId;
     const user = await confirmMfaSetup(userId, req.body.code);
 
+    if (user.token) {
+      void notifyTelegramLogin(user.user, req);
+    }
+
     res.status(200).json(user);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -59,6 +69,10 @@ export const confirmMfa = async (req: Request, res: Response) => {
 export const verifyMfa = async (req: Request, res: Response) => {
   try {
     const data = await verifyLoginMfa(req.body.mfaToken, req.body.code);
+
+    if (data.token) {
+      void notifyTelegramLogin(data.user, req);
+    }
 
     res.status(200).json(data);
   } catch (error: any) {
@@ -95,5 +109,16 @@ export const listUsers = async (_req: Request, res: Response) => {
     res.status(200).json(users);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteUser = async (req: Request, res: Response) => {
+  try {
+    const currentUserId = (req as any).user.userId;
+    const result = await deleteUserAccount(currentUserId, String(req.params.userId));
+
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
   }
 };

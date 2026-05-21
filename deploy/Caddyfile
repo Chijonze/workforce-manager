@@ -1,0 +1,27 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy avs-frontend:3001
+}
+
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+{$WFM_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy workforce-frontend:3000
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy workforce-backend:5000
+}
+
+{$CHATWOOT_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy chatwoot:3000
+}

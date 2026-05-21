@@ -124,3 +124,29 @@ export type LeaveRequest = {
   reviewedAt?: string;
   createdAt?: string;
 };
+
+export type ChatConversation = {
+  _id: string;
+  participants: User[];
+  otherParticipant: User;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  unreadCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ChatMessage = {
+  _id: string;
+  conversationId: string;
+  senderId: User;
+  body: string;
+  readBy: string[];
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type ScreenMonitorPresence = {
+  type: "presence";
+  employees: string[];
+};

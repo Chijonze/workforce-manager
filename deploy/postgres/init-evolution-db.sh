@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+EVOLUTION_DB="${EVOLUTION_POSTGRES_DB:-evolution}"
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<SQL
+SELECT 'CREATE DATABASE ${EVOLUTION_DB}'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${EVOLUTION_DB}')\gexec
+SQL

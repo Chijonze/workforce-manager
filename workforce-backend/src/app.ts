@@ -6,6 +6,7 @@ import { router as executionRoutes } from "./modules/execution/execution.routes"
 import { router as leaveRoutes } from "./modules/leave/leave.routes";
 import { router as shiftTemplateRoutes } from "./modules/scheduling/shiftTemplate/shiftTemplate.routes";
 import { router as scheduleRoutes } from "./modules/scheduling/schedule/schedule.routes";
+import { router as chatRoutes } from "./modules/chat/chat.routes";
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/execution", executionRoutes);
 app.use("/api/leave", leaveRoutes);
+app.use("/api/chat", chatRoutes);
 app.use("/api/scheduling/templates", shiftTemplateRoutes);
 app.use("/api/scheduling/schedule", scheduleRoutes);
 

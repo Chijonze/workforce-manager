@@ -1,9 +1,11 @@
 .env
 .env.*
-.env.example
 *.env
 *.env.*
-*env.example
+!workforce-backend/.env.example
+!workforce-frontend/.env.example
+!avs-frontend/.env.example
+!.env.production.example
 
 node_modules/
 dist/

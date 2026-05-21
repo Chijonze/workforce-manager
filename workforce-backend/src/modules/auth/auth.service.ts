@@ -1,5 +1,12 @@
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 import User from "../../models/User";
+import ChatConversation from "../../models/ChatConversation";
+import ChatMessage from "../../models/ChatMessage";
+import LeaveRequest from "../../models/LeaveRequest";
+import Schedule from "../../models/schedule.model";
+import ShiftEvent from "../../models/ShiftEvent";
+import ShiftSession from "../../models/ShiftSession";
 import { generateMfaToken, generateToken, verifyMfaToken } from "../../utils/jwt";
 import {
   buildTotpUri,
@@ -104,6 +111,67 @@ export const getUsers = async () => {
   return await User.find().select("_id name email role mfaEnabled createdAt").sort({
     name: 1,
   });
+};
+
+export const deleteUserAccount = async (currentUserId: string, targetUserId: string) => {
+  if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+    throw new Error("Invalid user");
+  }
+
+  if (currentUserId === targetUserId) {
+    throw new Error("Admins cannot delete their own account");
+  }
+
+  const targetUser = await User.findById(targetUserId).select("_id name role");
+
+  if (!targetUser) {
+    throw new Error("User not found");
+  }
+
+  if (targetUser.role === "admin") {
+    throw new Error("Admin accounts cannot be deleted from the dashboard");
+  }
+
+  const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
+  const conversations = await ChatConversation.find({
+    participants: targetObjectId,
+  }).select("_id");
+  const conversationIds = conversations.map((conversation) => conversation._id);
+
+  const [
+    schedules,
+    shiftSessions,
+    shiftEvents,
+    leaveRequests,
+    chatMessages,
+    chatConversations,
+  ] = await Promise.all([
+    Schedule.deleteMany({ userId: targetUserId }),
+    ShiftSession.deleteMany({ userId: targetUserId }),
+    ShiftEvent.deleteMany({ userId: targetUserId }),
+    LeaveRequest.deleteMany({
+      $or: [{ userId: targetUserId }, { reviewedBy: targetUserId }],
+    }),
+    ChatMessage.deleteMany({
+      $or: [{ senderId: targetObjectId }, { conversationId: { $in: conversationIds } }],
+    }),
+    ChatConversation.deleteMany({ _id: { $in: conversationIds } }),
+  ]);
+
+  await User.findByIdAndDelete(targetUserId);
+
+  return {
+    deletedUserId: targetUserId,
+    deletedUserName: targetUser.name,
+    deletedCounts: {
+      schedules: schedules.deletedCount || 0,
+      shiftSessions: shiftSessions.deletedCount || 0,
+      shiftEvents: shiftEvents.deletedCount || 0,
+      leaveRequests: leaveRequests.deletedCount || 0,
+      chatMessages: chatMessages.deletedCount || 0,
+      chatConversations: chatConversations.deletedCount || 0,
+    },
+  };
 };
 
 export const startMfaSetup = async (userId: string) => {

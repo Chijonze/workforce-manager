@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Workforce Screen Monitor</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <div class="brand-row">
+          <div class="mark">WM</div>
+          <div>
+            <h1>Screen Monitor</h1>
+            <p>Workforce Manager desktop bridge</p>
+          </div>
+        </div>
+
+        <form id="connect-form" class="form">
+          <label for="employee-id">Employee ID</label>
+          <input id="employee-id" name="employee-id" autocomplete="off" required />
+
+          <div class="status-row">
+            <span id="status-dot" class="status-dot"></span>
+            <strong id="status-label">Disconnected</strong>
+          </div>
+
+          <p id="detail" class="detail"></p>
+
+          <div class="actions">
+            <button id="connect-button" type="submit">Save / Connect</button>
+            <button id="disconnect-button" type="button" disabled>Disconnect</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

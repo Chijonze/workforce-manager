@@ -1,4 +1,5 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const SCREEN_MONITOR_WS_URL = process.env.NEXT_PUBLIC_SCREEN_MONITOR_WS_URL;
 
 type ApiOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -41,4 +42,14 @@ export function formatDate(value?: string) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
   }).format(new Date(value));
+}
+
+export function getScreenMonitorWsUrl(path = "/screen-monitor") {
+  if (SCREEN_MONITOR_WS_URL) return SCREEN_MONITOR_WS_URL;
+
+  const url = new URL(API_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = path;
+  url.search = "";
+  return url.toString();
 }

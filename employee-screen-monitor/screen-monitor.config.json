@@ -1,0 +1,5 @@
+{
+  "serverUrl": "ws://localhost:5000/screen-monitor",
+  "captureFps": 5,
+  "jpegQuality": 60
+}
