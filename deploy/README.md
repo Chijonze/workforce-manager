@@ -109,3 +109,18 @@ curl -X POST "https://evolution-api.advancedvirtualsolutions.com/chatwoot/set/IN
 ```
 
 For a new Evolution instance, pass the same Chatwoot fields in the `/instance/create` request instead of calling `/chatwoot/set/{instance}` afterward.
+
+If Chatwoot failed messages show `Hostname '127.0.0.1' has no public ip addresses`, check the VPS `.env.production` file. `EVOLUTION_BIND_ADDRESS=127.0.0.1` is OK because it only controls the raw host port binding, but `EVOLUTION_SERVER_URL` must be the public HTTPS URL:
+
+```env
+EVOLUTION_SERVER_URL=https://evolution-api.advancedvirtualsolutions.com
+```
+
+After changing it, restart Evolution API:
+
+```bash
+cd /opt/workforce-manager
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d evolution-api
+```
+
+Do not disable Chatwoot's SSRF protection for this. The healthier fix is to stop Evolution from generating localhost media/API URLs.
