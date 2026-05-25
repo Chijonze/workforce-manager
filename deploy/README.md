@@ -70,3 +70,42 @@ For a public HTTPS subdomain later, add an `EVO_DOMAIN` entry and a Caddy revers
 The production compose file uses `evoapicloud/evolution-api:v2.3.0` and `evoapicloud/evolution-manager:latest`. Older `v2.1.1` API builds can create instances but return `{"count":0}` from `/instance/connect/{instance}` instead of QR/pairing data.
 
 The manager image has shipped with an invalid Nginx cache directive in some builds. This repo mounts `deploy/evolution-manager/nginx.conf` over the bundled config to keep the manager container stable.
+
+## Chatwoot + Evolution Setup
+
+The Evolution API container enables Chatwoot integration with:
+
+```env
+EVOLUTION_CHATWOOT_ENABLED=true
+EVOLUTION_CHATWOOT_MESSAGE_READ=true
+EVOLUTION_CHATWOOT_MESSAGE_DELETE=true
+EVOLUTION_CHATWOOT_IMPORT_PLACEHOLDER_MEDIA_MESSAGE=true
+```
+
+After Chatwoot is running, create or choose an admin user token in Chatwoot and note the account ID. Then configure an existing Evolution instance:
+
+```bash
+curl -X POST "https://evolution-api.advancedvirtualsolutions.com/chatwoot/set/INSTANCE_NAME" \
+  -H "Content-Type: application/json" \
+  -H "apikey: EVOLUTION_API_KEY" \
+  -d '{
+    "enabled": true,
+    "accountId": "1",
+    "token": "CHATWOOT_USER_ACCESS_TOKEN",
+    "url": "https://chat.advancedvirtualsolutions.com",
+    "signMsg": true,
+    "reopenConversation": true,
+    "conversationPending": false,
+    "nameInbox": "Advanced Virtual Solutions WhatsApp",
+    "mergeBrazilContacts": false,
+    "importContacts": true,
+    "importMessages": true,
+    "daysLimitImportMessages": 3,
+    "signDelimiter": "\n",
+    "autoCreate": true,
+    "organization": "Advanced Virtual Solutions",
+    "logo": "https://advancedvirtualsolutions.com/favicon.ico"
+  }'
+```
+
+For a new Evolution instance, pass the same Chatwoot fields in the `/instance/create` request instead of calling `/chatwoot/set/{instance}` afterward.
