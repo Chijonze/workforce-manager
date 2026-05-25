@@ -62,3 +62,7 @@ EVOLUTION_SERVER_URL=http://advancedvirtualsolutions.com:8080
 ```
 
 For a public HTTPS subdomain later, add an `EVO_DOMAIN` entry and a Caddy reverse proxy block to `evolution-api:8080`.
+
+## Evolution API QR Notes
+
+The production compose file uses `evoapicloud/evolution-api:v2.3.0`. Older `v2.1.1` builds can create instances but return `{"count":0}` from `/instance/connect/{instance}` instead of QR/pairing data.

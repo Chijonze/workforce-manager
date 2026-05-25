@@ -152,7 +152,7 @@ services:
       - data
 
   evolution-api:
-    image: atendai/evolution-api:${EVOLUTION_IMAGE_TAG:-v2.1.1}
+    image: evoapicloud/evolution-api:${EVOLUTION_IMAGE_TAG:-v2.3.0}
     restart: unless-stopped
     depends_on:
       - postgres
