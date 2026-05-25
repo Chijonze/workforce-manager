@@ -192,6 +192,8 @@ services:
       - evolution-api
     expose:
       - "80"
+    volumes:
+      - ./deploy/evolution-manager/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro
     networks:
       - web
 

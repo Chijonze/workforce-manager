@@ -68,3 +68,5 @@ For a public HTTPS subdomain later, add an `EVO_DOMAIN` entry and a Caddy revers
 ## Evolution API QR Notes
 
 The production compose file uses `evoapicloud/evolution-api:v2.3.0` and `evoapicloud/evolution-manager:latest`. Older `v2.1.1` API builds can create instances but return `{"count":0}` from `/instance/connect/{instance}` instead of QR/pairing data.
+
+The manager image has shipped with an invalid Nginx cache directive in some builds. This repo mounts `deploy/evolution-manager/nginx.conf` over the bundled config to keep the manager container stable.
