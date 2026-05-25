@@ -15,7 +15,7 @@ Edit `screen-monitor.config.json` before building:
 
 ```json
 {
-  "serverUrl": "wss://yourdomain.com/screen-monitor",
+  "serverUrl": "wss://api.advancedvirtualsolutions.com/screen-monitor",
   "captureFps": 5,
   "jpegQuality": 60
 }

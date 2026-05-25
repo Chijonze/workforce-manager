@@ -6,9 +6,11 @@ This stack deploys:
 - `wfm.advancedvirtualsolutions.com` -> Workforce Manager frontend
 - `api.advancedvirtualsolutions.com` -> Workforce backend API and `/screen-monitor` WebSocket
 - `chat.advancedvirtualsolutions.com` -> Chatwoot
+- `evolution.advancedvirtualsolutions.com` -> Evolution Manager UI
+- `evolution-api.advancedvirtualsolutions.com` -> Evolution API
 - `127.0.0.1:8080` on the VPS -> Evolution API
 
-Caddy terminates HTTPS automatically. Point the DNS `A` records for the root domain, `www`, `wfm`, `api`, and `chat` to the Interserver VPS public IP before first deploy.
+Caddy terminates HTTPS automatically. Point the DNS `A` records for the root domain, `www`, `wfm`, `api`, `chat`, `evolution`, and `evolution-api` to the Interserver VPS public IP before first deploy.
 
 ## First VPS Setup
 
@@ -65,4 +67,4 @@ For a public HTTPS subdomain later, add an `EVO_DOMAIN` entry and a Caddy revers
 
 ## Evolution API QR Notes
 
-The production compose file uses `evoapicloud/evolution-api:v2.3.0`. Older `v2.1.1` builds can create instances but return `{"count":0}` from `/instance/connect/{instance}` instead of QR/pairing data.
+The production compose file uses `evoapicloud/evolution-api:v2.3.0` and `evoapicloud/evolution-manager:latest`. Older `v2.1.1` API builds can create instances but return `{"count":0}` from `/instance/connect/{instance}` instead of QR/pairing data.
