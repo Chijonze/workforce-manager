@@ -19,9 +19,10 @@ export const site = {
   name: "Advanced Virtual Solutions",
   domain: "https://advancedvirtualsolutions.com",
   email: "hello@advancedvirtualsolutions.com",
-  phone: "+1 (000) 000-0000",
+  phone: "+4407882650139",
+  address: "31 Northfield Road, London, England, N16 5RL",
   calendly: process.env.NEXT_PUBLIC_CALENDLY_URL || "https://calendly.com/advancedvirtualsolutions/consultation",
-  whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/10000000000",
+  whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/447882650139",
 };
 
 export const navigation = [

@@ -245,7 +245,7 @@ export default function Home() {
     startTime: "08:00",
     endTime: "17:00",
     breakCount: 1,
-    breaks: defaultBreaks,
+    breaks: defaultBreaks.slice(0, 1),
   });
   const [scheduleForm, setScheduleForm] = useState({
     userId: "",
@@ -309,6 +309,7 @@ export default function Home() {
     : leaveRequests.filter((request) => request.userId === user?._id);
   const selectedConversation =
     chatConversations.find((conversation) => conversation._id === selectedConversationId) || null;
+  const selectedTemplateBreaks = templateForm.breaks.slice(0, templateForm.breakCount);
 
   const attendanceTone = useMemo(() => {
     const status = activeShift?.shift.attendanceStatus;
@@ -725,6 +726,8 @@ export default function Home() {
     event.preventDefault();
     if (!token || !isAdmin) return;
 
+    const selectedBreaks = templateForm.breaks.slice(0, templateForm.breakCount);
+
     await runAction(async () => {
       await apiRequest<ShiftTemplate>("/api/scheduling/templates", {
         method: "POST",
@@ -733,7 +736,7 @@ export default function Home() {
           name: templateForm.name,
           startTime: templateForm.startTime,
           endTime: templateForm.endTime,
-          breaks: templateForm.breaks.map((item, index) => ({
+          breaks: selectedBreaks.map((item, index) => ({
             label: item.label || `Break ${index + 1}`,
             type: item.type,
             startTime: item.startTime,
@@ -1656,7 +1659,7 @@ export default function Home() {
                   </div>
 
                   <div className="break-editor">
-                    {templateForm.breaks.map((breakItem, index) => (
+                    {selectedTemplateBreaks.map((breakItem, index) => (
                       <div className="break-row" key={index}>
                         <div className="field">
                           <label htmlFor={`break-label-${index}`}>Name</label>
