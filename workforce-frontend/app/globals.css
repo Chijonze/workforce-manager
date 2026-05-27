@@ -822,6 +822,25 @@ button:disabled {
   gap: 10px;
 }
 
+.template-activity-editor {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+}
+
+.template-activity-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.template-activity-heading span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .break-row {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) 140px 132px 132px auto;
@@ -831,6 +850,32 @@ button:disabled {
   background: #fbfcfb;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.template-activity-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) 132px 132px auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  background: #fbfcfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.template-activity-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.template-activity-toggle input {
+  width: 18px;
+  min-height: 18px;
 }
 
 .break-duration-pill {
@@ -879,6 +924,12 @@ select {
     6px 6px;
   background-repeat: no-repeat;
   cursor: pointer;
+}
+
+.template-activity-toggle input {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
 }
 
 select:hover {
@@ -1191,6 +1242,7 @@ select:focus {
     .controls,
     .form-grid,
     .break-row,
+    .template-activity-row,
     .chat-input {
     grid-template-columns: 1fr;
   }

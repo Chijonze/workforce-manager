@@ -8,7 +8,8 @@ import { enforceBreakStart, enforceBreakEnd } from "../scheduling/enforcement/br
 import { guardShiftAction } from "../scheduling/enforcement/shift-guard.service";
 
 import {
-  combineDateAndTime,
+  combineDateAndTimeRange,
+  isWithinWindow,
 } from "../../utils/scheduleTime";
 import { getUtcDayRange } from "../scheduling/enforcement/enforcement.utils";
 
@@ -91,6 +92,90 @@ const calculateShiftTotals = (
   return { totalWorkedMinutes, totalBreakMinutes };
 };
 
+const enforceScheduledBreakWindow = async (
+  shift: any,
+  activityType: "BREAK" | "LUNCH",
+  userId: string
+) => {
+  const template = await ShiftTemplate.findById(shift.shiftTemplateId);
+
+  if (!template) {
+    throw new Error("Shift template not found");
+  }
+
+  const breakType = activityType === "LUNCH" ? "lunch" : "break";
+  const assignedBreaks = template.breaks.filter(
+    (breakItem: any) => breakItem.type === breakType && breakItem.startTime && breakItem.endTime
+  );
+  const startedCount = await ShiftEvent.countDocuments({
+    shiftId: shift._id,
+    userId,
+    type: activityType === "LUNCH" ? "LUNCH_START" : "BREAK_START",
+  });
+  const assignedBreak = assignedBreaks[startedCount];
+
+  if (!assignedBreak) {
+    return;
+  }
+
+  const { start, end } = combineDateAndTimeRange(
+    shift.scheduledStartTime || shift.clockInTime,
+    assignedBreak.startTime,
+    assignedBreak.endTime
+  );
+
+  if (!isWithinWindow(new Date(), start, end)) {
+    throw new Error(`Outside scheduled ${activityType.toLowerCase()} window`);
+  }
+};
+
+const enforceScheduledTemplateActivityWindow = async (
+  shift: any,
+  activityType: "MEETING" | "TRAINING" | "AFTER_CALL_WORK",
+  userId: string
+) => {
+  const template = await ShiftTemplate.findById(shift.shiftTemplateId);
+
+  if (!template) {
+    throw new Error("Shift template not found");
+  }
+
+  const templateActivityTypeByActivity = {
+    MEETING: "meeting",
+    TRAINING: "training",
+    AFTER_CALL_WORK: "after_call_work",
+  } as const;
+  const eventTypeByActivity = {
+    MEETING: "MEETING_START",
+    TRAINING: "TRAINING_START",
+    AFTER_CALL_WORK: "AFTER_CALL_WORK_START",
+  } as const;
+  const templateActivityType = templateActivityTypeByActivity[activityType];
+  const assignedActivities = (template.activities || []).filter(
+    (item: any) => item.type === templateActivityType && item.startTime && item.endTime
+  );
+
+  if (!assignedActivities.length) {
+    return;
+  }
+
+  const startedCount = await ShiftEvent.countDocuments({
+    shiftId: shift._id,
+    userId,
+    type: eventTypeByActivity[activityType],
+  });
+  const assignedActivity = assignedActivities[startedCount] || assignedActivities[0];
+  const { start, end } = combineDateAndTimeRange(
+    shift.scheduledStartTime || shift.clockInTime,
+    assignedActivity.startTime,
+    assignedActivity.endTime
+  );
+
+  if (!isWithinWindow(new Date(), start, end)) {
+    throw new Error(`Outside scheduled ${activityType.toLowerCase().replace(/_/g, " ")} window`);
+  }
+};
+
 export const startShift = async (userId: string) => {
   if (mongoose.connection.readyState !== 1) {
     throw new Error("Database not connected");
@@ -130,13 +215,12 @@ const schedule = await Schedule.findOne({
   }
 
   // BUILD REAL DATETIME WINDOWS
-  const scheduledStartTime = combineDateAndTime(
+  const {
+    start: scheduledStartTime,
+    end: scheduledEndTime,
+  } = combineDateAndTimeRange(
     schedule.workDate,
-    template.startTime
-  );
-
-  const scheduledEndTime = combineDateAndTime(
-    schedule.workDate,
+    template.startTime,
     template.endTime
   );
 
@@ -467,6 +551,32 @@ export const startActivity = async (
 
   if (!nextEvent) {
     throw new Error("Unsupported activity type");
+  }
+
+  if (activityType === "BREAK" || activityType === "LUNCH") {
+    const shift = await ShiftSession.findOne({
+      _id: shiftId,
+      userId,
+    });
+
+    if (!shift || shift.status !== "active") {
+      throw new Error("No active shift found");
+    }
+
+    await enforceScheduledBreakWindow(shift, activityType, userId);
+  }
+
+  if (activityType === "MEETING" || activityType === "TRAINING" || activityType === "AFTER_CALL_WORK") {
+    const shift = await ShiftSession.findOne({
+      _id: shiftId,
+      userId,
+    });
+
+    if (!shift || shift.status !== "active") {
+      throw new Error("No active shift found");
+    }
+
+    await enforceScheduledTemplateActivityWindow(shift, activityType, userId);
   }
 
   return createEvent(userId, shiftId, nextEvent);

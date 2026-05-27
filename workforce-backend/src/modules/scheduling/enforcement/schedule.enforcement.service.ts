@@ -1,6 +1,7 @@
 import Schedule from "../../../models/schedule.model";
 import ShiftSession from "../../../models/ShiftSession";
-import { isWithinWindow, getUtcDayRange } from "./enforcement.utils";
+import { combineDateAndTimeRange, isWithinWindow } from "../../../utils/scheduleTime";
+import { getUtcDayRange } from "./enforcement.utils";
 import { EnforcementResult, AllowedAction } from "./enforcement.types";
 
 export const enforceSchedule = async (
@@ -30,10 +31,12 @@ export const enforceSchedule = async (
 
   // 2. SHIFT START RULE
   if (action === "SHIFT_START") {
-    const allowed = isWithinWindow(
+    const { start: scheduledStartTime, end: scheduledEndTime } = combineDateAndTimeRange(
+      schedule.workDate,
       template.startTime,
       template.endTime
     );
+    const allowed = isWithinWindow(new Date(), scheduledStartTime, scheduledEndTime);
 
     if (!allowed) {
       return {

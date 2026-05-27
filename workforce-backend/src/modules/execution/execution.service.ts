@@ -4,7 +4,7 @@ import ShiftSession from "../../models/ShiftSession";
 import ShiftTemplate from "../../models/shiftTemplate.model";
 import User from "../../models/User";
 import { calculateOvertimeMinutes } from "../../utils/attendanceCompliance";
-import { combineDateAndTime } from "../../utils/scheduleTime";
+import { combineDateAndTimeRange } from "../../utils/scheduleTime";
 import { getUtcDayRange } from "../scheduling/enforcement/enforcement.utils";
 
 type TimelineEvent = {
@@ -168,8 +168,10 @@ export const runExecutionMaintenance = async (now = new Date()) => {
     const template: any = schedule.shiftTemplateId;
     if (!template) continue;
 
-    const scheduledStartTime = combineDateAndTime(schedule.workDate, template.startTime);
-    const scheduledEndTime = combineDateAndTime(schedule.workDate, template.endTime);
+    const {
+      start: scheduledStartTime,
+      end: scheduledEndTime,
+    } = combineDateAndTimeRange(schedule.workDate, template.startTime, template.endTime);
 
     if (scheduledEndTime > now) continue;
 
@@ -237,12 +239,11 @@ export const getDailyPerformance = async (
 
   if (!session) {
     const template: any = schedule?.shiftTemplateId;
-    const scheduledStartTime = template
-      ? combineDateAndTime(schedule!.workDate, template.startTime)
+    const scheduleWindow = template
+      ? combineDateAndTimeRange(schedule!.workDate, template.startTime, template.endTime)
       : undefined;
-    const scheduledEndTime = template
-      ? combineDateAndTime(schedule!.workDate, template.endTime)
-      : undefined;
+    const scheduledStartTime = scheduleWindow?.start;
+    const scheduledEndTime = scheduleWindow?.end;
     const missed = scheduledEndTime ? scheduledEndTime < new Date() : false;
 
     return {

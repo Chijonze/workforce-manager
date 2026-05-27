@@ -1,5 +1,6 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const SCREEN_MONITOR_WS_URL = process.env.NEXT_PUBLIC_SCREEN_MONITOR_WS_URL;
+const BUSINESS_TIME_ZONE = "Europe/London";
 
 type ApiOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -33,6 +34,7 @@ export function formatDateTime(value?: string) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: BUSINESS_TIME_ZONE,
   }).format(new Date(value));
 }
 
@@ -41,6 +43,7 @@ export function formatDate(value?: string) {
 
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
+    timeZone: BUSINESS_TIME_ZONE,
   }).format(new Date(value));
 }
 

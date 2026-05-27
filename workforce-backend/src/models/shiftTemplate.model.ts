@@ -13,6 +13,14 @@ export interface IShiftTemplate extends Document {
     durationMinutes: number;
   }[];
 
+  activities: {
+    label: string;
+    type: "meeting" | "training" | "after_call_work";
+    startTime?: string;
+    endTime?: string;
+    durationMinutes: number;
+  }[];
+
   isActive: boolean;
 }
 
@@ -30,6 +38,20 @@ const shiftTemplateSchema = new Schema<IShiftTemplate>(
           type: String,
           enum: ["break", "lunch"],
           default: "break",
+        },
+        startTime: String,
+        endTime: String,
+        durationMinutes: Number,
+      },
+    ],
+
+    activities: [
+      {
+        label: String,
+        type: {
+          type: String,
+          enum: ["meeting", "training", "after_call_work"],
+          required: true,
         },
         startTime: String,
         endTime: String,

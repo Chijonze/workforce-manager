@@ -11,21 +11,42 @@ export const createTemplate = async (req: Request, res: Response) => {
 };
 
 export const getTemplates = async (_: Request, res: Response) => {
-  const templates = await service.getTemplates();
-  res.json(templates);
+  try {
+    const templates = await service.getTemplates();
+    res.json(templates);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
 export const getTemplateById = async (req: Request, res: Response) => {
-  const template = await service.getTemplateById(String(req.params.id));
-  res.json(template);
+  try {
+    const template = await service.getTemplateById(String(req.params.id));
+    res.json(template);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
 export const updateTemplate = async (req: Request, res: Response) => {
-  const updated = await service.updateTemplate(String(req.params.id), req.body);
-  res.json(updated);
+  try {
+    const updated = await service.updateTemplate(String(req.params.id), req.body);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
 };
 
 export const deleteTemplate = async (req: Request, res: Response) => {
-  await service.deleteTemplate(String(req.params.id));
-  res.json({ message: "Deleted" });
+  try {
+    const deleted = await service.deleteTemplate(String(req.params.id));
+
+    if (!deleted) {
+      return res.status(404).json({ message: "Template not found" });
+    }
+
+    res.json({ message: "Deleted" });
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
 };

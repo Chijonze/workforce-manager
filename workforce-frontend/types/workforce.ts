@@ -20,6 +20,13 @@ export type ShiftTemplate = {
     endTime?: string;
     durationMinutes: number;
   }[];
+  activities?: {
+    label: string;
+    type: "meeting" | "training" | "after_call_work";
+    startTime?: string;
+    endTime?: string;
+    durationMinutes: number;
+  }[];
   isActive: boolean;
 };
 

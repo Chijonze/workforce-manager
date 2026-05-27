@@ -14,7 +14,15 @@ export type ShiftEventType =
   | "SHIFT_END";
 
 const allowedTransitions: Record<ShiftEventType, ShiftEventType[]> = {
-  SHIFT_START: ["WORK_START"],
+  SHIFT_START: [
+    "WORK_START",
+    "BREAK_START",
+    "LUNCH_START",
+    "MEETING_START",
+    "TRAINING_START",
+    "AFTER_CALL_WORK_START",
+    "SHIFT_END",
+  ],
   WORK_START: [
     "BREAK_START",
     "LUNCH_START",

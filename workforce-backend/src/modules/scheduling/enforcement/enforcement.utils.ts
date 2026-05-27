@@ -1,3 +1,5 @@
+import { normalizeToBusinessDate } from "../../../utils/scheduleTime";
+
 export const parseTimeToMinutes = (time: string): number => {
   const [hours, minutes] = time.split(":").map(Number);
   return hours * 60 + minutes;
@@ -17,21 +19,11 @@ export const isWithinWindow = (start: string, end: string): boolean => {
 };
 
 export const normalizeToUtcDate = (value: Date | string): Date => {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
+  try {
+    return normalizeToBusinessDate(value);
+  } catch {
     throw new Error("Invalid workDate");
   }
-
-  return new Date(Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate(),
-    0,
-    0,
-    0,
-    0
-  ));
 };
 
 export const getUtcDayRange = (value: Date | string = new Date()) => {

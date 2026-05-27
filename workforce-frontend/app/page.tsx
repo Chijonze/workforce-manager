@@ -54,6 +54,14 @@ type BreakForm = {
   endTime: string;
   durationMinutes: number;
 };
+type TemplateActivityForm = {
+  label: string;
+  type: "meeting" | "training" | "after_call_work";
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  enabled: boolean;
+};
 type Toast = { id: number; type: "success" | "error"; message: string };
 type ActivityState =
   | "AVAILABLE"
@@ -99,6 +107,33 @@ const defaultBreaks: BreakForm[] = [
   { label: "Lunch", type: "lunch", startTime: "14:00", endTime: "15:00", durationMinutes: 60 },
 ];
 
+const optionalTemplateActivities: TemplateActivityForm[] = [
+  {
+    label: "Meeting",
+    type: "meeting",
+    startTime: "11:00",
+    endTime: "11:30",
+    durationMinutes: 30,
+    enabled: false,
+  },
+  {
+    label: "Training",
+    type: "training",
+    startTime: "15:00",
+    endTime: "15:30",
+    durationMinutes: 30,
+    enabled: false,
+  },
+  {
+    label: "After call work",
+    type: "after_call_work",
+    startTime: "16:00",
+    endTime: "16:15",
+    durationMinutes: 15,
+    enabled: false,
+  },
+];
+
 const activityOptions: { value: ActivityState; label: string }[] = [
   { value: "AVAILABLE", label: "Available" },
   { value: "BREAK", label: "Break" },
@@ -141,9 +176,39 @@ const terminalStartEvents = new Set<ShiftEvent["type"]>([
   "AFTER_CALL_WORK_START",
 ]);
 
+const BUSINESS_TIME_ZONE = "Europe/London";
+
+function dateKeyFromParts(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function londonDateParts(value = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(value).map((part) => [part.type, part.value])
+  );
+
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+  };
+}
+
 function toDateKey(value: Date | string) {
+  if (typeof value === "string") {
+    const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (dateOnly) return dateOnly[0];
+  }
+
   const date = value instanceof Date ? value : new Date(value);
-  return date.toISOString().slice(0, 10);
+  const parts = londonDateParts(date);
+  return dateKeyFromParts(parts.year, parts.month, parts.day);
 }
 
 function minutesBetween(start?: string, end?: string) {
@@ -164,17 +229,33 @@ function minutesBetweenTimes(startTime?: string, endTime?: string) {
 }
 
 function formatTimeRange(startTime?: string, endTime?: string) {
-  if (!startTime || !endTime) return "Time not set";
+  const normalizeTime = (time?: string) => {
+    const match = time?.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!match) return null;
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+
+    if (hours > 23 || minutes > 59) return null;
+
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+
+  const normalizedStart = normalizeTime(startTime);
+  const normalizedEnd = normalizeTime(endTime);
+
+  if (!normalizedStart || !normalizedEnd) return "Time not set";
 
   const formatter = new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
+    timeZone: BUSINESS_TIME_ZONE,
   });
   const baseDate = "2026-01-01";
+  const startDate = new Date(`${baseDate}T${normalizedStart}:00Z`);
+  const endDate = new Date(`${baseDate}T${normalizedEnd}:00Z`);
 
-  return `${formatter.format(new Date(`${baseDate}T${startTime}:00`))} - ${formatter.format(
-    new Date(`${baseDate}T${endTime}:00`)
-  )}`;
+  return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
 }
 
 function formatDuration(totalSeconds: number) {
@@ -246,6 +327,7 @@ export default function Home() {
     endTime: "17:00",
     breakCount: 1,
     breaks: defaultBreaks.slice(0, 1),
+    activities: optionalTemplateActivities,
   });
   const [scheduleForm, setScheduleForm] = useState({
     userId: "",
@@ -310,6 +392,7 @@ export default function Home() {
   const selectedConversation =
     chatConversations.find((conversation) => conversation._id === selectedConversationId) || null;
   const selectedTemplateBreaks = templateForm.breaks.slice(0, templateForm.breakCount);
+  const selectedTemplateActivities = templateForm.activities.filter((activity) => activity.enabled);
 
   const attendanceTone = useMemo(() => {
     const status = activeShift?.shift.attendanceStatus;
@@ -722,11 +805,33 @@ export default function Home() {
     }));
   }
 
+  function updateTemplateActivity(
+    type: TemplateActivityForm["type"],
+    key: keyof TemplateActivityForm,
+    value: string | number | boolean
+  ) {
+    setTemplateForm((current) => ({
+      ...current,
+      activities: current.activities.map((item) => {
+        if (item.type !== type) return item;
+
+        const updated = { ...item, [key]: value };
+        const durationMinutes = minutesBetweenTimes(updated.startTime, updated.endTime);
+
+        return {
+          ...updated,
+          durationMinutes: durationMinutes || updated.durationMinutes,
+        };
+      }),
+    }));
+  }
+
   async function createTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || !isAdmin) return;
 
     const selectedBreaks = templateForm.breaks.slice(0, templateForm.breakCount);
+    const selectedActivities = templateForm.activities.filter((item) => item.enabled);
 
     await runAction(async () => {
       await apiRequest<ShiftTemplate>("/api/scheduling/templates", {
@@ -745,10 +850,53 @@ export default function Home() {
               minutesBetweenTimes(item.startTime, item.endTime) ||
               Math.min(60, Math.max(15, Number(item.durationMinutes))),
           })),
+          activities: selectedActivities.map((item) => ({
+            label: item.label,
+            type: item.type,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            durationMinutes:
+              minutesBetweenTimes(item.startTime, item.endTime) ||
+              Math.min(120, Math.max(5, Number(item.durationMinutes))),
+          })),
         },
       });
       await refreshWorkspace();
     }, "Template created");
+  }
+
+  async function deleteTemplate(template: ShiftTemplate) {
+    if (!token || !isAdmin) return;
+
+    const assignedCount = schedules.filter((schedule) => {
+      const templateId =
+        typeof schedule.shiftTemplateId === "string"
+          ? schedule.shiftTemplateId
+          : schedule.shiftTemplateId._id;
+      return templateId === template._id;
+    }).length;
+
+    if (assignedCount) {
+      notify("error", "Delete assigned schedules before deleting this template");
+      return;
+    }
+
+    if (!window.confirm(`Delete ${template.name} template?`)) {
+      return;
+    }
+
+    await runAction(async () => {
+      await apiRequest(`/api/scheduling/templates/${template._id}`, {
+        method: "DELETE",
+        token,
+      });
+
+      setScheduleForm((current) => ({
+        ...current,
+        shiftTemplateId: current.shiftTemplateId === template._id ? "" : current.shiftTemplateId,
+      }));
+      await refreshWorkspace();
+    }, "Template deleted");
   }
 
   async function assignSchedule(event: FormEvent<HTMLFormElement>) {
@@ -1705,11 +1853,104 @@ export default function Home() {
                     ))}
                   </div>
 
+                  <div className="template-activity-editor">
+                    <div className="template-activity-heading">
+                      <strong>Optional activities</strong>
+                      <span>{selectedTemplateActivities.length} selected</span>
+                    </div>
+                    {templateForm.activities.map((activity) => (
+                      <div className="template-activity-row" key={activity.type}>
+                        <label className="template-activity-toggle" htmlFor={`activity-${activity.type}`}>
+                          <input
+                            checked={activity.enabled}
+                            id={`activity-${activity.type}`}
+                            type="checkbox"
+                            onChange={(event) =>
+                              updateTemplateActivity(activity.type, "enabled", event.target.checked)
+                            }
+                          />
+                          <span>{activity.label}</span>
+                        </label>
+                        <div className="field">
+                          <label htmlFor={`activity-start-${activity.type}`}>From</label>
+                          <input
+                            disabled={!activity.enabled}
+                            id={`activity-start-${activity.type}`}
+                            type="time"
+                            value={activity.startTime}
+                            onChange={(event) =>
+                              updateTemplateActivity(activity.type, "startTime", event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`activity-end-${activity.type}`}>To</label>
+                          <input
+                            disabled={!activity.enabled}
+                            id={`activity-end-${activity.type}`}
+                            type="time"
+                            value={activity.endTime}
+                            onChange={(event) =>
+                              updateTemplateActivity(activity.type, "endTime", event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="break-duration-pill">
+                          {activity.durationMinutes || minutesBetweenTimes(activity.startTime, activity.endTime)}m
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   <button className="button" disabled={loading} type="submit">
                     <Plus size={17} />
                     Create template
                   </button>
                 </form>
+
+                <div className="record-list">
+                  {templates.length ? (
+                    templates.map((template) => {
+                      const assignedCount = schedules.filter((schedule) => {
+                        const templateId =
+                          typeof schedule.shiftTemplateId === "string"
+                            ? schedule.shiftTemplateId
+                            : schedule.shiftTemplateId._id;
+                        return templateId === template._id;
+                      }).length;
+
+                      return (
+                        <article className="record" key={template._id}>
+                          <div>
+                            <strong>{template.name}</strong>
+                            <p>
+                              {formatTimeRange(template.startTime, template.endTime)} ·{" "}
+                              {template.breaks.length} break{template.breaks.length === 1 ? "" : "s"} -{" "}
+                              {template.activities?.length || 0} optional activit
+                              {(template.activities?.length || 0) === 1 ? "y" : "ies"}
+                            </p>
+                          </div>
+                          <button
+                            className="button danger schedule-delete-button"
+                            disabled={loading || assignedCount > 0}
+                            title={
+                              assignedCount
+                                ? "Delete assigned schedules before deleting this template"
+                                : "Delete template"
+                            }
+                            type="button"
+                            onClick={() => deleteTemplate(template)}
+                          >
+                            <Trash2 size={16} />
+                            Delete
+                          </button>
+                        </article>
+                      );
+                    })
+                  ) : (
+                    <p className="muted">No templates created yet.</p>
+                  )}
+                </div>
 
                 <form className="form-grid" onSubmit={assignSchedule}>
                   <div className="field">
@@ -1888,6 +2129,16 @@ export default function Home() {
                           )
                           .join(" | ") || "No breaks"}
                       </span>
+                      <span className="muted">
+                        {template.activities?.length
+                          ? template.activities
+                              .map(
+                                (item) =>
+                                  `${item.label}: ${formatTimeRange(item.startTime, item.endTime)} (${item.durationMinutes}m)`
+                              )
+                              .join(" | ")
+                          : "No optional activities"}
+                      </span>
                     </article>
                   ))
                 ) : (
@@ -2040,9 +2291,10 @@ function MonthlyActivityCalendar({
   selectedDay: string | null;
   onSelectDay: (day: string) => void;
 }) {
-  const today = new Date();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const londonToday = londonDateParts();
+  const today = new Date(Date.UTC(londonToday.year, londonToday.month - 1, londonToday.day, 12));
+  const monthStart = new Date(Date.UTC(londonToday.year, londonToday.month - 1, 1, 12));
+  const monthEnd = new Date(Date.UTC(londonToday.year, londonToday.month, 0, 12));
   const leadingDays = monthStart.getDay();
   const totalCells = Math.ceil((leadingDays + monthEnd.getDate()) / 7) * 7;
   const scheduleKeys = new Set(schedules.map((schedule) => toDateKey(schedule.workDate)));
@@ -2053,6 +2305,7 @@ function MonthlyActivityCalendar({
       ? selectedSchedule.shiftTemplateId
       : null;
   const assignedBreaks = selectedTemplate?.breaks || [];
+  const assignedActivities = selectedTemplate?.activities || [];
   const selectedLeave = leaveRequests.find((request) =>
     selectedDay ? isDateInLeave(new Date(`${selectedDay}T00:00:00`), request) : false
   );
@@ -2060,7 +2313,7 @@ function MonthlyActivityCalendar({
   const cells = Array.from({ length: totalCells }, (_, index) => {
     const dayNumber = index - leadingDays + 1;
     if (dayNumber < 1 || dayNumber > monthEnd.getDate()) return null;
-    return new Date(today.getFullYear(), today.getMonth(), dayNumber);
+    return new Date(Date.UTC(londonToday.year, londonToday.month - 1, dayNumber, 12));
   });
 
   return (
@@ -2071,7 +2324,11 @@ function MonthlyActivityCalendar({
           <div>
             <h2>Monthly Activity Calendar</h2>
             <p className="panel-subtitle">
-              {today.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+              {today.toLocaleDateString(undefined, {
+                month: "long",
+                timeZone: BUSINESS_TIME_ZONE,
+                year: "numeric",
+              })}
             </p>
           </div>
         </div>
@@ -2153,6 +2410,24 @@ function MonthlyActivityCalendar({
               ))
             ) : (
               <strong>No assigned breaks</strong>
+            )}
+          </div>
+          <span>Optional activities</span>
+          <div className="assigned-breaks">
+            {selectedLeave ? (
+              <strong>No activities on approved leave</strong>
+            ) : assignedActivities.length ? (
+              assignedActivities.map((activity, index) => (
+                <div className="assigned-break" key={`${activity.type}-${index}`}>
+                  <strong>{activity.label}</strong>
+                  <span>
+                    {formatTimeRange(activity.startTime, activity.endTime)} -{" "}
+                    {activity.durationMinutes || minutesBetweenTimes(activity.startTime, activity.endTime)}m
+                  </span>
+                </div>
+              ))
+            ) : (
+              <strong>No optional activities</strong>
             )}
           </div>
         </div>
@@ -2833,6 +3108,13 @@ function AssignedSchedules({
                 <span className="muted">
                   {member ? `User: ${member.name}` : `User ID: ${schedule.userId}`}
                 </span>
+                {template?.activities?.length ? (
+                  <span className="muted">
+                    {template.activities
+                      .map((activity) => `${activity.label}: ${formatTimeRange(activity.startTime, activity.endTime)}`)
+                      .join(" | ")}
+                  </span>
+                ) : null}
                 {onDeleteSchedule && (
                   <button
                     className="button danger schedule-delete-button"
