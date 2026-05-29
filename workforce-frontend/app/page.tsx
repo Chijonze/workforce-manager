@@ -1434,7 +1434,7 @@ export default function Home() {
         </div>
         <div className="metric">
           <span>Today adherence</span>
-          <strong>{dailyPerformance?.overallScore ?? 100}%</strong>
+          <strong>{dailyPerformance?.adherenceScore ?? dailyPerformance?.overallScore ?? 100}%</strong>
         </div>
       </div>
     </section>
@@ -2920,7 +2920,10 @@ function PerformancePanel({ performance }: { performance: DailyPerformance }) {
       <div className="score-bars">
         <ScoreBar label="Work completion" value={performance.breakdown.workScore} />
         <ScoreBar label="Punctuality" value={performance.breakdown.punctualityScore} />
-        <ScoreBar label="Break compliance" value={performance.breakdown.breakScore} />
+        <ScoreBar
+          label="Activity adherence"
+          value={performance.breakdown.activityAdherenceScore ?? performance.breakdown.breakScore}
+        />
       </div>
     </section>
   );
@@ -2979,6 +2982,10 @@ function AdminOverviewPanel({
           <strong>{overview.totals.averagePerformance}%</strong>
         </div>
         <div className="metric">
+          <span>Avg adherence</span>
+          <strong>{overview.totals.averageAdherence}%</strong>
+        </div>
+        <div className="metric">
           <span>Active shifts</span>
           <strong>{overview.totals.active}</strong>
         </div>
@@ -3011,6 +3018,7 @@ function AdminOverviewPanel({
               <th>User</th>
               <th>Status</th>
               <th>Overall</th>
+              <th>Adherence</th>
               <th>Worked</th>
               <th>Late</th>
               <th>Overtime</th>
@@ -3025,6 +3033,12 @@ function AdminOverviewPanel({
                 </td>
                 <td>{item.performance.status}</td>
                 <td>{item.performance.overallScore}%</td>
+                <td>
+                  {item.performance.adherenceScore ??
+                    item.performance.breakdown.activityAdherenceScore ??
+                    item.performance.breakdown.breakScore}
+                  %
+                </td>
                 <td>{item.performance.workedMinutes}m</td>
                 <td>{item.performance.lateMinutes}m</td>
                 <td>{item.performance.overtimeMinutes}m</td>

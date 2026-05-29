@@ -1,25 +1,22 @@
 import ShiftSession from "../../models/ShiftSession";
-import { calculateWorkTime } from "../../utils/timeCalculator";
-import { calculateAdherence } from "../../utils/kpiCalculator";
+import { persistShiftKpi } from "../execution/execution.service";
 
 export const generateKPI = async (shiftId: string) => {
   const session = await ShiftSession.findById(shiftId);
 
   if (!session) throw new Error("Shift not found");
 
-  const workedMinutes = await calculateWorkTime(shiftId);
-
-  const scheduledMinutes = 720; // 12 hours default
-
-  const adherence = calculateAdherence(
-    workedMinutes,
-    scheduledMinutes
+  const scoredSession = await persistShiftKpi(
+    shiftId,
+    session.userId,
+    session.clockOutTime || new Date()
   );
 
   return {
     shiftId,
-    workedMinutes,
-    scheduledMinutes,
-    adherence: Math.round(adherence),
+    workedMinutes: scoredSession?.totalWorkedMinutes || 0,
+    scheduledMinutes: scoredSession?.scheduledMinutes || 0,
+    kpiScore: scoredSession?.kpiScore || 0,
+    adherence: scoredSession?.adherenceScore || 0,
   };
 };

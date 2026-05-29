@@ -50,6 +50,13 @@ export type ShiftSession = {
   attendanceStatus?: "on_time" | "late" | "very_late" | "absent" | "overtime";
   lateMinutes?: number;
   overtimeMinutes?: number;
+  scheduledMinutes?: number;
+  kpiScore?: number;
+  adherenceScore?: number;
+  workScore?: number;
+  punctualityScore?: number;
+  activityAdherenceScore?: number;
+  kpiEvaluatedAt?: string;
   totalWorkedMinutes: number;
   totalBreakMinutes: number;
 };
@@ -85,6 +92,8 @@ export type DailyPerformance = {
   scheduled: boolean;
   status: string;
   overallScore: number;
+  kpiScore?: number;
+  adherenceScore?: number;
   workedMinutes: number;
   scheduledMinutes: number;
   breakMinutes: number;
@@ -94,6 +103,7 @@ export type DailyPerformance = {
     workScore: number;
     punctualityScore: number;
     breakScore: number;
+    activityAdherenceScore?: number;
   };
 };
 
@@ -110,6 +120,7 @@ export type AdminOverview = {
     unscheduledUsers: number;
     attendanceRate: number;
     averagePerformance: number;
+    averageAdherence: number;
   };
   users: {
     user: User;

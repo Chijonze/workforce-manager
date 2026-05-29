@@ -1,6 +1,5 @@
 import Schedule from "../../../models/schedule.model";
 import ShiftSession from "../../../models/ShiftSession";
-import { combineDateAndTimeRange, isWithinWindow } from "../../../utils/scheduleTime";
 import { getUtcDayRange } from "./enforcement.utils";
 import { EnforcementResult, AllowedAction } from "./enforcement.types";
 
@@ -27,26 +26,8 @@ export const enforceSchedule = async (
     };
   }
 
-  const template: any = schedule.shiftTemplateId;
-
   // 2. SHIFT START RULE
   if (action === "SHIFT_START") {
-    const { start: scheduledStartTime, end: scheduledEndTime } = combineDateAndTimeRange(
-      schedule.workDate,
-      template.startTime,
-      template.endTime
-    );
-    const allowed = isWithinWindow(new Date(), scheduledStartTime, scheduledEndTime);
-
-    if (!allowed) {
-      return {
-        allowed: false,
-        reason: "Outside scheduled shift window",
-        violationType: "OUTSIDE_SHIFT_WINDOW",
-        schedule,
-      };
-    }
-
     const activeShift = await ShiftSession.findOne({
       userId,
       status: "active",

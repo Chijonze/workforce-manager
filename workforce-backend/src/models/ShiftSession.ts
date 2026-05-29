@@ -25,6 +25,20 @@ export interface IShiftSession extends Document {
 
   overtimeMinutes?: number;
 
+  scheduledMinutes?: number;
+
+  kpiScore?: number;
+
+  adherenceScore?: number;
+
+  workScore?: number;
+
+  punctualityScore?: number;
+
+  activityAdherenceScore?: number;
+
+  kpiEvaluatedAt?: Date;
+
   autoClosed?: boolean;
 
   closureReason?: "manual" | "auto_closed" | "missed_shift";
@@ -103,6 +117,40 @@ const shiftSessionSchema = new Schema<IShiftSession>(
     overtimeMinutes: {
       type: Number,
       default: 0,
+    },
+
+    scheduledMinutes: {
+      type: Number,
+      default: 0,
+    },
+
+    kpiScore: {
+      type: Number,
+      default: 0,
+    },
+
+    adherenceScore: {
+      type: Number,
+      default: 0,
+    },
+
+    workScore: {
+      type: Number,
+      default: 0,
+    },
+
+    punctualityScore: {
+      type: Number,
+      default: 0,
+    },
+
+    activityAdherenceScore: {
+      type: Number,
+      default: 0,
+    },
+
+    kpiEvaluatedAt: {
+      type: Date,
     },
 
     autoClosed: {
