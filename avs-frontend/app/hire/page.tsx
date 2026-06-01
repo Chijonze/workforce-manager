@@ -3,16 +3,16 @@ import { IntakeForm } from "@/components/intake-form";
 import { PageFrame } from "@/components/page-frame";
 
 export const metadata: Metadata = {
-  title: "Hire a VA",
-  description: "Complete a guided intake form to get matched with a trained virtual assistant for your business needs.",
+  title: "Get Started",
+  description: "Begin working with our virtual assistant service by telling us about your business needs and operations.",
 };
 
 export default function HirePage() {
   return (
     <PageFrame
-      eyebrow="Hire a VA"
-      title="Tell us what you need and we will help match you with the right assistant."
-      summary="Use the intake flow to share your business needs, preferred skills, budget, and timeline for onboarding."
+      eyebrow="Get Started"
+      title="Tell us about your business needs and we'll set you up for success."
+      summary="Share your operations, preferred tools, priorities, and timeline so we can provide the right support for your workflow."
     >
       <section className="section-shell py-20">
         <IntakeForm />

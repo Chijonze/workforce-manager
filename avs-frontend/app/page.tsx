@@ -43,7 +43,7 @@ export default function HomePage() {
                 Advanced Virtual Solutions
               </span>
               <h1 className="mt-7 max-w-4xl font-heading text-5xl font-extrabold leading-[1.02] tracking-tight text-balance md:text-7xl">
-                Scale Your Business with Elite Virtual Assistants
+                Professional Virtual Assistant Support for Your Business
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-200">
                 Reliable, professional, and technology-driven virtual assistance for businesses
@@ -52,7 +52,7 @@ export default function HomePage() {
               <div className="mt-8 flex flex-wrap gap-3">
                 <Button asChild size="lg">
                   <Link href="/hire">
-                    Hire a Virtual Assistant
+                    Get Started
                     <ArrowRight size={18} />
                   </Link>
                 </Button>
@@ -225,7 +225,7 @@ export default function HomePage() {
           <div className="section-shell">
             <div className="mx-auto max-w-3xl text-center">
               <span className="text-sm font-bold uppercase tracking-[0.24em] text-blue-600">Pricing</span>
-              <h2 className="mt-3 font-heading text-4xl font-bold text-slate-950">Simple monthly plans that scale with your workload.</h2>
+              <h2 className="mt-3 font-heading text-4xl font-bold text-slate-950">Transparent hourly pricing for professional virtual assistance.</h2>
             </div>
             <div className="mt-12 grid gap-5 lg:grid-cols-3">
               {pricingPlans.map((plan) => (
@@ -282,12 +282,12 @@ export default function HomePage() {
             <div className="max-w-3xl">
               <h2 className="font-heading text-4xl font-bold">Ready to build a calmer, faster business operation?</h2>
               <p className="mt-4 text-lg leading-8 text-slate-300">
-                Start with a free consultation and get matched with a virtual assistant who fits your workflow.
+                Start with a free consultation and see how our virtual assistant service can streamline your operations.
               </p>
             </div>
             <div className="mt-8 flex flex-wrap gap-3">
               <Button asChild size="lg">
-                <Link href="/hire">Get matched with an assistant</Link>
+                <Link href="/hire">Get Started</Link>
               </Button>
               <Button asChild size="lg" variant="secondary">
                 <Link href="/pricing">View pricing</Link>
@@ -298,6 +298,7 @@ export default function HomePage() {
       </main>
       <FloatingChat />
       <SiteFooter />
+      
     </>
   );
 }

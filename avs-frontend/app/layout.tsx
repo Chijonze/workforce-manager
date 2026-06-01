@@ -6,19 +6,19 @@ import { site } from "@/lib/site-content";
 export const metadata: Metadata = {
   metadataBase: new URL(site.domain),
   title: {
-    default: "Advanced Virtual Solutions | Elite Virtual Assistant Agency",
+    default: "Advanced Virtual Solutions | Virtual Assistant Services",
     template: "%s | Advanced Virtual Solutions",
   },
   description:
-    "Hire reliable, professional, technology-driven virtual assistants for admin, executive support, customer service, social media, CRM, and business operations.",
+    "Professional virtual assistant services for admin support, executive assistance, customer service, social media, CRM, and business operations. $4.50/hr.",
   keywords: [
-    "virtual assistant agency",
-    "hire virtual assistants",
-    "remote executive assistants",
+    "virtual assistant services",
+    "professional virtual assistants",
+    "remote executive assistance",
     "business support services",
-    "virtual assistant for entrepreneurs",
-    "social media virtual assistant",
-    "affordable virtual assistants",
+    "administrative support",
+    "social media management",
+    "customer service support",
   ],
   openGraph: {
     title: "Advanced Virtual Solutions",

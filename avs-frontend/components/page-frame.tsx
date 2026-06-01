@@ -31,7 +31,7 @@ export function PageFrame({
             <div className="mt-8 flex flex-wrap gap-3">
               <Button asChild>
                 <Link href="/hire">
-                  Hire a VA
+                  Get Started
                   <ArrowRight size={17} />
                 </Link>
               </Button>

@@ -30,8 +30,7 @@ export const navigation = [
   { label: "About", href: "/about" },
   { label: "Services", href: "/services" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Hire a VA", href: "/hire" },
-  { label: "Become a VA", href: "/careers" },
+  { label: "Get Started", href: "/hire" },
   { label: "Blog", href: "/blog" },
   { label: "Contact", href: "/contact" },
 ];
@@ -81,37 +80,18 @@ export const services = [
 
 export const pricingPlans = [
   {
-    name: "Starter",
-    price: "$299",
-    cadence: "/month",
-    summary: "Lean support for founders who need reliable admin coverage.",
-    features: ["20 hours monthly", "1 dedicated VA", "Email support", "Basic admin tasks"],
-  },
-  {
-    name: "Growth",
-    price: "$599",
-    cadence: "/month",
-    summary: "Flexible business support for growing teams and client-facing operations.",
+    name: "Virtual Assistant",
+    price: "$4.50",
+    cadence: "/hr",
+    summary: "Professional virtual assistant support with core administrative services included.",
     popular: true,
     features: [
-      "50 hours monthly",
-      "Dedicated account manager",
-      "Social media support",
-      "Customer service support",
-      "Weekly productivity summary",
-    ],
-  },
-  {
-    name: "Executive",
-    price: "$999",
-    cadence: "/month",
-    summary: "High-touch support for executives, agencies, and fast-moving operators.",
-    features: [
-      "100 hours monthly",
-      "Priority support",
-      "Executive assistant services",
-      "Advanced CRM management",
-      "Project coordination",
+      "Inbox & email management",
+      "Scheduling & calendar coordination",
+      "Documentation & research",
+      "Daily operations support",
+      "Flexible hourly billing",
+      "Dedicated VA support",
     ],
   },
 ];
@@ -141,10 +121,10 @@ export const processSteps = [
 ];
 
 export const values = [
-  { title: "Reliability", description: "Consistent follow-through, clear reporting, and dependable support." },
-  { title: "Intelligence", description: "Modern tools, workflow thinking, and assistants trained for business context." },
-  { title: "Growth", description: "Support designed to free leadership time and create operational leverage." },
-  { title: "Trust", description: "Professional standards, careful onboarding, and privacy-aware collaboration." },
+  { title: "AI as a Tool, Not a Replacement", description: "Artificial intelligence is transformative, but it cannot replicate human intellect. We strategically deploy AI to amplify our team's capabilities while keeping qualified, trained professionals at the core of everything we do." },
+  { title: "Qualified Professionals First", description: "We focus exclusively on intelligent individuals with strong drive and proven capability—not 'regular' workers. Our VAs bring cognitive depth, judgment, and contextual understanding that automation alone cannot provide." },
+  { title: "Human-Centered Operations", description: "We believe in the persistent and vital need for actual workers with a brain. Our model combines human expertise, strategic thinking, and technology to deliver superior results." },
+  { title: "Trust Through Expertise", description: "Professional standards, careful vetting, and proven track records form the foundation of every partnership. You're working with true professionals, not commoditized support." },
 ];
 
 export const testimonials = [
@@ -175,10 +155,6 @@ export const faqs = [
     answer: "Yes. You can request experience with tools like Google Workspace, Slack, HubSpot, Shopify, Zoom, Notion, Asana, Trello, or other systems.",
   },
   {
-    question: "Do you support one-time projects?",
-    answer: "Yes. Monthly support is the core offer, but project-based support can be scoped for launches, cleanup work, content batches, and CRM organization.",
-  },
-  {
     question: "How do you track work?",
     answer: "We use task lists, weekly summaries, documented priorities, and agreed communication channels so clients always know what is moving.",
   },
@@ -204,7 +180,7 @@ export const assistantProfiles = [
 
 export const blogPosts = [
   {
-    title: "How to Know When You Are Ready to Hire a Virtual Assistant",
+    title: "How to Know When You're Ready for Virtual Assistant Support",
     category: "Delegation",
     excerpt: "A practical guide to spotting the repetitive work that is quietly limiting your growth.",
   },

@@ -9,15 +9,15 @@ import { pricingPlans } from "@/lib/site-content";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Simple monthly virtual assistant pricing for startups, executives, agencies, and growing businesses.",
+  description: "Transparent hourly pricing for professional virtual assistant services. $4.50/hr with core administrative support included.",
 };
 
 export default function PricingPage() {
   return (
     <PageFrame
       eyebrow="Pricing"
-      title="Choose the virtual assistant support level that fits your current workload."
-      summary="Start lean, scale hours as your operations mature, or request a custom package for specialized teams."
+      title="Simple, transparent hourly pricing for virtual assistant services."
+      summary="Get professional administrative support with no hidden fees. Pay for the hours you need with flexible billing."
     >
       <section className="section-shell grid gap-5 py-20 lg:grid-cols-3">
         {pricingPlans.map((plan) => (
@@ -37,7 +37,7 @@ export default function PricingPage() {
               ))}
             </ul>
             <Button asChild className="mt-7 w-full">
-              <Link href="/hire">Start with {plan.name}</Link>
+              <Link href="/hire">Get Started</Link>
             </Button>
           </Card>
         ))}
