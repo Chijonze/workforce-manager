@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import { Mail, MessageCircle } from "lucide-react";
+import { ContactForm } from "@/components/contact-form";
 import { PageFrame } from "@/components/page-frame";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,14 +21,7 @@ export default function ContactPage() {
       <section className="section-shell grid gap-8 py-20 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <h2 className="font-heading text-2xl font-bold text-slate-950">Send a message</h2>
-          <form className="mt-6 grid gap-4 sm:grid-cols-2">
-            <input placeholder="Full name" />
-            <input placeholder="Work email" type="email" />
-            <input placeholder="Company" />
-            <input placeholder="Service interest" />
-            <textarea className="sm:col-span-2" placeholder="Tell us what you need help with" rows={5} />
-            <Button className="sm:col-span-2" type="button">Submit inquiry</Button>
-          </form>
+          <ContactForm />
         </Card>
         <div className="grid gap-4">
           <Card>
