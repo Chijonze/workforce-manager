@@ -10,7 +10,7 @@ import {
   verifyMfa,
   verifyReturn,
 } from "./auth.controller";
-import { protect, requireAdmin } from "../../middleware/auth.middleware";
+import { protect, requireAdmin, requireNonSupervisor } from "../../middleware/auth.middleware";
 
 export const router = Router();
 
@@ -18,9 +18,9 @@ router.post("/register", register);
 router.post("/login", login);
 router.post("/mfa/verify", verifyMfa);
 router.get("/me", protect, me);
-router.post("/mfa/setup", protect, setupMfa);
-router.post("/mfa/confirm", protect, confirmMfa);
-router.post("/mfa/verify-return", protect, verifyReturn);
+router.post("/mfa/setup", protect, requireNonSupervisor, setupMfa);
+router.post("/mfa/confirm", protect, requireNonSupervisor, confirmMfa);
+router.post("/mfa/verify-return", protect, requireNonSupervisor, verifyReturn);
 router.get("/users", protect, requireAdmin, listUsers);
 router.delete("/users/:userId", protect, requireAdmin, deleteUser);
 

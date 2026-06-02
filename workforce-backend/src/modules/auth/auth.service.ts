@@ -17,6 +17,7 @@ import {
 } from "../../utils/totp";
 
 const isMfaRequired = () => process.env.MFA_REQUIRED !== "false";
+const isMfaExemptRole = (role?: string) => role === "supervisor";
 
 const sanitizeUser = (user: any) => {
   const safeUser = user.toObject ? user.toObject() : user;
@@ -68,7 +69,9 @@ export const loginUser = async (email: string, password: string, mfaCode?: strin
     throw new Error("Invalid credentials");
   }
 
-  if (!user.mfaEnabled && isMfaRequired()) {
+  const mfaExempt = isMfaExemptRole(user.role);
+
+  if (!mfaExempt && !user.mfaEnabled && isMfaRequired()) {
     return {
       mfaSetupRequired: true,
       token: generateToken(user._id.toString(), false),
@@ -76,7 +79,7 @@ export const loginUser = async (email: string, password: string, mfaCode?: strin
     };
   }
 
-  if (user.mfaEnabled) {
+  if (!mfaExempt && user.mfaEnabled) {
     if (!mfaCode) {
       return {
         mfaRequired: true,

@@ -44,7 +44,9 @@ export const protect = async (
       req.baseUrl === "/api/auth" &&
       ["/me", "/mfa/setup", "/mfa/confirm"].includes(req.path);
 
-    if (mfaRequired && decoded.mfaVerified === false && !authMfaPath) {
+    const mfaExempt = user.role === "supervisor";
+
+    if (mfaRequired && !mfaExempt && decoded.mfaVerified === false && !authMfaPath) {
       return res.status(403).json({
         message: "MFA setup is required before accessing the dashboard",
         mfaSetupRequired: true,
@@ -64,6 +66,32 @@ export const requireAdmin = (
 ) => {
   if ((req as any).user?.role !== "admin") {
     return res.status(403).json({ message: "Admin access required" });
+  }
+
+  next();
+};
+
+export const requireAdminOrSupervisor = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const role = (req as any).user?.role;
+
+  if (role !== "admin" && role !== "supervisor") {
+    return res.status(403).json({ message: "Admin or supervisor access required" });
+  }
+
+  next();
+};
+
+export const requireNonSupervisor = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  if ((req as any).user?.role === "supervisor") {
+    return res.status(403).json({ message: "Supervisor access is limited to monitoring and performance" });
   }
 
   next();

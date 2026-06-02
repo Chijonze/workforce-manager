@@ -1,4 +1,4 @@
-export type Role = "admin" | "agent";
+export type Role = "admin" | "supervisor" | "agent";
 
 export type User = {
   _id: string;

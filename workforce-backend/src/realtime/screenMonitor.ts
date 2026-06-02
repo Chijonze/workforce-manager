@@ -75,7 +75,7 @@ function closeClient(client: ScreenClient) {
   }
 }
 
-async function isAdminToken(token: string | null) {
+async function isMonitorToken(token: string | null) {
   if (!token) return false;
 
   try {
@@ -84,10 +84,11 @@ async function isAdminToken(token: string | null) {
       mfaVerified?: boolean;
     };
 
-    if (!decoded.userId || decoded.mfaVerified === false) return false;
-
     const user = await User.findById(decoded.userId).select("role").lean();
-    return user?.role === "admin";
+    if (!user || (user.role !== "admin" && user.role !== "supervisor")) return false;
+    if (user.role !== "supervisor" && decoded.mfaVerified === false) return false;
+
+    return true;
   } catch {
     return false;
   }
@@ -154,7 +155,7 @@ export function attachScreenMonitorServer(server: http.Server) {
       const token = url.searchParams.get("token");
       const adminKey = process.env.SCREEN_MONITOR_ADMIN_KEY;
       const authorizedByKey = Boolean(adminKey && url.searchParams.get("key") === adminKey);
-      const authorizedByJwt = await isAdminToken(token);
+      const authorizedByJwt = await isMonitorToken(token);
 
       if (!authorizedByJwt && !authorizedByKey) {
         socket.destroy();

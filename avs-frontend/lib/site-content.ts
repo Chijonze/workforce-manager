@@ -81,7 +81,7 @@ export const services = [
 export const pricingPlans = [
   {
     name: "Virtual Assistant",
-    price: "$4.50",
+    price: "£4.50",
     cadence: "/hr",
     summary: "Professional virtual assistant support with core administrative services included.",
     popular: true,

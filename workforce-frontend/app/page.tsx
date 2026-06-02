@@ -374,6 +374,8 @@ export default function Home() {
   const monitorObjectUrlRef = useRef<string | null>(null);
 
   const isAdmin = user?.role === "admin";
+  const isSupervisor = user?.role === "supervisor";
+  const canMonitorWorkforce = isAdmin || isSupervisor;
   const currentShiftId = activeShift?.shift._id;
   const currentActivity = getActivityFromEvent(activeShift?.currentState);
   const currentState = activityOptions.find((item) => item.value === currentActivity)?.label || "Offline";
@@ -417,7 +419,7 @@ export default function Home() {
 
   useEffect(() => {
     function handleVisibilityChange() {
-      if (!user?.mfaEnabled || !token) return;
+      if (!user?.mfaEnabled || user.role === "supervisor" || !token) return;
 
       if (document.visibilityState === "hidden") {
         window.sessionStorage.setItem("workforce_mfa_away", "1");
@@ -433,7 +435,7 @@ export default function Home() {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [token, user?.mfaEnabled]);
+  }, [token, user?.mfaEnabled, user?.role]);
 
   useEffect(() => {
     const next = allowedTransitions[currentActivity][0] || "AVAILABLE";
@@ -446,7 +448,7 @@ export default function Home() {
   }, [isAdmin, scheduleForm.userId, user]);
 
   useEffect(() => {
-    if (!token || !isAdmin || !user?._id) {
+    if (!token || !canMonitorWorkforce || !user?._id) {
       monitorPresenceSocketRef.current?.close();
       monitorPresenceSocketRef.current = null;
       setOnlineMonitorIds([]);
@@ -488,7 +490,7 @@ export default function Home() {
         monitorPresenceSocketRef.current = null;
       }
     };
-  }, [isAdmin, token, user?._id]);
+  }, [canMonitorWorkforce, token, user?._id]);
 
   useEffect(() => {
     return () => {
@@ -525,7 +527,7 @@ export default function Home() {
       const currentUser = await apiRequest<User>("/api/auth/me", { token: authToken });
       setUser(currentUser);
 
-      if (!currentUser.mfaEnabled) {
+      if (!currentUser.mfaEnabled && currentUser.role !== "supervisor") {
         await startMfaSetup(authToken);
         return currentUser;
       }
@@ -537,6 +539,25 @@ export default function Home() {
 
   async function refreshWorkspace(authToken = token, currentUser = user) {
     if (!authToken || !currentUser) return;
+
+    if (currentUser.role === "supervisor") {
+      const overview = await apiRequest<AdminOverview>("/api/execution/admin/overview", {
+        token: authToken,
+      });
+
+      setAdminOverview(overview);
+      setActiveShift(null);
+      setDailyPerformance(null);
+      setEvents([]);
+      setSchedules([]);
+      setTemplates([]);
+      setUsers([]);
+      setLeaveRequests([]);
+      setChatRecipients([]);
+      setChatConversations([]);
+      setChatMessages([]);
+      return;
+    }
 
     const [active, performance] = await Promise.all([
       apiRequest<ActiveShiftResponse>("/api/attendance/shift/active", {
@@ -669,7 +690,7 @@ export default function Home() {
     setPendingMfaToken(null);
     setMfaCode("");
 
-    if (result.mfaSetupRequired || !result.user.mfaEnabled) {
+    if (result.user.role !== "supervisor" && (result.mfaSetupRequired || !result.user.mfaEnabled)) {
       await startMfaSetup(result.token);
       return;
     }
@@ -704,6 +725,7 @@ export default function Home() {
   }
 
   async function startMfaSetup(authToken = token) {
+    if (user?.role === "supervisor") return;
     if (!authToken) return;
 
     const setup = await runAction(
@@ -1323,11 +1345,11 @@ export default function Home() {
   ) : null;
 
   const adminOverviewPanel =
-    isAdmin && adminOverview ? (
+    canMonitorWorkforce && adminOverview ? (
       <AdminOverviewPanel
         loading={loading}
         overview={adminOverview}
-        onRunMaintenance={runMaintenance}
+        onRunMaintenance={isAdmin ? runMaintenance : undefined}
       />
     ) : null;
 
@@ -1582,10 +1604,12 @@ export default function Home() {
           <span>
             {user.name} <span className="pill">{user.role}</span>
           </span>
-          <button className="button secondary" type="button" onClick={() => startMfaSetup()}>
-            <KeyRound size={17} />
-            {user.mfaEnabled ? "Reset MFA" : "Set up MFA"}
-          </button>
+          {user.role !== "supervisor" && (
+            <button className="button secondary" type="button" onClick={() => startMfaSetup()}>
+              <KeyRound size={17} />
+              {user.mfaEnabled ? "Reset MFA" : "Set up MFA"}
+            </button>
+          )}
           <button className="icon-button" type="button" onClick={() => refreshWorkspace()}>
             <RefreshCw size={17} />
           </button>
@@ -1682,6 +1706,22 @@ export default function Home() {
       )}
 
       <div className="page stack">
+        {isSupervisor ? (
+          <>
+            <ScreenMonitorPanel
+              canvasRef={monitorCanvasRef}
+              employees={onlineMonitorIds}
+              isMonitoring={isMonitoring}
+              selectedEmployeeId={selectedMonitorId}
+              status={monitorStatus}
+              onChangeEmployee={setSelectedMonitorId}
+              onStart={startScreenMonitor}
+              onStop={stopScreenMonitor}
+            />
+            {adminOverviewPanel}
+          </>
+        ) : (
+          <>
         {!isAdmin && liveExecutionPanel}
 
         <div className="dashboard-grid calendar-grid">
@@ -2161,6 +2201,8 @@ export default function Home() {
               {dailyPerformancePanel}
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
       </main>
@@ -2952,7 +2994,7 @@ function AdminOverviewPanel({
 }: {
   loading: boolean;
   overview: AdminOverview;
-  onRunMaintenance: () => void;
+  onRunMaintenance?: () => void;
 }) {
   return (
     <section className="panel admin-overview">
@@ -2966,10 +3008,12 @@ function AdminOverviewPanel({
             </p>
           </div>
         </div>
-        <button className="button secondary" disabled={loading} type="button" onClick={onRunMaintenance}>
-          <RefreshCw size={17} />
-          Run maintenance
-        </button>
+        {onRunMaintenance && (
+          <button className="button secondary" disabled={loading} type="button" onClick={onRunMaintenance}>
+            <RefreshCw size={17} />
+            Run maintenance
+          </button>
+        )}
       </div>
 
       <div className="metrics admin-metrics">

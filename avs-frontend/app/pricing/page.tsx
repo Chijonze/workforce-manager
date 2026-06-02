@@ -9,7 +9,7 @@ import { pricingPlans } from "@/lib/site-content";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Transparent hourly pricing for professional virtual assistant services. $4.50/hr with core administrative support included.",
+  description: "Transparent hourly pricing for professional virtual assistant services. £4.50/hr with core administrative support included.",
 };
 
 export default function PricingPage() {

@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s | Advanced Virtual Solutions",
   },
   description:
-    "Professional virtual assistant services for admin support, executive assistance, customer service, social media, CRM, and business operations. $4.50/hr.",
+    "Professional virtual assistant services for admin support, executive assistance, customer service, social media, CRM, and business operations. £4.50/hr.",
   keywords: [
     "virtual assistant services",
     "professional virtual assistants",

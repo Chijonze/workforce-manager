@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { services } from "@/lib/site-content";
 
-const budgets = ["$299 Starter", "$599 Growth", "$999 Executive", "Custom enterprise"];
+const budgets = ["£299 Starter", "£599 Growth", "£999 Executive", "Custom enterprise"];
 const timelines = ["This week", "Within 2 weeks", "This month", "Still exploring"];
 
 export function IntakeForm({ mode = "client" }: { mode?: "client" | "career" }) {
