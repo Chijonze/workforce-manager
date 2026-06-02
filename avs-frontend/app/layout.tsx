@@ -25,7 +25,12 @@ export const metadata: Metadata = {
     description: "Scale faster with reliable, professional, technology-driven virtual assistance.",
     url: site.domain,
     siteName: site.name,
+    images: [site.logo],
     type: "website",
+  },
+  icons: {
+    icon: site.logo,
+    apple: site.logo,
   },
 };
 

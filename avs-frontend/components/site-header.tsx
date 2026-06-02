@@ -1,10 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, Sparkles, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { navigation } from "@/lib/site-content";
+import { navigation, site } from "@/lib/site-content";
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
@@ -12,18 +13,15 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/86 backdrop-blur-xl">
       <div className="section-shell flex min-h-20 items-center justify-between gap-6">
-        <Link href="/" className="flex min-w-0 items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-slate-950 text-white shadow-soft">
-            <Sparkles size={20} />
-          </span>
-          <span className="min-w-0">
-            <strong className="block truncate font-heading text-base text-slate-950">
-              Advanced Virtual Solutions
-            </strong>
-            <small className="block truncate text-xs font-semibold text-slate-500">
-              Elite remote business support
-            </small>
-          </span>
+        <Link href="/" className="flex min-w-0 items-center" aria-label={`${site.name} home`}>
+          <Image
+            src={site.logo}
+            alt={site.name}
+            width={559}
+            height={144}
+            className="h-12 w-auto sm:h-14"
+            priority
+          />
         </Link>
 
         <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary navigation">

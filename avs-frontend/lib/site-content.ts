@@ -18,9 +18,9 @@ import {
 export const site = {
   name: "Advanced Virtual Solutions",
   domain: "https://advancedvirtualsolutions.com",
+  logo: "/avs-logo.png",
   email: "hello@advancedvirtualsolutions.com",
-  phone: "+4407882650139",
-  address: "31 Northfield Road, London, England, N16 5RL",
+  phone: "+1 (555) 000-0000",
   calendly: process.env.NEXT_PUBLIC_CALENDLY_URL || "https://calendly.com/advancedvirtualsolutions/consultation",
   whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/447882650139",
 };

@@ -1,5 +1,6 @@
+import Image from "next/image";
 import Link from "next/link";
-import { Mail, MessageCircle, Phone, MapPin } from "lucide-react";
+import { Mail, MessageCircle, Phone } from "lucide-react";
 import { navigation, site } from "@/lib/site-content";
 
 export function SiteFooter() {
@@ -7,7 +8,13 @@ export function SiteFooter() {
     <footer className="border-t border-slate-200 bg-white">
       <div className="section-shell grid gap-10 py-12 md:grid-cols-[1fr_auto]">
         <div>
-          <h2 className="font-heading text-2xl font-bold text-slate-950">{site.name}</h2>
+          <Image
+            src={site.logo}
+            alt={site.name}
+            width={559}
+            height={144}
+            className="h-14 w-auto"
+          />
           <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
             Professional virtual assistance for founders, executives, agencies, coaches, eCommerce
             brands, and growing teams that need reliable operational leverage.
@@ -25,10 +32,6 @@ export function SiteFooter() {
               <MessageCircle size={16} />
               WhatsApp
             </a>
-          </div>
-          <div className="mt-3 inline-flex items-start gap-2 text-sm text-slate-700">
-            <MapPin size={16} className="mt-0.5 flex-shrink-0" />
-            <span>{site.address}</span>
           </div>
         </div>
 
