@@ -145,11 +145,10 @@ export default function HomePage() {
             <div>
               <span className="text-sm font-bold uppercase tracking-[0.24em] text-blue-600">Why choose us</span>
               <h2 className="mt-3 font-heading text-4xl font-bold text-slate-950">
-                Premium support built around trust, speed, and measurable execution.
+                AI is moving fast, but people still matter.
               </h2>
               <p className="mt-5 text-base leading-7 text-slate-600">
-                We combine trained assistants, structured onboarding, and modern collaboration tools
-                so your support system feels organized from day one.
+                Artificial intelligence is advancing rapidly, yet many prefer the human touch. We bridge that gap by assigning tasks and services to real, qualified people. Operating during UK/EU hours, we deliver the professional support your business needs with the personal interaction you value.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

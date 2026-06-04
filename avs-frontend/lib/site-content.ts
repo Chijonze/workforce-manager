@@ -148,7 +148,7 @@ export const testimonials = [
 export const faqs = [
   {
     question: "How quickly can we start?",
-    answer: "Most clients can begin within five business days after the intake form, role scoping, and assistant match are complete.",
+    answer: "We are ready to commence the following day, provided the task involves trainable skills",
   },
   {
     question: "Can I request a VA with specific tools experience?",
