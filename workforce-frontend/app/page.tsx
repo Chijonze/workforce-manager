@@ -17,7 +17,9 @@ import {
   KeyRound,
   LogIn,
   LogOut,
+  Maximize2,
   MessageSquare,
+  Minimize2,
   Monitor,
   Play,
   Plus,
@@ -2252,9 +2254,53 @@ function ScreenMonitorPanel({
   onStop: () => void;
 }) {
   const canMonitor = Boolean(selectedEmployeeId && employees.includes(selectedEmployeeId));
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    function syncFullscreenState() {
+      setIsFullscreen(document.fullscreenElement === sectionRef.current);
+    }
+
+    function closeFallbackFullscreen(event: KeyboardEvent) {
+      if (event.key === "Escape" && !document.fullscreenElement) {
+        setIsFullscreen(false);
+      }
+    }
+
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    document.addEventListener("keydown", closeFallbackFullscreen);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.removeEventListener("keydown", closeFallbackFullscreen);
+    };
+  }, []);
+
+  async function toggleFullscreen() {
+    const section = sectionRef.current;
+    if (!section) return;
+
+    try {
+      if (document.fullscreenElement === section) {
+        await document.exitFullscreen();
+        return;
+      }
+
+      if (section.requestFullscreen) {
+        await section.requestFullscreen();
+        return;
+      }
+    } catch {
+      setIsFullscreen((current) => !current);
+      return;
+    }
+
+    setIsFullscreen((current) => !current);
+  }
 
   return (
-    <section className="panel screen-monitor-panel">
+    <section ref={sectionRef} className={`panel screen-monitor-panel ${isFullscreen ? "fullscreen" : ""}`}>
       <div className="panel-header">
         <div className="panel-title">
           <Monitor size={20} />
@@ -2263,9 +2309,20 @@ function ScreenMonitorPanel({
             <p className="panel-subtitle">On-demand live view for online desktop agents</p>
           </div>
         </div>
-        <span className={`pill ${isMonitoring ? "" : status === "Connecting" ? "warn" : "danger"}`}>
-          {status}
-        </span>
+        <div className="screen-monitor-header-actions">
+          <span className={`pill ${isMonitoring ? "" : status === "Connecting" ? "warn" : "danger"}`}>
+            {status}
+          </span>
+          <button
+            aria-label={isFullscreen ? "Exit fullscreen monitor" : "Open fullscreen monitor"}
+            className="icon-button secondary"
+            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            type="button"
+            onClick={toggleFullscreen}
+          >
+            {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          </button>
+        </div>
       </div>
 
       <div className="screen-monitor-grid">

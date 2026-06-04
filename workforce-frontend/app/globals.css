@@ -635,10 +635,42 @@ button:disabled {
   overflow: hidden;
 }
 
+.screen-monitor-panel.fullscreen,
+.screen-monitor-panel:fullscreen {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  padding: 18px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.screen-monitor-panel.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.screen-monitor-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .screen-monitor-grid {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 14px;
+}
+
+.screen-monitor-panel.fullscreen .screen-monitor-grid,
+.screen-monitor-panel:fullscreen .screen-monitor-grid {
+  min-height: 0;
 }
 
 .screen-monitor-controls {
@@ -662,11 +694,21 @@ button:disabled {
   border-radius: 8px;
 }
 
+.screen-monitor-panel.fullscreen .screen-frame,
+.screen-monitor-panel:fullscreen .screen-frame {
+  min-height: 0;
+}
+
 .screen-frame canvas {
   width: 100%;
   height: 100%;
   max-height: 68vh;
   object-fit: contain;
+}
+
+.screen-monitor-panel.fullscreen .screen-frame canvas,
+.screen-monitor-panel:fullscreen .screen-frame canvas {
+  max-height: none;
 }
 
 .screen-placeholder {
@@ -752,6 +794,12 @@ button:disabled {
 }
 
 .button.secondary {
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.icon-button.secondary {
   color: var(--ink);
   background: var(--panel-2);
   border: 1px solid var(--line);
