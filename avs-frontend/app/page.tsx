@@ -39,7 +39,6 @@ export default function HomePage() {
           <div className="section-shell relative grid min-h-[calc(100vh-80px)] items-center gap-12 py-20 lg:grid-cols-[1fr_460px]">
             <div className="max-w-3xl">
               <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur">
-                <Sparkles size={16} />
                 Advanced Virtual Solutions
               </span>
               <h1 className="mt-7 max-w-4xl font-heading text-5xl font-extrabold leading-[1.02] tracking-tight text-balance md:text-7xl">
@@ -86,7 +85,7 @@ export default function HomePage() {
                       {["Inbox", "CRM", "Support"].map((item, index) => (
                         <div className="rounded-2xl bg-slate-50 p-3" key={item}>
                           <span className="text-xs font-bold text-slate-500">{item}</span>
-                          <strong className="mt-2 block text-2xl">{[91, 74, 98][index]}%</strong>
+                          <strong className="mt-2 block text-2xl">{[91, 90, 98][index]}%</strong>
                         </div>
                       ))}
                     </div>

@@ -19,9 +19,10 @@ export default function AboutPage() {
         <div>
           <h2 className="font-heading text-4xl font-bold text-slate-950">Our story</h2>
           <p className="mt-5 text-base leading-8 text-slate-600">
-            We exist for businesses that have outgrown doing everything manually but are not ready
-            to carry unnecessary overhead. Our model blends trained virtual assistants, clear
-            process design, and managed execution so support feels calm, professional, and useful.
+            We exist for businesses that have outgrown doing everything manually but still value the power of genuine human connection.
+             We believe growth shouldn't mean losing your personal touch to cold automation. That is why our model blends deeply empathetic,
+              trained virtual assistants with clear process design and managed execution.
+             By putting people at the heart of our operations, we ensure your daily support feels calm, professional, and deeply human.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">

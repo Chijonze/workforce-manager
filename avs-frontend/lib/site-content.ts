@@ -121,9 +121,9 @@ export const processSteps = [
 ];
 
 export const values = [
-  { title: "AI as a Tool, Not a Replacement", description: "Artificial intelligence is transformative, but it cannot replicate human intellect. We strategically deploy AI to amplify our team's capabilities while keeping qualified, trained professionals at the core of everything we do." },
   { title: "Qualified Professionals First", description: "We focus exclusively on intelligent individuals with strong drive and proven capability—not 'regular' workers. Our VAs bring cognitive depth, judgment, and contextual understanding that automation alone cannot provide." },
   { title: "Human-Centered Operations", description: "We believe in the persistent and vital need for actual workers with a brain. Our model combines human expertise, strategic thinking, and technology to deliver superior results." },
+  { title: "AI as a Tool", description: "Artificial intelligence is transformative, but it cannot replicate human intellect. We strategically deploy AI to amplify our team's capabilities while keeping qualified, trained professionals at the core of everything we do." },
   { title: "Trust Through Expertise", description: "Professional standards, careful vetting, and proven track records form the foundation of every partnership. You're working with true professionals, not commoditized support." },
 ];
 
@@ -201,5 +201,4 @@ export const qualitySignals = [
   { label: "Managed onboarding", icon: UsersRound },
   { label: "Process-first execution", icon: Workflow },
   { label: "Productivity reporting", icon: CheckCircle2 },
-  { label: "Automation aware", icon: Sparkles },
 ];

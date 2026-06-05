@@ -11,7 +11,7 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/86 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white">
       <div className="section-shell flex min-h-20 items-center justify-between gap-6">
         <Link href="/" className="flex min-w-0 items-center" aria-label={`${site.name} home`}>
           <Image
