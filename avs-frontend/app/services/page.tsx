@@ -5,7 +5,7 @@ import { PageFrame } from "@/components/page-frame";
 import { MotionSection } from "@/components/motion-section";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { services, assistantProfiles, qualitySignals, faqs } from "@/lib/site-content";
+import { services, assistantProfiles, qualitySignals } from "@/lib/site-content";
 import { FAQAccordion } from "@/components/faq-accordion";
 
 export const metadata: Metadata = {
@@ -214,7 +214,7 @@ export default function ServicesPage() {
           <h2 className="font-heading text-3xl font-bold text-slate-950">Service FAQs</h2>
         </div>
         <div className="max-w-3xl">
-          <FAQAccordion items={faqs} />
+          <FAQAccordion />
         </div>
       </section>
 
