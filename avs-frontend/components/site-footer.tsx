@@ -16,7 +16,7 @@ export function SiteFooter() {
             className="h-14 w-auto"
           />
           <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
-            Professional virtual assistance for founders, executives, agencies, coaches, eCommerce
+            Virtual assistance for founders, executives, agencies, coaches, eCommerce
             brands, and growing teams that need reliable operational leverage.
           </p>
           <div className="mt-5 flex flex-wrap gap-3 text-sm font-semibold text-slate-700">

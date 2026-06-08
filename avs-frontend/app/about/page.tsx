@@ -22,7 +22,7 @@ export default function AboutPage() {
             We exist for businesses that have outgrown doing everything manually but still value the power of genuine human connection.
              We believe growth shouldn't mean losing your personal touch to cold automation. That is why our model blends deeply empathetic,
               trained virtual assistants with clear process design and managed execution.
-             By putting people at the heart of our operations, we ensure your daily support feels calm, professional, and deeply human.
+             By putting people at the heart of our operations, we ensure your daily support feels calm, and deeply human.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">

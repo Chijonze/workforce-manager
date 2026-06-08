@@ -43,7 +43,7 @@ export const services = [
   },
   {
     title: "Executive Assistance",
-    description: "Dedicated executive-level assistance for busy professionals, founders, and leadership teams.",
+    description: "Dedicated executive-level assistance for busy founders and leadership teams.",
     icon: CalendarCheck,
   },
   {
@@ -83,7 +83,7 @@ export const pricingPlans = [
     name: "Virtual Assistant",
     price: "£4.50",
     cadence: "/hr",
-    summary: "Professional virtual assistant support with core administrative services included.",
+    summary: "Virtual assistant support with core administrative services included.",
     popular: true,
     features: [
       "Inbox & email management",
@@ -99,7 +99,7 @@ export const pricingPlans = [
 export const stats = [
   { value: "42%", label: "average admin time recovered" },
   { value: "24/7", label: "remote operational coverage" },
-  { value: "5 days", label: "typical onboarding window" },
+  { value: "1 day", label: "typical onboarding window" },
   { value: "97%", label: "client satisfaction target" },
 ];
 
@@ -121,10 +121,10 @@ export const processSteps = [
 ];
 
 export const values = [
-  { title: "Qualified Professionals First", description: "We focus exclusively on intelligent individuals with strong drive and proven capability—not 'regular' workers. Our VAs bring cognitive depth, judgment, and contextual understanding that automation alone cannot provide." },
+  { title: "Qualified Individuals First", description: "We focus exclusively on intelligent individuals with strong drive and proven capability—not 'regular' workers. Our VAs bring cognitive depth, judgment, and contextual understanding that automation alone cannot provide." },
   { title: "Human-Centered Operations", description: "We believe in the persistent and vital need for actual workers with a brain. Our model combines human expertise, strategic thinking, and technology to deliver superior results." },
-  { title: "AI as a Tool", description: "Artificial intelligence is transformative, but it cannot replicate human intellect. We strategically deploy AI to amplify our team's capabilities while keeping qualified, trained professionals at the core of everything we do." },
-  { title: "Trust Through Expertise", description: "Professional standards, careful vetting, and proven track records form the foundation of every partnership. You're working with true professionals, not commoditized support." },
+  { title: "AI as a Tool", description: "Artificial intelligence is transformative, but it cannot replicate human intellect. We strategically deploy AI to amplify our team's capabilities while keeping qualified, trained team members at the core of everything we do." },
+  { title: "Trust Through Expertise", description: "High standards, careful vetting, and proven track records form the foundation of every partnership. You're working with true experts, not commoditized support." },
 ];
 
 export const testimonials = [

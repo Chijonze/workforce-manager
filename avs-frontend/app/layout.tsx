@@ -10,10 +10,9 @@ export const metadata: Metadata = {
     template: "%s | Advanced Virtual Solutions",
   },
   description:
-    "Professional virtual assistant services for admin support, executive assistance, customer service, social media, CRM, and business operations. £4.50/hr.",
+    "Virtual assistant services for admin support, executive assistance, customer service, social media, CRM, and business operations. £4.50/hr.",
   keywords: [
     "virtual assistant services",
-    "professional virtual assistants",
     "remote executive assistance",
     "business support services",
     "administrative support",
@@ -22,7 +21,7 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     title: "Advanced Virtual Solutions",
-    description: "Scale faster with reliable, professional, technology-driven virtual assistance.",
+    description: "Scale faster with reliable, technology-driven virtual assistance.",
     url: site.domain,
     siteName: site.name,
     images: [site.logo],

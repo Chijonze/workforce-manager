@@ -18,7 +18,7 @@ export default function ServicesPage() {
     <PageFrame
       eyebrow="Services"
       title="Comprehensive virtual assistant services tailored to your business."
-      summary="From daily operations to growth initiatives, we provide specialized support across eight key service areas. Each role is handled by trained professionals with proven expertise."
+      summary="From daily operations to growth initiatives, we provide specialized support across eight key service areas. Each role is handled by trained experts with proven expertise."
     >
       {/* Service Categories Overview */}
       <section className="section-shell py-20">
@@ -43,7 +43,7 @@ export default function ServicesPage() {
           </div>
           <div className="space-y-4">
             <h3 className="font-heading text-2xl font-bold text-slate-950">Growth & Content</h3>
-            <p className="text-slate-600">Scale your business with support for marketing, sales, and content initiatives handled by dedicated professionals.</p>
+            <p className="text-slate-600">Scale your business with support for marketing, sales, and content initiatives handled by dedicated experts.</p>
             <ul className="space-y-2 text-sm text-slate-600">
               <li className="flex items-start gap-2">
                 <span className="text-blue-600">•</span>
@@ -106,7 +106,7 @@ export default function ServicesPage() {
       <section className="section-shell border-t border-slate-200 py-20">
         <div className="mb-12">
           <h2 className="font-heading text-3xl font-bold text-slate-950">Why Our Services Stand Out</h2>
-          <p className="mt-3 text-slate-600">Professional quality and dedicated support across every service we provide.</p>
+          <p className="mt-3 text-slate-600">Quality and dedicated support across every service we provide.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {qualitySignals.map((signal) => {

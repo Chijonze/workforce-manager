@@ -28,7 +28,7 @@ export default function HomePage() {
           <div className="absolute inset-0 opacity-30">
             <Image
               src="https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1800&q=85"
-              alt="Professional remote team working on business operations"
+              alt="Experienced team working on business operations"
               fill
               priority
               className="object-cover"
@@ -42,10 +42,10 @@ export default function HomePage() {
                 Advanced Virtual Solutions
               </span>
               <h1 className="mt-7 max-w-4xl font-heading text-5xl font-extrabold leading-[1.02] tracking-tight text-balance md:text-7xl">
-                Professional Virtual Assistant Support for Your Business
+                Virtual Assistant Support for Your Business
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-200">
-                Reliable, professional, and technology-driven virtual assistance for businesses
+                Reliable, and technology-driven virtual assistance for businesses
                 that need sharper operations, faster response times, and more room to grow.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
@@ -76,7 +76,6 @@ export default function HomePage() {
                 <div className="grid gap-3">
                   <div className="rounded-2xl bg-white p-5 text-slate-950">
                     <div className="flex items-center justify-between">
-                      <strong>Client Operations</strong>
                       <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
                         Live
                       </span>
@@ -93,13 +92,11 @@ export default function HomePage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-2xl bg-white/12 p-4">
                       <Clock3 className="text-cyan-300" />
-                      <strong className="mt-4 block text-3xl">18h</strong>
-                      <span className="text-sm text-slate-300">saved this week</span>
+                      <span className="text-sm text-slate-300">save time</span>
                     </div>
                     <div className="rounded-2xl bg-white/12 p-4">
                       <Globe2 className="text-blue-300" />
-                      <strong className="mt-4 block text-3xl">6</strong>
-                      <span className="text-sm text-slate-300">active workflows</span>
+                      <span className="text-sm text-slate-300">active 24/7</span>
                     </div>
                   </div>
                 </div>
@@ -147,7 +144,7 @@ export default function HomePage() {
                 AI is moving fast, but people still matter.
               </h2>
               <p className="mt-5 text-base leading-7 text-slate-600">
-                Artificial intelligence is advancing rapidly, yet many prefer the human touch. We bridge that gap by assigning tasks and services to real, qualified people. Operating during UK/EU hours, we deliver the professional support your business needs with the personal interaction you value.
+                Artificial intelligence is advancing rapidly, yet many prefer the human touch. We bridge that gap by assigning tasks and services to real, qualified people. Operating during UK/EU hours, we deliver the support your business needs with the personal interaction you value.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -223,13 +220,13 @@ export default function HomePage() {
           <div className="section-shell">
             <div className="mx-auto max-w-3xl text-center">
               <span className="text-sm font-bold uppercase tracking-[0.24em] text-blue-600">Pricing</span>
-              <h2 className="mt-3 font-heading text-4xl font-bold text-slate-950">Transparent hourly pricing for professional virtual assistance.</h2>
+              <h2 className="mt-3 font-heading text-4xl font-bold text-slate-950">Transparent hourly pricing for virtual assistance.</h2>
             </div>
             <div className="mt-12 grid gap-5 lg:grid-cols-3">
               {pricingPlans.map((plan) => (
                 <Card className={plan.popular ? "border-blue-400 shadow-soft" : ""} key={plan.name}>
                   {plan.popular && (
-                    <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">Most popular</span>
+                    <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700"></span>
                   )}
                   <h3 className="mt-4 font-heading text-2xl font-bold text-slate-950">{plan.name}</h3>
                   <p className="mt-2 min-h-12 text-sm leading-6 text-slate-600">{plan.summary}</p>
