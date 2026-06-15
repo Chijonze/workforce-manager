@@ -20,9 +20,9 @@ export const site = {
   domain: "https://advancedvirtualsolutions.com",
   logo: "/avs-logo.png",
   email: "hello@advancedvirtualsolutions.com",
-  phone: "+1 (555) 000-0000",
+  phone: "44 7882 615046",
   calendly: process.env.NEXT_PUBLIC_CALENDLY_URL || "https://calendly.com/advancedvirtualsolutions/consultation",
-  whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/447882650139",
+  whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/447882615046",
 };
 
 export const navigation = [
