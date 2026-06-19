@@ -80,7 +80,7 @@ jobs:
               printf "%s" "$VPS_ENV_FILE" > .env.production
             fi
             test -f .env.production
-            docker compose --env-file .env.production -f docker-compose.prod.yml pull postgres redis mongo caddy chatwoot chatwoot-worker evolution-api
+            docker compose --env-file .env.production -f docker-compose.prod.yml pull postgres redis mongo caddy evolution-api evolution-manager
             docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
             docker compose --env-file .env.production -f docker-compose.prod.yml run --rm chatwoot bundle exec rails db:chatwoot_prepare
             docker compose --env-file .env.production -f docker-compose.prod.yml up -d
