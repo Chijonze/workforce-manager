@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Clock3, Globe2, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, Globe2, PhoneCall, ShieldCheck, Sparkles } from "lucide-react";
 import { FloatingChat } from "@/components/floating-chat";
 import { MotionSection } from "@/components/motion-section";
 import { SiteFooter } from "@/components/site-footer";
@@ -17,6 +17,7 @@ import {
   stats,
   testimonials,
   trustLogos,
+  site,
 } from "@/lib/site-content";
 
 export default function HomePage() {
@@ -53,6 +54,12 @@ export default function HomePage() {
                   <Link href="/hire">
                     Get Started
                     <ArrowRight size={18} />
+                  </Link>
+                </Button>
+                <Button asChild size="lg" variant="secondary">
+                  <Link href={site.voiceCall}>
+                    <PhoneCall size={18} />
+                    Call Now
                   </Link>
                 </Button>
                 <Button asChild size="lg" variant="secondary">

@@ -1,0 +1,12 @@
+<!-- workforce-twilio-voice-widget -->
+<script>
+  (function () {
+    if (window.__workforceTwilioVoiceWidgetLoaded) return;
+    window.__workforceTwilioVoiceWidgetLoaded = true;
+
+    var script = document.createElement('script');
+    script.src = '/voice-widget.js';
+    script.defer = true;
+    document.body.appendChild(script);
+  })();
+</script>

@@ -1,4 +1,5 @@
 import { site } from "@/lib/site-content";
+import { PhoneCall } from "lucide-react";
 
 function WhatsAppIcon() {
   return (
@@ -27,13 +28,23 @@ function WhatsAppIcon() {
 
 export function FloatingChat() {
   return (
-    <a
-      aria-label="Chat with us on WhatsApp"
-      className="fixed bottom-6 right-28 z-40 grid h-14 w-14 place-items-center rounded-full bg-[#25D366] text-white shadow-soft ring-1 ring-white/60 transition hover:bg-[#1ebe5d] focus:outline-none focus:ring-4 focus:ring-[#25D366]/30"
-      href={site.whatsapp}
-      title="Chat with us on WhatsApp"
-    >
-      <WhatsAppIcon />
-    </a>
+    <div className="fixed bottom-6 right-6 z-40 flex items-center gap-3">
+      <a
+        aria-label="Call us now"
+        className="grid h-14 w-14 place-items-center rounded-full bg-blue-600 text-white shadow-soft ring-1 ring-white/60 transition hover:bg-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/30"
+        href={site.voiceCall}
+        title="Call us now"
+      >
+        <PhoneCall aria-hidden="true" className="h-7 w-7" />
+      </a>
+      <a
+        aria-label="Chat with us on WhatsApp"
+        className="grid h-14 w-14 place-items-center rounded-full bg-[#25D366] text-white shadow-soft ring-1 ring-white/60 transition hover:bg-[#1ebe5d] focus:outline-none focus:ring-4 focus:ring-[#25D366]/30"
+        href={site.whatsapp}
+        title="Chat with us on WhatsApp"
+      >
+        <WhatsAppIcon />
+      </a>
+    </div>
   );
 }

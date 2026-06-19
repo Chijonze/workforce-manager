@@ -7,6 +7,7 @@ services:
       - workforce-frontend
       - workforce-backend
       - chatwoot
+      - twilio-voice-router
       - evolution-api
       - evolution-manager
     ports:
@@ -111,7 +112,11 @@ services:
       - data
 
   chatwoot:
-    image: chatwoot/chatwoot:${CHATWOOT_IMAGE_TAG:-latest-ce}
+    image: workforce-chatwoot-voice:${CHATWOOT_IMAGE_TAG:-latest-ce}
+    build:
+      context: ./chatwoot-custom
+      args:
+        CHATWOOT_IMAGE_TAG: ${CHATWOOT_IMAGE_TAG:-latest-ce}
     restart: unless-stopped
     depends_on:
       - postgres
@@ -142,7 +147,7 @@ services:
       - data
 
   chatwoot-worker:
-    image: chatwoot/chatwoot:${CHATWOOT_IMAGE_TAG:-latest-ce}
+    image: workforce-chatwoot-voice:${CHATWOOT_IMAGE_TAG:-latest-ce}
     restart: unless-stopped
     depends_on:
       - postgres
@@ -153,6 +158,34 @@ services:
     volumes:
       - chatwoot_storage:/app/storage
     networks:
+      - data
+
+  twilio-voice-router:
+    build:
+      context: ./twilio-voice-router
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      PORT: 4800
+      PUBLIC_BASE_URL: https://${CHATWOOT_DOMAIN:-chat.advancedvirtualsolutions.com}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: ${POSTGRES_DB:-chatwoot}
+      POSTGRES_USERNAME: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CHATWOOT_API_URL: https://${CHATWOOT_DOMAIN:-chat.advancedvirtualsolutions.com}
+      CHATWOOT_ACCOUNT_ID: ${CHATWOOT_ACCOUNT_ID:-}
+      CHATWOOT_BOT_ACCESS_TOKEN: ${CHATWOOT_BOT_ACCESS_TOKEN:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_API_KEY_SID: ${TWILIO_API_KEY_SID:-}
+      TWILIO_API_KEY_SECRET: ${TWILIO_API_KEY_SECRET:-}
+      TWILIO_TWIML_APP_SID: ${TWILIO_TWIML_APP_SID:-}
+      TWILIO_CALLER_ID: ${TWILIO_CALLER_ID:-}
+    expose:
+      - "4800"
+    networks:
+      - web
       - data
 
   evolution-api:

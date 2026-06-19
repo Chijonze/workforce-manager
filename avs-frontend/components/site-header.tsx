@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, PhoneCall, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { navigation, site } from "@/lib/site-content";
 
@@ -38,6 +38,12 @@ export function SiteHeader() {
 
         <div className="hidden items-center gap-3 lg:flex">
           <Button asChild variant="secondary" size="sm">
+            <Link href={site.voiceCall}>
+              <PhoneCall size={16} />
+              Call Now
+            </Link>
+          </Button>
+          <Button asChild variant="secondary" size="sm">
             <Link href="/contact">Book Consultation</Link>
           </Button>
           <Button asChild size="sm">
@@ -68,6 +74,13 @@ export function SiteHeader() {
                 {item.label}
               </Link>
             ))}
+            <Link
+              className="rounded-2xl px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+              href={site.voiceCall}
+              onClick={() => setOpen(false)}
+            >
+              Call Now
+            </Link>
           </nav>
         </div>
       )}

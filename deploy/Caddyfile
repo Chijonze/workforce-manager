@@ -4,7 +4,21 @@
 
 {$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy avs-frontend:3001
+	handle /call/* {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle /assets/twilio-voice.min.js {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle /api/token/* {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle {
+		reverse_proxy avs-frontend:3001
+	}
 }
 
 www.{$DOMAIN} {
@@ -23,7 +37,29 @@ www.{$DOMAIN} {
 
 {$CHATWOOT_DOMAIN} {
 	encode zstd gzip
-	reverse_proxy chatwoot:3000
+	handle /call/* {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle /voice-widget.js {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle /assets/twilio-voice.min.js {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle /api/token/* {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle /webhooks/twilio/voice/* {
+		reverse_proxy twilio-voice-router:4800
+	}
+
+	handle {
+		reverse_proxy chatwoot:3000
+	}
 }
 
 {$EVOLUTION_MANAGER_DOMAIN} {

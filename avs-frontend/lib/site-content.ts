@@ -23,6 +23,7 @@ export const site = {
   phone: "44 7882 615046",
   calendly: process.env.NEXT_PUBLIC_CALENDLY_URL || "https://calendly.com/advancedvirtualsolutions/consultation",
   whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/447882615046",
+  voiceCall: process.env.NEXT_PUBLIC_VOICE_CALL_URL || "/call/1",
 };
 
 export const navigation = [
