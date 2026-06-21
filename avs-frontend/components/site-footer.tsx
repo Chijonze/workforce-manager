@@ -9,11 +9,11 @@ export function SiteFooter() {
       <div className="section-shell grid gap-10 py-12 md:grid-cols-[1fr_auto]">
         <div>
           <Image
-            src={site.logo}
+            src={site.wordmarkLogo}
             alt={site.name}
-            width={559}
-            height={144}
-            className="h-14 w-auto"
+            width={1890}
+            height={710}
+            className="h-auto w-[260px] sm:w-[320px]"
           />
           <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
             Virtual assistance for founders, executives, agencies, coaches, eCommerce

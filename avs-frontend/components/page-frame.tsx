@@ -1,10 +1,14 @@
+"use client";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRight } from "lucide-react";
+import { MessageCircle } from "lucide-react";
+import { ChatButton } from "@/components/chat-button";
 import { FloatingChat } from "@/components/floating-chat";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
+import { site } from "@/lib/site-content";
 
 export function PageFrame({
   children,
@@ -29,14 +33,12 @@ export function PageFrame({
             </h1>
             <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">{summary}</p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button asChild>
-                <Link href="/hire">
-                  Get Started
-                  <ArrowRight size={17} />
-                </Link>
-              </Button>
+              <ChatButton>Get Started</ChatButton>
               <Button asChild variant="secondary">
-                <Link href="/contact">Book consultation</Link>
+                <Link href={site.whatsapp}>
+                  <MessageCircle size={17} />
+                  Chat us on WhatsApp
+                </Link>
               </Button>
             </div>
           </div>

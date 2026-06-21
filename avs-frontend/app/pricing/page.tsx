@@ -1,9 +1,8 @@
 import { Metadata } from "next";
-import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
+import { ChatButton } from "@/components/chat-button";
 import { FAQAccordion } from "@/components/faq-accordion";
 import { PageFrame } from "@/components/page-frame";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { pricingPlans } from "@/lib/site-content";
 
@@ -36,9 +35,7 @@ export default function PricingPage() {
                 </li>
               ))}
             </ul>
-            <Button asChild className="mt-7 w-full">
-              <Link href="/hire">Get Started</Link>
-            </Button>
+            <ChatButton className="mt-7 w-full">Get Started</ChatButton>
           </Card>
         ))}
       </section>

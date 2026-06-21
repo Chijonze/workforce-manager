@@ -3,23 +3,23 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, PhoneCall, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Menu, X } from "lucide-react";
+import { ChatButton } from "@/components/chat-button";
 import { navigation, site } from "@/lib/site-content";
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white">
-      <div className="section-shell flex min-h-20 items-center justify-between gap-6">
+    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white">
+      <div className="section-shell flex min-h-12 items-center justify-between gap-6 lg:min-h-18">
         <Link href="/" className="flex min-w-0 items-center" aria-label={`${site.name} home`}>
           <Image
-            src={site.logo}
+            src={site.wordmarkLogo}
             alt={site.name}
-            width={559}
-            height={144}
-            className="h-12 w-auto sm:h-14"
+            width={1890}
+            height={710}
+            className="h-auto w-[150px] sm:w-[180px] lg:w-[210px]"
             priority
           />
         </Link>
@@ -37,18 +37,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-3 lg:flex">
-          <Button asChild variant="secondary" size="sm">
-            <Link href={site.voiceCall}>
-              <PhoneCall size={16} />
-              Call Now
-            </Link>
-          </Button>
-          <Button asChild variant="secondary" size="sm">
-            <Link href="/contact">Book Consultation</Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href="/hire">Get Started</Link>
-          </Button>
+          <ChatButton size="sm">Get Started</ChatButton>
         </div>
 
         <button
@@ -74,14 +63,12 @@ export function SiteHeader() {
                 {item.label}
               </Link>
             ))}
-            <Link
-              className="rounded-2xl px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-              href={site.voiceCall}
-              onClick={() => setOpen(false)}
-            >
-              Call Now
-            </Link>
           </nav>
+          <div className="section-shell pb-4">
+            <ChatButton className="w-full" onClick={() => setOpen(false)}>
+              Get Started
+            </ChatButton>
+          </div>
         </div>
       )}
     </header>

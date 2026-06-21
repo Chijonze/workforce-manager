@@ -10,7 +10,6 @@ import {
   PenTool,
   Search,
   ShieldCheck,
-  Sparkles,
   UsersRound,
   Workflow,
 } from "lucide-react";
@@ -19,11 +18,10 @@ export const site = {
   name: "Advanced Virtual Solutions",
   domain: "https://advancedvirtualsolutions.com",
   logo: "/avs-logo.png",
+  wordmarkLogo: "/avs-logo-wordmark.png",
   email: "hello@advancedvirtualsolutions.com",
   phone: "44 7882 615046",
-  calendly: process.env.NEXT_PUBLIC_CALENDLY_URL || "https://calendly.com/advancedvirtualsolutions/consultation",
   whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/447882615046",
-  voiceCall: process.env.NEXT_PUBLIC_VOICE_CALL_URL || "/call/1",
 };
 
 export const navigation = [
@@ -31,7 +29,6 @@ export const navigation = [
   { label: "About", href: "/about" },
   { label: "Services", href: "/services" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Get Started", href: "/hire" },
   { label: "Blog", href: "/blog" },
   { label: "Contact", href: "/contact" },
 ];
@@ -97,19 +94,12 @@ export const pricingPlans = [
   },
 ];
 
-export const stats = [
-  { value: "42%", label: "average admin time recovered" },
-  { value: "24/7", label: "remote operational coverage" },
-  { value: "1 day", label: "typical onboarding window" },
-  { value: "97%", label: "client satisfaction target" },
-];
-
 export const trustLogos = ["Founders", "Coaches", "Agencies", "eCommerce", "Real Estate", "SMEs"];
 
 export const processSteps = [
   {
-    title: "Tell us what slows you down",
-    description: "Complete a focused intake so we understand your workflow, tools, budget, and preferred skills.",
+    title: "Message us directly",
+    description: "Open the chat, tell us what you need, and speak with the team without filling out a long form.",
   },
   {
     title: "Get matched with the right VA",

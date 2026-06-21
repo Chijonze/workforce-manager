@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Metadata } from "next";
-import { ArrowRight } from "lucide-react";
+import { MessageCircle } from "lucide-react";
+import { ChatButton } from "@/components/chat-button";
 import { PageFrame } from "@/components/page-frame";
 import { MotionSection } from "@/components/motion-section";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { services, assistantProfiles, qualitySignals } from "@/lib/site-content";
+import { services, assistantProfiles, qualitySignals, site } from "@/lib/site-content";
 import { FAQAccordion } from "@/components/faq-accordion";
 
 export const metadata: Metadata = {
@@ -224,14 +225,12 @@ export default function ServicesPage() {
           <h2 className="font-heading text-3xl font-bold text-slate-950">Ready to get started?</h2>
           <p className="mt-3 text-slate-600">Tell us about your business and let's find the right VA support for your needs.</p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Button asChild size="lg">
-              <Link href="/hire">
-                Get Started
-                <ArrowRight size={18} />
-              </Link>
-            </Button>
+            <ChatButton size="lg">Get Started</ChatButton>
             <Button asChild size="lg" variant="secondary">
-              <Link href="/contact">Book Free Consultation</Link>
+              <Link href={site.whatsapp}>
+                <MessageCircle size={18} />
+                Chat us on WhatsApp
+              </Link>
             </Button>
           </div>
         </div>

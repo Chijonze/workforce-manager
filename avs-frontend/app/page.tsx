@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Clock3, Globe2, PhoneCall, ShieldCheck, Sparkles } from "lucide-react";
+import { CheckCircle2, MessageCircle, ShieldCheck } from "lucide-react";
 import { FloatingChat } from "@/components/floating-chat";
 import { MotionSection } from "@/components/motion-section";
 import { SiteFooter } from "@/components/site-footer";
@@ -8,13 +8,13 @@ import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FAQAccordion } from "@/components/faq-accordion";
+import { ChatButton } from "@/components/chat-button";
 import {
   assistantProfiles,
   pricingPlans,
   processSteps,
   qualitySignals,
   services,
-  stats,
   testimonials,
   trustLogos,
   site,
@@ -37,7 +37,7 @@ export default function HomePage() {
           </div>
           <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-slate-950/40" />
 
-          <div className="section-shell relative grid min-h-[calc(100vh-80px)] items-center gap-12 py-20 lg:grid-cols-[1fr_460px]">
+          <div className="section-shell relative grid min-h-[calc(100vh-80px)] items-center gap-12 py-20 lg:grid-cols-1">
             <div className="max-w-3xl">
               <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur">
                 Advanced Virtual Solutions
@@ -50,20 +50,14 @@ export default function HomePage() {
                 that need sharper operations, faster response times, and more room to grow.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <Button asChild size="lg">
-                  <Link href="/hire">
-                    Get Started
-                    <ArrowRight size={18} />
-                  </Link>
-                </Button>
+                <ChatButton size="lg">
+                  Get Started
+                </ChatButton>
                 <Button asChild size="lg" variant="secondary">
-                  <Link href={site.voiceCall}>
-                    <PhoneCall size={18} />
-                    Call Now
+                  <Link href={site.whatsapp}>
+                    <MessageCircle size={18} />
+                    Chat us on WhatsApp
                   </Link>
-                </Button>
-                <Button asChild size="lg" variant="secondary">
-                  <Link href="/contact">Book Free Consultation</Link>
                 </Button>
               </div>
               <div className="mt-8 grid gap-3 text-sm font-semibold text-slate-200 sm:grid-cols-2 lg:grid-cols-5">
@@ -75,38 +69,6 @@ export default function HomePage() {
                     </span>
                   )
                 )}
-              </div>
-            </div>
-
-            <div className="dashboard-glow rounded-[2rem] border border-white/10 p-4 shadow-soft">
-              <div className="rounded-[1.5rem] border border-white/10 bg-white/10 p-4 backdrop-blur">
-                <div className="grid gap-3">
-                  <div className="rounded-2xl bg-white p-5 text-slate-950">
-                    <div className="flex items-center justify-between">
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-                        Live
-                      </span>
-                    </div>
-                    <div className="mt-5 grid grid-cols-3 gap-3">
-                      {["Inbox", "CRM", "Support"].map((item, index) => (
-                        <div className="rounded-2xl bg-slate-50 p-3" key={item}>
-                          <span className="text-xs font-bold text-slate-500">{item}</span>
-                          <strong className="mt-2 block text-2xl">{[91, 90, 98][index]}%</strong>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl bg-white/12 p-4">
-                      <Clock3 className="text-cyan-300" />
-                      <span className="text-sm text-slate-300">save time</span>
-                    </div>
-                    <div className="rounded-2xl bg-white/12 p-4">
-                      <Globe2 className="text-blue-300" />
-                      <span className="text-sm text-slate-300">active 24/7</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -167,17 +129,6 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-
-        <MotionSection className="section-shell py-20">
-          <div className="grid gap-6 md:grid-cols-4">
-            {stats.map((stat) => (
-              <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm" key={stat.label}>
-                <strong className="font-heading text-4xl font-extrabold text-slate-950">{stat.value}</strong>
-                <span className="mt-3 block text-sm font-semibold text-slate-500">{stat.label}</span>
-              </div>
-            ))}
-          </div>
-        </MotionSection>
 
         <section className="bg-slate-950 py-20 text-white">
           <div className="section-shell">
@@ -282,17 +233,20 @@ export default function HomePage() {
         <section className="section-shell py-20">
           <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-soft md:p-12">
             <div className="max-w-3xl">
-              <h2 className="font-heading text-4xl font-bold">Ready to build a calmer, faster business operation?</h2>
+              <h2 className="font-heading text-4xl font-bold">Ready to connect with our team?</h2>
               <p className="mt-4 text-lg leading-8 text-slate-300">
-                Start with a free consultation and see how our virtual assistant service can streamline your operations.
+                Chat with us directly to discuss your business needs and get started with virtual assistant support.
               </p>
             </div>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button asChild size="lg">
-                <Link href="/hire">Get Started</Link>
-              </Button>
+              <ChatButton size="lg">
+                Start Chatting Now
+              </ChatButton>
               <Button asChild size="lg" variant="secondary">
-                <Link href="/pricing">View pricing</Link>
+                <Link href={site.whatsapp}>
+                  <MessageCircle size={18} />
+                  Chat us on WhatsApp
+                </Link>
               </Button>
             </div>
           </div>
