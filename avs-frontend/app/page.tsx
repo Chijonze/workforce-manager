@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { CheckCircle2, MessageCircle, ShieldCheck } from "lucide-react";
+import { CallButton } from "@/components/call-button";
 import { FloatingChat } from "@/components/floating-chat";
 import { MotionSection } from "@/components/motion-section";
 import { SiteFooter } from "@/components/site-footer";
@@ -53,6 +54,9 @@ export default function HomePage() {
                 <ChatButton size="lg">
                   Get Started
                 </ChatButton>
+                <CallButton size="lg" variant="secondary">
+                  Call us now
+                </CallButton>
                 <Button asChild size="lg" variant="secondary">
                   <Link href={site.whatsapp}>
                     <MessageCircle size={18} />
@@ -242,6 +246,9 @@ export default function HomePage() {
               <ChatButton size="lg">
                 Start Chatting Now
               </ChatButton>
+              <CallButton size="lg" variant="secondary">
+                Call us now
+              </CallButton>
               <Button asChild size="lg" variant="secondary">
                 <Link href={site.whatsapp}>
                   <MessageCircle size={18} />

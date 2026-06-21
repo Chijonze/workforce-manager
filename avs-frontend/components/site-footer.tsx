@@ -24,9 +24,9 @@ export function SiteFooter() {
               <Mail size={16} />
               {site.email}
             </a>
-            <a className="inline-flex items-center gap-2" href={`tel:${site.phone}`}>
+            <a className="inline-flex items-center gap-2" href={site.phoneHref}>
               <Phone size={16} />
-              {site.phone}
+              {site.phoneDisplay}
             </a>
             <a className="inline-flex items-center gap-2" href={site.whatsapp}>
               <MessageCircle size={16} />

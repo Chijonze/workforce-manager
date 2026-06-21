@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { CallButton } from "@/components/call-button";
 import { ChatButton } from "@/components/chat-button";
 import { navigation, site } from "@/lib/site-content";
 
@@ -37,6 +38,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-3 lg:flex">
+          <CallButton size="sm" variant="secondary">Call us now</CallButton>
           <ChatButton size="sm">Get Started</ChatButton>
         </div>
 
@@ -64,7 +66,10 @@ export function SiteHeader() {
               </Link>
             ))}
           </nav>
-          <div className="section-shell pb-4">
+          <div className="section-shell grid gap-3 pb-4">
+            <CallButton className="w-full" variant="secondary">
+              Call us now
+            </CallButton>
             <ChatButton className="w-full" onClick={() => setOpen(false)}>
               Get Started
             </ChatButton>

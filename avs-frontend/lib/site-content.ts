@@ -21,6 +21,8 @@ export const site = {
   wordmarkLogo: "/avs-logo-wordmark.png",
   email: "hello@advancedvirtualsolutions.com",
   phone: "44 7882 615046",
+  phoneDisplay: "+44 7882 615046",
+  phoneHref: "tel:+447882615046",
   whatsapp: process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/447882615046",
 };
 
@@ -29,6 +31,7 @@ export const navigation = [
   { label: "About", href: "/about" },
   { label: "Services", href: "/services" },
   { label: "Pricing", href: "/pricing" },
+  { label: "Call", href: "/call" },
   { label: "Blog", href: "/blog" },
   { label: "Contact", href: "/contact" },
 ];

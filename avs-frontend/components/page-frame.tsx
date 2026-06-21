@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { MessageCircle } from "lucide-react";
+import { CallButton } from "@/components/call-button";
 import { ChatButton } from "@/components/chat-button";
 import { FloatingChat } from "@/components/floating-chat";
 import { SiteFooter } from "@/components/site-footer";
@@ -34,6 +35,7 @@ export function PageFrame({
             <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">{summary}</p>
             <div className="mt-8 flex flex-wrap gap-3">
               <ChatButton>Get Started</ChatButton>
+              <CallButton variant="secondary">Call us now</CallButton>
               <Button asChild variant="secondary">
                 <Link href={site.whatsapp}>
                   <MessageCircle size={17} />

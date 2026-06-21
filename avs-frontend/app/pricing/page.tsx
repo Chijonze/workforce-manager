@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import { CheckCircle2 } from "lucide-react";
+import { CallButton } from "@/components/call-button";
 import { ChatButton } from "@/components/chat-button";
 import { FAQAccordion } from "@/components/faq-accordion";
 import { PageFrame } from "@/components/page-frame";
@@ -35,7 +36,10 @@ export default function PricingPage() {
                 </li>
               ))}
             </ul>
-            <ChatButton className="mt-7 w-full">Get Started</ChatButton>
+            <div className="mt-7 grid gap-3">
+              <ChatButton className="w-full">Get Started</ChatButton>
+              <CallButton className="w-full" variant="secondary">Call us now</CallButton>
+            </div>
           </Card>
         ))}
       </section>

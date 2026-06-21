@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Metadata } from "next";
 import { MessageCircle } from "lucide-react";
+import { CallButton } from "@/components/call-button";
 import { ChatButton } from "@/components/chat-button";
 import { PageFrame } from "@/components/page-frame";
 import { MotionSection } from "@/components/motion-section";
@@ -226,6 +227,7 @@ export default function ServicesPage() {
           <p className="mt-3 text-slate-600">Tell us about your business and let's find the right VA support for your needs.</p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <ChatButton size="lg">Get Started</ChatButton>
+            <CallButton size="lg" variant="secondary">Call us now</CallButton>
             <Button asChild size="lg" variant="secondary">
               <Link href={site.whatsapp}>
                 <MessageCircle size={18} />

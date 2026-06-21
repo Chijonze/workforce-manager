@@ -1,6 +1,7 @@
 import { Metadata } from "next";
-import { Mail, MessageCircle } from "lucide-react";
+import { Mail, MessageCircle, PhoneCall } from "lucide-react";
 
+import { CallButton } from "@/components/call-button";
 import { PageFrame } from "@/components/page-frame";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -19,7 +20,15 @@ export default function ContactPage() {
       title="Connect with us directly."
       summary="Chat instantly with our team or send us an email. We're here to help."
     >
-      <section className="section-shell grid gap-8 py-20 lg:grid-cols-2">
+      <section className="section-shell grid gap-8 py-20 lg:grid-cols-3">
+        <Card>
+          <PhoneCall className="text-blue-600" size={32} />
+          <h2 className="mt-4 font-heading text-2xl font-bold text-slate-950">Phone</h2>
+          <p className="mt-2 text-slate-600">Speak with our team directly about your VA needs, onboarding, or pricing questions.</p>
+          <CallButton className="mt-6">
+            {site.phoneDisplay}
+          </CallButton>
+        </Card>
         <Card>
           <MessageCircle className="text-blue-600" size={32} />
           <h2 className="mt-4 font-heading text-2xl font-bold text-slate-950">Live Chat</h2>
