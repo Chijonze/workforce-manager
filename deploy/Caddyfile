@@ -4,6 +4,10 @@
 
 {$DOMAIN} {
 	encode zstd gzip
+	handle /api/livekit/* {
+		reverse_proxy livekit-token-server:4810
+	}
+
 	handle /call/* {
 		reverse_proxy twilio-voice-router:4800
 	}
@@ -37,6 +41,10 @@ www.{$DOMAIN} {
 
 {$CHATWOOT_DOMAIN} {
 	encode zstd gzip
+	handle /api/livekit/* {
+		reverse_proxy livekit-token-server:4810
+	}
+
 	handle /call/* {
 		reverse_proxy twilio-voice-router:4800
 	}
@@ -60,6 +68,11 @@ www.{$DOMAIN} {
 	handle {
 		reverse_proxy chatwoot:3000
 	}
+}
+
+{$LIVEKIT_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy livekit:7880
 }
 
 {$EVOLUTION_MANAGER_DOMAIN} {

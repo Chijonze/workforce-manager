@@ -8,6 +8,8 @@ services:
       - workforce-backend
       - chatwoot
       - twilio-voice-router
+      - livekit
+      - livekit-token-server
       - evolution-api
       - evolution-manager
     ports:
@@ -19,6 +21,7 @@ services:
       WFM_DOMAIN: ${WFM_DOMAIN:-wfm.advancedvirtualsolutions.com}
       API_DOMAIN: ${API_DOMAIN:-api.advancedvirtualsolutions.com}
       CHATWOOT_DOMAIN: ${CHATWOOT_DOMAIN:-chat.advancedvirtualsolutions.com}
+      LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN:-livekit.advancedvirtualsolutions.com}
       EVOLUTION_MANAGER_DOMAIN: ${EVOLUTION_MANAGER_DOMAIN:-evolution.advancedvirtualsolutions.com}
       EVOLUTION_PUBLIC_API_DOMAIN: ${EVOLUTION_PUBLIC_API_DOMAIN:-evolution-api.advancedvirtualsolutions.com}
     volumes:
@@ -35,6 +38,7 @@ services:
         NEXT_PUBLIC_SITE_URL: https://${DOMAIN:-advancedvirtualsolutions.com}
         NEXT_PUBLIC_CALENDLY_URL: ${NEXT_PUBLIC_CALENDLY_URL}
         NEXT_PUBLIC_WHATSAPP_URL: ${NEXT_PUBLIC_WHATSAPP_URL}
+        NEXT_PUBLIC_LIVEKIT_WS_URL: wss://${LIVEKIT_DOMAIN:-livekit.advancedvirtualsolutions.com}
     restart: unless-stopped
     expose:
       - "3001"
@@ -187,6 +191,54 @@ services:
     networks:
       - web
       - data
+
+  livekit:
+    image: livekit/livekit-server:${LIVEKIT_IMAGE_TAG:-v1.9}
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    ports:
+      - "${LIVEKIT_BIND_ADDRESS:-127.0.0.1}:${LIVEKIT_CONTROL_PORT:-7801}:7880"
+      - "${LIVEKIT_RTC_TCP_PORT:-7881}:7881"
+      - "${LIVEKIT_RTC_UDP_PORT:-7882}:7882/udp"
+    volumes:
+      - ./deploy/livekit.yaml:/etc/livekit.yaml:ro
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 128M
+    networks:
+      - web
+
+  livekit-token-server:
+    build:
+      context: ./livekit-token-server
+    restart: unless-stopped
+    depends_on:
+      - livekit
+    environment:
+      PORT: 4810
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      LIVEKIT_PUBLIC_URL: wss://${LIVEKIT_DOMAIN:-livekit.advancedvirtualsolutions.com}
+      LIVEKIT_AGENT_VIDEO_BASE_URL: https://${DOMAIN:-advancedvirtualsolutions.com}/live-video
+      CHATWOOT_API_URL: https://${CHATWOOT_DOMAIN:-chat.advancedvirtualsolutions.com}
+      CHATWOOT_ACCOUNT_ID: ${CHATWOOT_ACCOUNT_ID:-}
+      CHATWOOT_API_INBOX_ID: ${CHATWOOT_API_INBOX_ID:-}
+      CHATWOOT_BOT_ACCESS_TOKEN: ${CHATWOOT_BOT_ACCESS_TOKEN:-}
+    expose:
+      - "4810"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+    networks:
+      - web
 
   evolution-api:
     image: evoapicloud/evolution-api:${EVOLUTION_IMAGE_TAG:-v2.3.0}
