@@ -45,6 +45,7 @@ import type {
   ScreenMonitorPresence,
   ShiftEvent,
   ShiftTemplate,
+  Role,
   User,
 } from "@/types/workforce";
 
@@ -82,6 +83,10 @@ type AuthResponse = {
   mfaToken?: string;
   mfaSetupRequired?: boolean;
 };
+
+function formatRole(role: Role) {
+  return role === "supervisor" ? "Hiring manager" : role;
+}
 
 type MfaSetup = {
   manualKey: string;
@@ -316,6 +321,7 @@ export default function Home() {
     name: "",
     email: "",
     password: "",
+    role: "agent" as Extract<Role, "agent" | "supervisor">,
   });
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
@@ -529,6 +535,10 @@ export default function Home() {
       const currentUser = await apiRequest<User>("/api/auth/me", { token: authToken });
       setUser(currentUser);
 
+      if (currentUser.accountStatus === "pending") {
+        return currentUser;
+      }
+
       if (!currentUser.mfaEnabled && currentUser.role !== "supervisor") {
         await startMfaSetup(authToken);
         return currentUser;
@@ -548,6 +558,7 @@ export default function Home() {
       });
 
       setAdminOverview(overview);
+      await refreshChat(authToken, selectedConversationId);
       setActiveShift(null);
       setDailyPerformance(null);
       setEvents([]);
@@ -555,9 +566,6 @@ export default function Home() {
       setTemplates([]);
       setUsers([]);
       setLeaveRequests([]);
-      setChatRecipients([]);
-      setChatConversations([]);
-      setChatMessages([]);
       return;
     }
 
@@ -665,6 +673,7 @@ export default function Home() {
             name: authForm.name,
             email: authForm.email,
             password: authForm.password,
+            role: authForm.role,
           };
 
     const result = await runAction(
@@ -691,6 +700,11 @@ export default function Home() {
     setUser(result.user);
     setPendingMfaToken(null);
     setMfaCode("");
+
+    if (result.user.accountStatus === "pending") {
+      notify("success", "Your hiring manager account is awaiting admin approval");
+      return;
+    }
 
     if (result.user.role !== "supervisor" && (result.mfaSetupRequired || !result.user.mfaEnabled)) {
       await startMfaSetup(result.token);
@@ -1046,6 +1060,18 @@ export default function Home() {
       setChatMessages([]);
       await refreshWorkspace();
     }, `${member.name} deleted`);
+  }
+
+  async function approveUserAccount(member: User) {
+    if (!token || !isAdmin) return;
+
+    await runAction(async () => {
+      await apiRequest<User>(`/api/auth/users/${member._id}/approve`, {
+        method: "PUT",
+        token,
+      });
+      await refreshWorkspace();
+    }, `${member.name} approved`);
   }
 
   async function shiftAction(path: string, success: string) {
@@ -1525,17 +1551,36 @@ export default function Home() {
           ) : (
           <form onSubmit={handleAuth}>
             {authMode === "register" && (
-              <div className="field">
-                <label htmlFor="name">Name</label>
-                <input
-                  id="name"
-                  value={authForm.name}
-                  onChange={(event) =>
-                    setAuthForm((current) => ({ ...current, name: event.target.value }))
-                  }
-                  required
-                />
-              </div>
+              <>
+                <div className="field">
+                  <label htmlFor="name">Name</label>
+                  <input
+                    id="name"
+                    value={authForm.name}
+                    onChange={(event) =>
+                      setAuthForm((current) => ({ ...current, name: event.target.value }))
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="role">Role</label>
+                  <select
+                    id="role"
+                    value={authForm.role}
+                    onChange={(event) =>
+                      setAuthForm((current) => ({
+                        ...current,
+                        role: event.target.value as Extract<Role, "agent" | "supervisor">,
+                      }))
+                    }
+                  >
+                    <option value="agent">Agent</option>
+                    <option value="supervisor">Hiring manager</option>
+                  </select>
+                </div>
+              </>
             )}
 
             <div className="field">
@@ -1586,6 +1631,36 @@ export default function Home() {
     );
   }
 
+  if (user.accountStatus === "pending") {
+    return (
+      <>
+        <DesktopOnlyNotice />
+        <main className="auth-wrap">
+          <ToastStack toasts={toasts} />
+          <section className="auth-panel">
+            <div className="brand">
+              <div className="brand-mark">
+                <ShieldCheck size={22} />
+              </div>
+              <div>
+                <h1>Workforce Manager</h1>
+                <p>Hiring manager approval pending</p>
+              </div>
+            </div>
+            <p className="muted">
+              Your hiring manager account was created successfully. An admin must approve it before
+              the dashboard becomes available.
+            </p>
+            <button className="button full" type="button" onClick={logout}>
+              <LogOut size={17} />
+              Sign out
+            </button>
+          </section>
+        </main>
+      </>
+    );
+  }
+
   return (
     <>
       <DesktopOnlyNotice />
@@ -1604,7 +1679,7 @@ export default function Home() {
 
         <div className="user-strip">
           <span>
-            {user.name} <span className="pill">{user.role}</span>
+            {user.name} <span className="pill">{formatRole(user.role)}</span>
           </span>
           {user.role !== "supervisor" && (
             <button className="button secondary" type="button" onClick={() => startMfaSetup()}>
@@ -1721,6 +1796,22 @@ export default function Home() {
               onStop={stopScreenMonitor}
             />
             {adminOverviewPanel}
+            <ChatPanel
+              conversations={chatConversations}
+              currentUser={user}
+              draft={chatDraft}
+              loading={loading}
+              messages={chatMessages}
+              recipients={chatRecipients}
+              selectedConversationId={selectedConversationId}
+              selectedRecipientId={chatRecipientId}
+              onChangeDraft={setChatDraft}
+              onChangeRecipient={setChatRecipientId}
+              onRefresh={() => refreshChat()}
+              onSelectConversation={selectConversation}
+              onSendMessage={sendChatMessage}
+              onStartConversation={startConversation}
+            />
           </>
         ) : (
           <>
@@ -2129,6 +2220,7 @@ export default function Home() {
             currentUserId={user._id}
             loading={loading}
             users={users}
+            onApproveUser={approveUserAccount}
             onDeleteUser={deleteUserAccount}
           />
         )}
@@ -2765,9 +2857,7 @@ function ChatPanel({
           <div>
             <h2>Team Chat</h2>
             <p className="panel-subtitle">
-              {currentUser.role === "admin"
-                ? "Message users and admins"
-                : "Message an admin directly"}
+              Message anyone on the workforce dashboard
             </p>
           </div>
         </div>
@@ -2790,7 +2880,7 @@ function ChatPanel({
                 {recipients.length ? (
                   recipients.map((recipient) => (
                     <option key={recipient._id} value={recipient._id}>
-                      {recipient.name} ({recipient.role})
+                      {recipient.name} ({formatRole(recipient.role)})
                     </option>
                   ))
                 ) : (
@@ -2843,7 +2933,7 @@ function ChatPanel({
               <strong>{activeRecipient?.name || "Select a conversation"}</strong>
               <span>{activeRecipient?.email || "Choose who you want to message."}</span>
             </div>
-            {activeRecipient && <span className="pill">{activeRecipient.role}</span>}
+            {activeRecipient && <span className="pill">{formatRole(activeRecipient.role)}</span>}
           </div>
 
           <div className="message-list">
@@ -2886,11 +2976,13 @@ function ChatPanel({
 function UserAccountsPanel({
   currentUserId,
   loading,
+  onApproveUser,
   onDeleteUser,
   users,
 }: {
   currentUserId: string;
   loading: boolean;
+  onApproveUser: (user: User) => void;
   users: User[];
   onDeleteUser: (user: User) => void;
 }) {
@@ -2913,6 +3005,7 @@ function UserAccountsPanel({
               <th>Name</th>
               <th>Email</th>
               <th>Role</th>
+              <th>Status</th>
               <th>MFA</th>
               <th>Action</th>
             </tr>
@@ -2921,6 +3014,8 @@ function UserAccountsPanel({
             {users.map((member) => {
               const isCurrentUser = member._id === currentUserId;
               const canDelete = !isCurrentUser && member.role !== "admin";
+              const accountStatus = member.accountStatus || "approved";
+              const canApprove = member.role === "supervisor" && accountStatus === "pending";
 
               return (
                 <tr key={member._id}>
@@ -2929,18 +3024,36 @@ function UserAccountsPanel({
                     {isCurrentUser && <span>Signed-in account</span>}
                   </td>
                   <td>{member.email}</td>
-                  <td>{member.role}</td>
+                  <td>{formatRole(member.role)}</td>
+                  <td>
+                    <span className={`pill ${accountStatus === "pending" ? "warn" : ""}`}>
+                      {accountStatus}
+                    </span>
+                  </td>
                   <td>{member.mfaEnabled ? "Enabled" : "Not enabled"}</td>
                   <td>
-                    <button
-                      className="button danger account-delete-button"
-                      disabled={loading || !canDelete}
-                      type="button"
-                      onClick={() => onDeleteUser(member)}
-                    >
-                      <Trash2 size={16} />
-                      {member.role === "admin" ? "Protected" : "Delete"}
-                    </button>
+                    <div className="review-actions account-actions">
+                      {canApprove && (
+                        <button
+                          className="button secondary"
+                          disabled={loading}
+                          type="button"
+                          onClick={() => onApproveUser(member)}
+                        >
+                          <BadgeCheck size={16} />
+                          Approve
+                        </button>
+                      )}
+                      <button
+                        className="button danger account-delete-button"
+                        disabled={loading || !canDelete}
+                        type="button"
+                        onClick={() => onDeleteUser(member)}
+                      >
+                        <Trash2 size={16} />
+                        {member.role === "admin" ? "Protected" : "Delete"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

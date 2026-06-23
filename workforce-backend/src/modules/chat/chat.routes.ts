@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { protect, requireNonSupervisor } from "../../middleware/auth.middleware";
+import { protect } from "../../middleware/auth.middleware";
 import {
   conversations,
   createMessage,
@@ -10,7 +10,7 @@ import {
 
 export const router = Router();
 
-router.use(protect, requireNonSupervisor);
+router.use(protect);
 router.get("/recipients", recipients);
 router.get("/conversations", conversations);
 router.post("/conversations", openConversation);

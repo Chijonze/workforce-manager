@@ -30,8 +30,10 @@ const sanitizeUser = (user: any) => {
 export const registerUser = async (
   name: string,
   email: string,
-  password: string
+  password: string,
+  requestedRole: "agent" | "supervisor" = "agent"
 ) => {
+  const role = requestedRole === "supervisor" ? "supervisor" : "agent";
   const existingUser = await User.findOne({ email });
 
   if (existingUser) {
@@ -44,7 +46,8 @@ export const registerUser = async (
     name,
     email,
     password: hashedPassword,
-    role: "agent",
+    role,
+    accountStatus: role === "supervisor" ? "pending" : "approved",
   });
 
   const token = generateToken(user._id.toString(), !isMfaRequired());
@@ -111,9 +114,30 @@ export const getCurrentUser = async (userId: string) => {
 };
 
 export const getUsers = async () => {
-  return await User.find().select("_id name email role mfaEnabled createdAt").sort({
+  return await User.find().select("_id name email role accountStatus mfaEnabled createdAt").sort({
     name: 1,
   });
+};
+
+export const approveUserAccount = async (targetUserId: string) => {
+  if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+    throw new Error("Invalid user");
+  }
+
+  const user = await User.findById(targetUserId).select("_id name role accountStatus");
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  if (user.role === "admin") {
+    throw new Error("Admin accounts do not require approval");
+  }
+
+  user.accountStatus = "approved";
+  await user.save();
+
+  return sanitizeUser(user);
 };
 
 export const deleteUserAccount = async (currentUserId: string, targetUserId: string) => {

@@ -25,7 +25,7 @@ export const protect = async (
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    const user = await User.findById(decoded.userId).select("_id name email role");
+    const user = await User.findById(decoded.userId).select("_id name email role accountStatus");
 
     if (!user) {
       return res.status(401).json({ message: "User not found" });
@@ -36,6 +36,7 @@ export const protect = async (
       name: user.name,
       email: user.email,
       role: user.role,
+      accountStatus: user.accountStatus || "approved",
       mfaVerified: decoded.mfaVerified !== false,
     };
 
@@ -50,6 +51,16 @@ export const protect = async (
       return res.status(403).json({
         message: "MFA setup is required before accessing the dashboard",
         mfaSetupRequired: true,
+      });
+    }
+
+    const accountStatus = user.accountStatus || "approved";
+    const approvalStatusPath = req.baseUrl === "/api/auth" && req.path === "/me";
+
+    if (accountStatus !== "approved" && !approvalStatusPath) {
+      return res.status(403).json({
+        message: "Your hiring manager account is awaiting admin approval",
+        accountApprovalRequired: true,
       });
     }
 

@@ -3,7 +3,7 @@ import ChatConversation from "../../models/ChatConversation";
 import ChatMessage from "../../models/ChatMessage";
 import User from "../../models/User";
 
-const userProjection = "_id name email role";
+const userProjection = "_id name email role accountStatus";
 
 const normalizeParticipants = (userId: string, recipientId: string) =>
   [userId, recipientId].sort((a, b) => a.localeCompare(b));
@@ -42,18 +42,14 @@ const ensureChatAllowed = async (currentUser: any, recipientId: string) => {
     throw new Error("Recipient not found");
   }
 
-  if (currentUser.role !== "admin" && recipient.role !== "admin") {
-    throw new Error("Users can only message admins");
-  }
-
   return recipient;
 };
 
 export const getChatRecipients = async (currentUser: any) => {
-  const query =
-    currentUser.role === "admin"
-      ? { _id: { $ne: currentUser.userId } }
-      : { role: "admin", _id: { $ne: currentUser.userId } };
+  const query = {
+    _id: { $ne: currentUser.userId },
+    $or: [{ accountStatus: "approved" }, { accountStatus: { $exists: false } }],
+  };
 
   return User.find(query).select(userProjection).sort({ role: 1, name: 1 });
 };

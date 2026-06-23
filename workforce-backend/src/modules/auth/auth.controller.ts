@@ -9,14 +9,15 @@ import {
   verifyLoginMfa,
   verifyReturnMfa,
   deleteUserAccount,
+  approveUserAccount,
 } from "./auth.service";
 import { notifyTelegramLogin } from "../../utils/telegramNotifier";
 
 export const register = async (req: Request, res: Response) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role } = req.body;
 
-    const data = await registerUser(name, email, password);
+    const data = await registerUser(name, email, password, role);
 
     res.status(201).json(data);
   } catch (error: any) {
@@ -118,6 +119,16 @@ export const deleteUser = async (req: Request, res: Response) => {
     const result = await deleteUserAccount(currentUserId, String(req.params.userId));
 
     res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const approveUser = async (req: Request, res: Response) => {
+  try {
+    const user = await approveUserAccount(String(req.params.userId));
+
+    res.status(200).json(user);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }

@@ -1048,6 +1048,10 @@ select:focus {
   padding: 8px 11px;
 }
 
+.account-actions {
+  min-width: max-content;
+}
+
 .muted {
   color: var(--muted);
 }
