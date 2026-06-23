@@ -18,9 +18,10 @@ import { Button, type ButtonProps } from "@/components/ui/button";
 
 type VideoCallButtonProps = ButtonProps & {
   children?: React.ReactNode;
+  iconSize?: number;
 };
 
-export function VideoCallButton({ children = "Video call", asChild: _asChild, ...props }: VideoCallButtonProps) {
+export function VideoCallButton({ children = "Video call", iconSize = 18, asChild: _asChild, ...props }: VideoCallButtonProps) {
   const [chooserOpen, setChooserOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState("Ready");
@@ -156,7 +157,7 @@ export function VideoCallButton({ children = "Video call", asChild: _asChild, ..
   return (
     <>
       <Button type="button" onClick={() => setChooserOpen(true)} {...props}>
-        <PhoneCall size={18} />
+        <PhoneCall size={iconSize} />
         {children}
       </Button>
 
