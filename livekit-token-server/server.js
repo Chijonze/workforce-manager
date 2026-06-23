@@ -68,10 +68,10 @@ async function postChatwootInteraction({ mode, roomName, identity, displayName, 
   const conversationId = conversationJson?.id;
 
   if (conversationId) {
-    const videoUrl = `${LIVEKIT_AGENT_VIDEO_BASE_URL || "https://advancedvirtualsolutions.com/live-video"}?room=${encodeURIComponent(roomName || "")}&role=agent`;
+    const joinUrl = `${LIVEKIT_AGENT_VIDEO_BASE_URL || "https://advancedvirtualsolutions.com/live-video"}?room=${encodeURIComponent(roomName || "")}&role=agent&mode=${mode}`;
     const content = mode === "video"
-      ? `Video call request: ${videoUrl}`
-      : `Voice call request from website visitor. Reply in Chatwoot or use your configured voice dashboard app. Page: ${pageUrl || "unknown"}`;
+      ? `Video call request: ${joinUrl}`
+      : `Voice call request: ${joinUrl}`;
 
     await fetch(
       `${CHATWOOT_API_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
@@ -95,6 +95,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.post("/api/livekit/token", async (req, res) => {
   try {
     const role = req.body?.role === "agent" ? "agent" : "customer";
+    const mode = req.body?.mode === "voice" ? "voice" : "video";
     const roomName = cleanId(req.body?.roomName, `avs-${Date.now()}`);
     const identity = cleanId(req.body?.identity, `${role}-${randomUUID()}`);
     const displayName = String(req.body?.displayName || (role === "agent" ? "AVS Agent" : "Website Visitor")).slice(0, 80);
@@ -114,7 +115,7 @@ app.post("/api/livekit/token", async (req, res) => {
     });
 
     const chatwoot = role === "customer"
-      ? await postChatwootInteraction({ mode: "video", roomName, identity, displayName, pageUrl: req.body?.pageUrl })
+      ? await postChatwootInteraction({ mode, roomName, identity, displayName, pageUrl: req.body?.pageUrl })
       : null;
 
     res.json({
@@ -132,17 +133,18 @@ app.post("/api/livekit/token", async (req, res) => {
 
 app.post("/api/livekit/voice-request", async (req, res) => {
   try {
+    const roomName = cleanId(req.body?.roomName, `voice-${Date.now()}`);
     const identity = cleanId(req.body?.identity, `voice-${randomUUID()}`);
     const displayName = String(req.body?.displayName || "Website voice caller").slice(0, 80);
     const chatwoot = await postChatwootInteraction({
       mode: "voice",
-      roomName: "",
+      roomName,
       identity,
       displayName,
       pageUrl: req.body?.pageUrl,
     });
 
-    res.json({ ok: true, identity, chatwoot });
+    res.json({ ok: true, identity, roomName, chatwoot });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Unable to create voice request" });

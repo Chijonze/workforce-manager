@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 export function AgentVideoPanel() {
   const searchParams = useSearchParams();
   const roomName = searchParams.get("room") || "";
+  const mode = searchParams.get("mode") === "voice" ? "voice" : "video";
   const [status, setStatus] = useState(roomName ? "Ready to join" : "Missing room");
   const [room, setRoom] = useState<Room | null>(null);
   const localVideoRef = useRef<HTMLDivElement>(null);
@@ -41,6 +42,7 @@ export function AgentVideoPanel() {
         body: JSON.stringify({
           roomName,
           role: "agent",
+          mode,
           identity: `agent-${crypto.randomUUID()}`,
           displayName: "AVS Agent",
         }),
@@ -66,7 +68,10 @@ export function AgentVideoPanel() {
       });
       nextRoom.on(RoomEvent.Disconnected, () => setStatus("Call ended"));
 
-      const tracks = await createLocalTracks({ audio: true, video: { resolution: VideoPresets.h360.resolution } });
+      const tracks = await createLocalTracks({
+        audio: true,
+        video: mode === "video" ? { resolution: VideoPresets.h360.resolution } : false,
+      });
       const localVideo = tracks.find((track) => track.kind === Track.Kind.Video) as LocalVideoTrack | undefined;
       if (localVideo && localVideoRef.current) localVideoRef.current.replaceChildren(localVideo.attach());
 
@@ -74,7 +79,7 @@ export function AgentVideoPanel() {
       await Promise.all(tracks.map((track) => nextRoom.localParticipant.publishTrack(track)));
 
       setRoom(nextRoom);
-      setStatus("Connected");
+      setStatus(mode === "voice" ? "Connected to voice call" : "Connected");
     } catch (error) {
       console.error(error);
       setStatus("Could not join video call");
@@ -82,6 +87,11 @@ export function AgentVideoPanel() {
   }
 
   function handleRemoteTrack(track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant) {
+    if (track.kind === Track.Kind.Audio) {
+      track.attach();
+      setStatus(`${participant.name || "Customer"} is on voice`);
+      return;
+    }
     if (track.kind !== Track.Kind.Video || !remoteVideoRef.current) return;
     remoteVideoRef.current.replaceChildren(track.attach());
     setStatus(`${participant.name || "Customer"} is on video`);
@@ -91,7 +101,7 @@ export function AgentVideoPanel() {
     <main className="min-h-screen bg-slate-950 p-3 text-white">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-base font-bold">AVS video call</h1>
+          <h1 className="text-base font-bold">AVS {mode} call</h1>
           <p className="text-xs text-slate-300">{status}</p>
         </div>
         <Button type="button" size="sm" onClick={joinCall} disabled={!roomName || Boolean(room)}>

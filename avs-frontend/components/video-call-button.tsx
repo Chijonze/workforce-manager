@@ -93,22 +93,46 @@ export function VideoCallButton({ children = "Video call", asChild: _asChild, ..
   }
 
   async function requestVoiceCall() {
-    setStatus("Sending voice request...");
+    setChooserOpen(false);
+    setOpen(true);
+    setStatus("Requesting microphone...");
     try {
-      const response = await fetch("/api/livekit/voice-request", {
+      const roomName = `voice-${crypto.randomUUID()}`;
+      const response = await fetch("/api/livekit/token", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          roomName,
           identity: `voice-${crypto.randomUUID()}`,
+          role: "customer",
+          mode: "voice",
           displayName: "Website voice caller",
           pageUrl: window.location.href,
         }),
       });
 
       if (!response.ok) throw new Error("Voice request failed");
-      setChooserOpen(false);
-      setOpen(true);
-      setStatus("Voice request sent. An AVS agent will respond in Chatwoot.");
+      const tokenData = await response.json();
+      const nextRoom = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        publishDefaults: {
+          audioPreset: AudioPresets.speech,
+          dtx: true,
+          red: false,
+        },
+      });
+
+      nextRoom.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+        setStatus(`${participant.name || "Agent"} joined voice`);
+      });
+      nextRoom.on(RoomEvent.Disconnected, () => setStatus("Call ended"));
+
+      const tracks = await createLocalTracks({ audio: true, video: false });
+      await nextRoom.connect(tokenData.url, tokenData.token);
+      await Promise.all(tracks.map((track) => nextRoom.localParticipant.publishTrack(track)));
+      setRoom(nextRoom);
+      setStatus("Voice request sent. Waiting for an AVS agent...");
     } catch (error) {
       console.error(error);
       setStatus("Could not send voice request. Please try chat.");
