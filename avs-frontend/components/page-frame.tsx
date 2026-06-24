@@ -36,7 +36,11 @@ export function PageFrame({
             <div className="mt-8 flex flex-wrap gap-3">
               <ChatButton>Get Started</ChatButton>
               <CallButton variant="secondary">Call us now</CallButton>
-              <Button asChild variant="secondary">
+              <Button
+                asChild
+                className="bg-emerald-600 text-white shadow-[0_18px_40px_rgba(5,150,105,0.28)] hover:bg-emerald-500 focus-visible:outline-emerald-500"
+                variant="secondary"
+              >
                 <Link href={site.whatsapp}>
                   <MessageCircle size={17} />
                   Chat us on WhatsApp

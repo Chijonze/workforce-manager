@@ -228,7 +228,12 @@ export default function ServicesPage() {
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <ChatButton size="lg">Get Started</ChatButton>
             <CallButton size="lg" variant="secondary">Call us now</CallButton>
-            <Button asChild size="lg" variant="secondary">
+            <Button
+              asChild
+              className="bg-emerald-600 text-white shadow-[0_18px_40px_rgba(5,150,105,0.28)] hover:bg-emerald-500 focus-visible:outline-emerald-500"
+              size="lg"
+              variant="secondary"
+            >
               <Link href={site.whatsapp}>
                 <MessageCircle size={18} />
                 Chat us on WhatsApp

@@ -333,8 +333,6 @@ export default function Home() {
   });
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
-  const [mfaReturnCode, setMfaReturnCode] = useState("");
-  const [mfaReturnLocked, setMfaReturnLocked] = useState(false);
   const [mfaSetup, setMfaSetup] = useState<MfaSetup | null>(null);
   const [mfaSetupCode, setMfaSetupCode] = useState("");
   const [templateForm, setTemplateForm] = useState({
@@ -432,26 +430,6 @@ export default function Home() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    function handleVisibilityChange() {
-      if (!user?.mfaEnabled || user.role === "supervisor" || !token) return;
-
-      if (document.visibilityState === "hidden") {
-        window.sessionStorage.setItem("workforce_mfa_away", "1");
-      }
-
-      if (
-        document.visibilityState === "visible" &&
-        window.sessionStorage.getItem("workforce_mfa_away") === "1"
-      ) {
-        setMfaReturnLocked(true);
-      }
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [token, user?.mfaEnabled, user?.role]);
 
   useEffect(() => {
     const next = allowedTransitions[currentActivity][0] || "AVAILABLE";
@@ -787,27 +765,6 @@ export default function Home() {
       setMfaSetup(null);
       setMfaSetupCode("");
       await refreshWorkspace(result.token, result.user);
-    }
-  }
-
-  async function verifyReturnMfa(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!token) return;
-
-    const result = await runAction(
-      () =>
-        apiRequest<{ verified: boolean }>("/api/auth/mfa/verify-return", {
-          method: "POST",
-          token,
-          body: { code: mfaReturnCode },
-        }),
-      "Welcome back"
-    );
-
-    if (result?.verified) {
-      window.sessionStorage.removeItem("workforce_mfa_away");
-      setMfaReturnLocked(false);
-      setMfaReturnCode("");
     }
   }
 
@@ -1764,41 +1721,6 @@ export default function Home() {
                   Cancel
                 </button>
               </div>
-            </form>
-          </section>
-        </div>
-      )}
-
-      {mfaReturnLocked && (
-        <div className="modal-backdrop">
-          <section className="auth-panel mfa-modal">
-            <div className="panel-title">
-              <KeyRound size={20} />
-              <div>
-                <h2>Welcome Back</h2>
-                <p className="panel-subtitle">Enter your authenticator code to continue.</p>
-              </div>
-            </div>
-            <form onSubmit={verifyReturnMfa}>
-              <div className="field">
-                <label htmlFor="mfa-return-code">Authenticator code</label>
-                <input
-                  id="mfa-return-code"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={mfaReturnCode}
-                  onChange={(event) => setMfaReturnCode(event.target.value.replace(/\D/g, ""))}
-                  required
-                />
-              </div>
-              <button
-                className="button full"
-                disabled={loading || mfaReturnCode.length !== 6}
-                type="submit"
-              >
-                <KeyRound size={17} />
-                Unlock dashboard
-              </button>
             </form>
           </section>
         </div>
