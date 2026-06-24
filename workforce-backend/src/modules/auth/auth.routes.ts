@@ -6,6 +6,7 @@ import {
   listUsers,
   deleteUser,
   approveUser,
+  assignAgents,
   setupMfa,
   confirmMfa,
   verifyMfa,
@@ -24,6 +25,7 @@ router.post("/mfa/confirm", protect, requireNonSupervisor, confirmMfa);
 router.post("/mfa/verify-return", protect, requireNonSupervisor, verifyReturn);
 router.get("/users", protect, requireAdmin, listUsers);
 router.put("/users/:userId/approve", protect, requireAdmin, approveUser);
+router.put("/users/:userId/assigned-agents", protect, requireAdmin, assignAgents);
 router.delete("/users/:userId", protect, requireAdmin, deleteUser);
 
 // 🧪 TEST PROTECTED ROUTE

@@ -11,6 +11,7 @@ import {
   Clock3,
   Coffee,
   DoorOpen,
+  Download,
   Eye,
   EyeOff,
   History,
@@ -86,6 +87,13 @@ type AuthResponse = {
 
 function formatRole(role: Role) {
   return role === "supervisor" ? "Hiring manager" : role;
+}
+
+function escapeExcelCell(value: string | number | undefined | null) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 type MfaSetup = {
@@ -1074,6 +1082,19 @@ export default function Home() {
     }, `${member.name} approved`);
   }
 
+  async function assignAgentsToManager(manager: User, agentIds: string[]) {
+    if (!token || !isAdmin) return;
+
+    await runAction(async () => {
+      await apiRequest<User>(`/api/auth/users/${manager._id}/assigned-agents`, {
+        method: "PUT",
+        token,
+        body: { agentIds },
+      });
+      await refreshWorkspace();
+    }, `${manager.name}'s agents updated`);
+  }
+
   async function shiftAction(path: string, success: string) {
     if (!token) return;
 
@@ -1375,6 +1396,7 @@ export default function Home() {
   const adminOverviewPanel =
     canMonitorWorkforce && adminOverview ? (
       <AdminOverviewPanel
+        canDownload={isAdmin}
         loading={loading}
         overview={adminOverview}
         onRunMaintenance={isAdmin ? runMaintenance : undefined}
@@ -2216,13 +2238,20 @@ export default function Home() {
         )}
 
         {isAdmin && (
-          <UserAccountsPanel
-            currentUserId={user._id}
-            loading={loading}
-            users={users}
-            onApproveUser={approveUserAccount}
-            onDeleteUser={deleteUserAccount}
-          />
+          <>
+            <HiringManagerAgentAllocationPanel
+              loading={loading}
+              users={users}
+              onAssignAgents={assignAgentsToManager}
+            />
+            <UserAccountsPanel
+              currentUserId={user._id}
+              loading={loading}
+              users={users}
+              onApproveUser={approveUserAccount}
+              onDeleteUser={deleteUserAccount}
+            />
+          </>
         )}
 
         {!isAdmin && (
@@ -2973,6 +3002,108 @@ function ChatPanel({
   );
 }
 
+function HiringManagerAgentAllocationPanel({
+  loading,
+  onAssignAgents,
+  users,
+}: {
+  loading: boolean;
+  users: User[];
+  onAssignAgents: (user: User, agentIds: string[]) => void;
+}) {
+  const managers = useMemo(() => users.filter((member) => member.role === "supervisor"), [users]);
+  const agents = useMemo(() => users.filter((member) => member.role === "agent"), [users]);
+  const [managerId, setManagerId] = useState("");
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const manager = managers.find((item) => item._id === managerId) || null;
+  const assignedKey = (manager?.assignedAgentIds || []).map(String).join("|");
+
+  useEffect(() => {
+    setManagerId((current) =>
+      managers.some((item) => item._id === current) ? current : managers[0]?._id || ""
+    );
+  }, [managers]);
+
+  useEffect(() => {
+    setSelectedAgentIds((manager?.assignedAgentIds || []).map(String));
+  }, [manager?._id, assignedKey]);
+
+  function toggleAgent(agentId: string, checked: boolean) {
+    setSelectedAgentIds((current) =>
+      checked ? [...new Set([...current, agentId])] : current.filter((id) => id !== agentId)
+    );
+  }
+
+  return (
+    <section className="panel manager-allocation-panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <UserRound size={20} />
+          <div>
+            <h2>Hiring Manager Agent Allocation</h2>
+            <p className="panel-subtitle">Assigned agents appear in hiring manager chat and execution overview</p>
+          </div>
+        </div>
+        <button
+          className="button"
+          disabled={loading || !manager}
+          type="button"
+          onClick={() => manager && onAssignAgents(manager, selectedAgentIds)}
+        >
+          <CheckCircle2 size={17} />
+          Save allocation
+        </button>
+      </div>
+
+      <div className="manager-allocation-grid">
+        <div className="field">
+          <label htmlFor="allocation-manager">Hiring manager</label>
+          <select
+            id="allocation-manager"
+            disabled={loading || !managers.length}
+            value={managerId}
+            onChange={(event) => setManagerId(event.target.value)}
+          >
+            {managers.length ? (
+              managers.map((item) => (
+                <option key={item._id} value={item._id}>
+                  {item.name} ({item.email})
+                </option>
+              ))
+            ) : (
+              <option value="">No hiring managers</option>
+            )}
+          </select>
+          <span className="muted">
+            {manager ? `${selectedAgentIds.length} of ${agents.length} agents assigned` : "Select a hiring manager"}
+          </span>
+        </div>
+
+        <div className="agent-allocation-list">
+          {agents.length ? (
+            agents.map((agent) => (
+              <label className="agent-check" key={agent._id}>
+                <input
+                  type="checkbox"
+                  checked={selectedAgentIds.includes(agent._id)}
+                  disabled={loading || !manager}
+                  onChange={(event) => toggleAgent(agent._id, event.target.checked)}
+                />
+                <span>
+                  <strong>{agent.name}</strong>
+                  <small>{agent.email}</small>
+                </span>
+              </label>
+            ))
+          ) : (
+            <p className="muted">No agents available to assign.</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function UserAccountsPanel({
   currentUserId,
   loading,
@@ -2986,6 +3117,7 @@ function UserAccountsPanel({
   users: User[];
   onDeleteUser: (user: User) => void;
 }) {
+
   return (
     <section className="panel user-accounts-panel">
       <div className="panel-header">
@@ -3158,14 +3290,59 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 }
 
 function AdminOverviewPanel({
+  canDownload = false,
   loading,
   overview,
   onRunMaintenance,
 }: {
+  canDownload?: boolean;
   loading: boolean;
   overview: AdminOverview;
   onRunMaintenance?: () => void;
 }) {
+  function downloadOverviewExcel() {
+    const rows = overview.users.map((item) => {
+      const adherence =
+        item.performance.adherenceScore ??
+        item.performance.breakdown.activityAdherenceScore ??
+        item.performance.breakdown.breakScore;
+
+      return `
+        <tr>
+          <td>${escapeExcelCell(item.user.name)}</td>
+          <td>${escapeExcelCell(item.user.email)}</td>
+          <td>${escapeExcelCell(formatRole(item.user.role))}</td>
+          <td>${escapeExcelCell(item.performance.status)}</td>
+          <td>${escapeExcelCell(item.performance.overallScore)}%</td>
+          <td>${escapeExcelCell(adherence)}%</td>
+          <td>${escapeExcelCell(item.performance.workedMinutes)}m</td>
+          <td>${escapeExcelCell(item.performance.lateMinutes)}m</td>
+          <td>${escapeExcelCell(item.performance.overtimeMinutes)}m</td>
+        </tr>`;
+    });
+    const html = `
+      <html>
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <table>
+            <thead>
+              <tr>
+                <th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Overall</th>
+                <th>Adherence</th><th>Worked</th><th>Late</th><th>Overtime</th>
+              </tr>
+            </thead>
+            <tbody>${rows.join("")}</tbody>
+          </table>
+        </body>
+      </html>`;
+    const blob = new Blob([html], { type: "application/vnd.ms-excel" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `admin-execution-overview-${String(overview.date).slice(0, 10)}.xls`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   return (
     <section className="panel admin-overview">
       <div className="panel-header">
@@ -3178,12 +3355,20 @@ function AdminOverviewPanel({
             </p>
           </div>
         </div>
-        {onRunMaintenance && (
-          <button className="button secondary" disabled={loading} type="button" onClick={onRunMaintenance}>
-            <RefreshCw size={17} />
-            Run maintenance
-          </button>
-        )}
+        <div className="review-actions">
+          {canDownload && (
+            <button className="button secondary" type="button" onClick={downloadOverviewExcel}>
+              <Download size={17} />
+              Download Excel
+            </button>
+          )}
+          {onRunMaintenance && (
+            <button className="button secondary" disabled={loading} type="button" onClick={onRunMaintenance}>
+              <RefreshCw size={17} />
+              Run maintenance
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="metrics admin-metrics">
@@ -3230,6 +3415,7 @@ function AdminOverviewPanel({
           <thead>
             <tr>
               <th>User</th>
+              <th>Role</th>
               <th>Status</th>
               <th>Overall</th>
               <th>Adherence</th>
@@ -3245,6 +3431,7 @@ function AdminOverviewPanel({
                   <strong>{item.user.name}</strong>
                   <span>{item.user.email}</span>
                 </td>
+                <td>{formatRole(item.user.role)}</td>
                 <td>{item.performance.status}</td>
                 <td>{item.performance.overallScore}%</td>
                 <td>

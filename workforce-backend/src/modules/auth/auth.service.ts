@@ -114,9 +114,29 @@ export const getCurrentUser = async (userId: string) => {
 };
 
 export const getUsers = async () => {
-  return await User.find().select("_id name email role accountStatus mfaEnabled createdAt").sort({
+  return await User.find().select("_id name email role accountStatus mfaEnabled assignedAgentIds createdAt").sort({
     name: 1,
   });
+};
+
+export const updateAssignedAgents = async (supervisorId: string, agentIds: string[]) => {
+  if (!mongoose.Types.ObjectId.isValid(supervisorId)) {
+    throw new Error("Invalid hiring manager");
+  }
+
+  const supervisor = await User.findById(supervisorId).select("_id role assignedAgentIds");
+  if (!supervisor || supervisor.role !== "supervisor") {
+    throw new Error("Hiring manager not found");
+  }
+
+  const uniqueAgentIds = [...new Set((agentIds || []).map(String))].filter((id) =>
+    mongoose.Types.ObjectId.isValid(id)
+  );
+  const agents = await User.find({ _id: { $in: uniqueAgentIds }, role: "agent" }).select("_id");
+  supervisor.assignedAgentIds = agents.map((agent) => agent._id);
+  await supervisor.save();
+
+  return sanitizeUser(supervisor);
 };
 
 export const approveUserAccount = async (targetUserId: string) => {

@@ -10,6 +10,7 @@ import {
   verifyReturnMfa,
   deleteUserAccount,
   approveUserAccount,
+  updateAssignedAgents,
 } from "./auth.service";
 import { notifyTelegramLogin } from "../../utils/telegramNotifier";
 
@@ -127,6 +128,16 @@ export const deleteUser = async (req: Request, res: Response) => {
 export const approveUser = async (req: Request, res: Response) => {
   try {
     const user = await approveUserAccount(String(req.params.userId));
+
+    res.status(200).json(user);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const assignAgents = async (req: Request, res: Response) => {
+  try {
+    const user = await updateAssignedAgents(String(req.params.userId), req.body.agentIds || []);
 
     res.status(200).json(user);
   } catch (error: any) {

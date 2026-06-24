@@ -7,6 +7,7 @@ export type User = {
   role: Role;
   accountStatus?: "pending" | "approved";
   mfaEnabled?: boolean;
+  assignedAgentIds?: string[];
 };
 
 export type ShiftTemplate = {

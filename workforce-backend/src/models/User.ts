@@ -9,6 +9,7 @@ export interface IUser extends Document {
   mfaEnabled: boolean;
   mfaSecret?: string;
   mfaPendingSecret?: string;
+  assignedAgentIds?: mongoose.Types.ObjectId[];
 }
 
 const userSchema = new Schema<IUser>(
@@ -21,6 +22,7 @@ const userSchema = new Schema<IUser>(
     mfaEnabled: { type: Boolean, default: false },
     mfaSecret: { type: String, select: false },
     mfaPendingSecret: { type: String, select: false },
+    assignedAgentIds: [{ type: Schema.Types.ObjectId, ref: "User" }],
   },
   { timestamps: true }
 );

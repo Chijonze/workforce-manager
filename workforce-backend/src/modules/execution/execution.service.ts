@@ -516,20 +516,31 @@ export const getDailyPerformance = async (
   };
 };
 
-export const getAdminOverview = async (date: Date | string = new Date()) => {
+export const getAdminOverview = async (date: Date | string = new Date(), currentUser?: any) => {
   await runExecutionMaintenance();
 
   const { start, end } = getUtcDayRange(date);
+  const supervisor = currentUser?.role === "supervisor"
+    ? await User.findById(currentUser.userId).select("assignedAgentIds")
+    : null;
+  const assignedAgentIds = (supervisor?.assignedAgentIds || []).map(String);
+  const userQuery = supervisor
+    ? { _id: { $in: assignedAgentIds }, role: "agent" }
+    : {};
   const [users, schedules, sessions, activeShifts] = await Promise.all([
-    User.find().select("_id name email role"),
-    Schedule.find({ workDate: { $gte: start, $lt: end } }).populate("shiftTemplateId"),
+    User.find(userQuery).select("_id name email role"),
+    Schedule.find({
+      workDate: { $gte: start, $lt: end },
+      ...(supervisor ? { userId: { $in: assignedAgentIds } } : {}),
+    }).populate("shiftTemplateId"),
     ShiftSession.find({
+      ...(supervisor ? { userId: { $in: assignedAgentIds } } : {}),
       $or: [
         { scheduledStartTime: { $gte: start, $lt: end } },
         { clockInTime: { $gte: start, $lt: end } },
       ],
     }),
-    ShiftSession.find({ status: "active" }),
+    ShiftSession.find({ status: "active", ...(supervisor ? { userId: { $in: assignedAgentIds } } : {}) }),
   ]);
 
   const sessionByUser = new Map<string, any>();

@@ -464,6 +464,58 @@ button:disabled {
   gap: 8px;
 }
 
+.manager-allocation-panel {
+  margin-bottom: 16px;
+}
+
+.manager-allocation-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.agent-allocation-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  max-height: 340px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.agent-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fbfcfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.agent-check input {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+}
+
+.agent-check span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.agent-check small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-panel {
   overflow: hidden;
 }
@@ -1271,6 +1323,7 @@ select:focus {
   .activity-toggle,
   .leave-form,
   .chat-layout,
+  .manager-allocation-grid,
   .screen-monitor-grid {
     grid-template-columns: 1fr;
   }
@@ -1293,6 +1346,7 @@ select:focus {
     .execution-metrics,
     .controls,
     .form-grid,
+    .agent-allocation-list,
     .break-row,
     .template-activity-row,
     .chat-input {

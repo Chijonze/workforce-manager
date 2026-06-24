@@ -3,7 +3,7 @@ import ChatConversation from "../../models/ChatConversation";
 import ChatMessage from "../../models/ChatMessage";
 import User from "../../models/User";
 
-const userProjection = "_id name email role accountStatus";
+const userProjection = "_id name email role accountStatus assignedAgentIds";
 
 const normalizeParticipants = (userId: string, recipientId: string) =>
   [userId, recipientId].sort((a, b) => a.localeCompare(b));
@@ -42,16 +42,49 @@ const ensureChatAllowed = async (currentUser: any, recipientId: string) => {
     throw new Error("Recipient not found");
   }
 
+  if (currentUser.role === "supervisor" && recipient.role !== "admin") {
+    const supervisor = await User.findById(currentUser.userId).select("assignedAgentIds");
+    const allowed = (supervisor?.assignedAgentIds || []).map(String);
+    if (recipient.role !== "agent" || !allowed.includes(recipientId)) {
+      throw new Error("You can only chat assigned agents and admins");
+    }
+  }
+
   return recipient;
 };
 
 export const getChatRecipients = async (currentUser: any) => {
-  const query = {
+  const query: any = {
     _id: { $ne: currentUser.userId },
     $or: [{ accountStatus: "approved" }, { accountStatus: { $exists: false } }],
   };
 
+  if (currentUser.role === "supervisor") {
+    const supervisor = await User.findById(currentUser.userId).select("assignedAgentIds");
+    query.$and = [
+      {
+        $or: [
+          { role: "admin" },
+          { role: "agent", _id: { $in: supervisor?.assignedAgentIds || [] } },
+        ],
+      },
+    ];
+  }
+
   return User.find(query).select(userProjection).sort({ role: 1, name: 1 });
+};
+
+const filterSupervisorConversations = async (currentUser: any, conversations: any[]) => {
+  if (currentUser.role !== "supervisor") return conversations;
+
+  const supervisor = await User.findById(currentUser.userId).select("assignedAgentIds");
+  const allowed = new Set((supervisor?.assignedAgentIds || []).map(String));
+  return conversations.filter((conversation) => {
+    const other = (conversation.participants || []).find(
+      (participant: any) => participant._id.toString() !== currentUser.userId
+    );
+    return other?.role === "admin" || (other?.role === "agent" && allowed.has(other._id.toString()));
+  });
 };
 
 export const listConversations = async (currentUser: any) => {
@@ -62,10 +95,12 @@ export const listConversations = async (currentUser: any) => {
     .sort({ lastMessageAt: -1, updatedAt: -1 })
     .lean();
 
+  const allowedConversations = await filterSupervisorConversations(currentUser, conversations);
+
   const unreadCounts = await ChatMessage.aggregate([
     {
       $match: {
-        conversationId: { $in: conversations.map((conversation) => conversation._id) },
+        conversationId: { $in: allowedConversations.map((conversation) => conversation._id) },
         senderId: { $ne: new mongoose.Types.ObjectId(currentUser.userId) },
         readBy: { $ne: new mongoose.Types.ObjectId(currentUser.userId) },
       },
@@ -77,7 +112,7 @@ export const listConversations = async (currentUser: any) => {
     unreadCounts.map((item) => [item._id.toString(), item.count])
   );
 
-  return conversations.map((conversation) =>
+  return allowedConversations.map((conversation) =>
     serializeConversation(
       {
         ...conversation,

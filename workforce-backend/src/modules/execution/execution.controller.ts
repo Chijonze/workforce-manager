@@ -21,7 +21,7 @@ export const getMyDailyPerformance = async (req: Request, res: Response) => {
 
 export const getOverview = async (req: Request, res: Response) => {
   try {
-    const overview = await getAdminOverview(String(req.query.date || new Date()));
+    const overview = await getAdminOverview(String(req.query.date || new Date()), (req as any).user);
 
     res.status(200).json(overview);
   } catch (error: any) {
