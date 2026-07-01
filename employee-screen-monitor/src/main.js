@@ -125,7 +125,7 @@ async function captureFrame() {
     const jpeg = image.toJPEG(Math.max(1, Math.min(100, Number(config.jpegQuality) || 60)));
     socket.send(jpeg, { binary: true });
   } catch (error) {
-    setStatus("Live", error instanceof Error ? error.message : "Unable to capture screen");
+    setStatus("Live", getCaptureErrorMessage(error));
   } finally {
     captureInFlight = false;
   }
@@ -139,6 +139,14 @@ function startCapture() {
   streaming = true;
   captureFrame();
   captureTimer = setInterval(captureFrame, Math.floor(1000 / fps));
+}
+
+function getCaptureErrorMessage(error) {
+  if (process.platform === "darwin") {
+    return "macOS blocked screen capture. Open System Settings > Privacy & Security > Screen Recording, allow Workforce Screen Monitor, then restart the app.";
+  }
+
+  return error instanceof Error ? error.message : "Unable to capture screen";
 }
 
 function buildSocketUrl(id) {

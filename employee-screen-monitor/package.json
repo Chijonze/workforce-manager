@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "electron .",
     "pack": "electron-builder --dir",
+    "pack:mac": "electron-builder --mac dir",
+    "build:mac": "electron-builder --mac dmg zip",
     "build:win": "electron-builder --win portable",
     "build:win-installer": "electron-builder --win nsis"
   },
@@ -24,7 +26,7 @@
     "productName": "Workforce Screen Monitor",
     "asar": true,
     "asarUnpack": [
-      "node_modules/screenshot-desktop/lib/win32/**/*"
+      "node_modules/screenshot-desktop/lib/**/*"
     ],
     "files": [
       "src/**/*",
@@ -42,6 +44,19 @@
         "portable",
         "nsis"
       ]
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSScreenCaptureDescription": "Workforce Screen Monitor needs Screen Recording access so an authorized admin can view the employee screen only while monitoring is active."
+      }
+    },
+    "dmg": {
+      "artifactName": "Workforce-Screen-Monitor-${version}-mac.${ext}"
     },
     "portable": {
       "artifactName": "Workforce-Screen-Monitor-${version}-portable.exe"

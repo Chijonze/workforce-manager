@@ -1,0 +1,50 @@
+name: Build Mac Screen Monitor
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "employee-screen-monitor/**"
+      - ".github/workflows/build-mac-screen-monitor.yml"
+
+concurrency:
+  group: build-mac-screen-monitor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: employee-screen-monitor
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: employee-screen-monitor/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS app
+        run: npm run build:mac
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: workforce-screen-monitor-mac
+          path: |
+            employee-screen-monitor/dist/*.dmg
+            employee-screen-monitor/dist/*.zip
+            employee-screen-monitor/dist/*.blockmap
+          if-no-files-found: error
