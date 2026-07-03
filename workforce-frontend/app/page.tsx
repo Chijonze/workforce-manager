@@ -1262,7 +1262,14 @@ export default function Home() {
   }
 
   function logout() {
+    const authToken = token;
     stopScreenMonitor();
+    if (authToken) {
+      void apiRequest<{ ok: boolean }>("/api/auth/logout", {
+        method: "POST",
+        token: authToken,
+      }).catch(() => undefined);
+    }
     window.localStorage.removeItem("workforce_token");
     setToken(null);
     setUser(null);

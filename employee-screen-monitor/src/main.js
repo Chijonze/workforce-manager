@@ -13,7 +13,6 @@ const DEFAULT_CONFIG = {
 let mainWindow;
 let socket = null;
 let employeeId = "";
-let manuallyDisconnected = false;
 let reconnectTimer = null;
 let heartbeatTimer = null;
 let captureTimer = null;
@@ -55,7 +54,7 @@ function loadState() {
 
 function saveState(nextState) {
   fs.mkdirSync(app.getPath("userData"), { recursive: true });
-  fs.writeFileSync(getStatePath(), JSON.stringify(nextState, null, 2));
+  fs.writeFileSync(getStatePath(), JSON.stringify({ ...loadState(), ...nextState }, null, 2));
 }
 
 function sendToRenderer(channel, payload) {
@@ -100,7 +99,7 @@ function closeSocket() {
 }
 
 function scheduleReconnect() {
-  if (manuallyDisconnected || reconnectTimer || !employeeId) return;
+  if (reconnectTimer || !employeeId) return;
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -178,13 +177,13 @@ function startHeartbeat(activeSocket) {
 
 function connect(id) {
   employeeId = id.trim();
-  manuallyDisconnected = false;
 
   if (!employeeId) {
     setStatus("Disconnected", "Employee ID is required");
     return;
   }
 
+  saveState({ employeeId });
   closeSocket();
   setStatus("Connecting");
 
@@ -195,8 +194,7 @@ function connect(id) {
   socket = activeSocket;
 
   activeSocket.on("open", () => {
-    setStatus("Live");
-    saveState({ employeeId });
+    setStatus("Waiting", "Connected. Waiting for dashboard login.");
     activeSocket.send(JSON.stringify({ type: "status", event: "online", id: employeeId }));
     startHeartbeat(activeSocket);
   });
@@ -210,15 +208,22 @@ function connect(id) {
       const message = JSON.parse(raw.toString());
 
       if (message.action === "START_STREAM") {
+        setStatus("Live");
         startCapture();
         return;
       }
 
       if (message.action === "STOP_STREAM") {
         stopCapture();
+        setStatus("Waiting", "Dashboard session ended. Waiting for login.");
+        return;
+      }
+
+      if (message.event === "waiting_for_dashboard_login") {
+        setStatus("Waiting", "Waiting for dashboard login.");
       }
     } catch {
-      setStatus("Live", "Ignored invalid server command");
+      setStatus(streaming ? "Live" : "Waiting", "Ignored invalid server command");
     }
   });
 
@@ -233,14 +238,12 @@ function connect(id) {
 
     stopHeartbeat();
     stopCapture();
-    setStatus("Disconnected");
+    setStatus("Waiting", "Waiting for dashboard login.");
     scheduleReconnect();
   });
 }
 
-function disconnect() {
-  manuallyDisconnected = true;
-
+function shutdown() {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -278,16 +281,16 @@ app.whenReady().then(() => {
     return { ok: true };
   });
 
-  ipcMain.handle("monitor:disconnect", () => {
-    disconnect();
-    return { ok: true };
-  });
-
   createWindow();
+
+  const savedEmployeeId = String(loadState().employeeId || "").trim();
+  if (savedEmployeeId) {
+    connect(savedEmployeeId);
+  }
 });
 
 app.on("before-quit", () => {
-  disconnect();
+  shutdown();
 });
 
 app.on("window-all-closed", () => {

@@ -27,6 +27,13 @@ const sanitizeUser = (user: any) => {
   return safeUser;
 };
 
+const setMonitorSession = async (userId: string, active: boolean) => {
+  await User.findByIdAndUpdate(userId, {
+    monitorSessionActive: active,
+    ...(active ? { monitorLastLoginAt: new Date() } : { monitorLastLogoutAt: new Date() }),
+  });
+};
+
 export const registerUser = async (
   name: string,
   email: string,
@@ -51,6 +58,7 @@ export const registerUser = async (
   });
 
   const token = generateToken(user._id.toString(), !isMfaRequired());
+  await setMonitorSession(user._id.toString(), !isMfaRequired());
 
   return {
     user: sanitizeUser(user),
@@ -99,6 +107,7 @@ export const loginUser = async (email: string, password: string, mfaCode?: strin
   }
 
   const token = generateToken(user._id.toString());
+  await setMonitorSession(user._id.toString(), true);
 
   return { user: sanitizeUser(user), token, mfaRequired: false };
 };
@@ -111,6 +120,12 @@ export const getCurrentUser = async (userId: string) => {
   }
 
   return user;
+};
+
+export const logoutUser = async (userId: string) => {
+  await setMonitorSession(userId, false);
+
+  return { ok: true };
 };
 
 export const getUsers = async () => {
@@ -255,6 +270,7 @@ export const confirmMfaSetup = async (userId: string, code: string) => {
   user.mfaPendingSecret = undefined;
   user.mfaEnabled = true;
   await user.save();
+  await setMonitorSession(user._id.toString(), true);
 
   return {
     user: sanitizeUser(user),
@@ -271,6 +287,8 @@ export const verifyLoginMfa = async (mfaToken: string, code: string) => {
   if (!user || !secret || !verifyTotpCode(secret, code)) {
     throw new Error("Invalid authenticator code");
   }
+
+  await setMonitorSession(user._id.toString(), true);
 
   return {
     token: generateToken(user._id.toString()),

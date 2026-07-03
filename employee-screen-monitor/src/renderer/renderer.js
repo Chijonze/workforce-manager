@@ -3,19 +3,12 @@ const employeeInput = document.getElementById("employee-id");
 const statusDot = document.getElementById("status-dot");
 const statusLabel = document.getElementById("status-label");
 const detail = document.getElementById("detail");
-const connectButton = document.getElementById("connect-button");
-const disconnectButton = document.getElementById("disconnect-button");
+let saveTimer = null;
 
 function setStatus(status, message = "") {
   statusLabel.textContent = status;
   detail.textContent = message;
   statusDot.dataset.status = status.toLowerCase();
-
-  const isLive = status === "Live";
-  const isConnecting = status === "Connecting";
-  employeeInput.disabled = isLive || isConnecting;
-  connectButton.disabled = isLive || isConnecting;
-  disconnectButton.disabled = !isLive && !isConnecting;
 }
 
 window.monitorClient.onStatus(({ status, detail: message }) => {
@@ -29,21 +22,27 @@ window.monitorClient.getState().then((state) => {
   }
 });
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
+function connectSavedEmployee() {
   const employeeId = employeeInput.value.trim();
 
   if (!employeeId) {
-    setStatus("Disconnected", "Enter your Employee ID first");
-    employeeInput.focus();
+    setStatus("Disconnected", "Enter the agent ID to enable automatic streaming.");
     return;
   }
 
   setStatus("Connecting");
-  await window.monitorClient.connect(employeeId);
+  void window.monitorClient.connect(employeeId);
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  connectSavedEmployee();
 });
 
-disconnectButton.addEventListener("click", async () => {
-  await window.monitorClient.disconnect();
-  setStatus("Disconnected");
+employeeInput.addEventListener("input", () => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+
+  saveTimer = setTimeout(connectSavedEmployee, 600);
 });

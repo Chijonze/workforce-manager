@@ -10,6 +10,7 @@ type ScreenClient = {
   type: ClientType;
   socket: WebSocket;
   isAlive: boolean;
+  monitorSessionActive?: boolean;
   watchingId?: string;
 };
 
@@ -42,11 +43,12 @@ function broadcastPresence() {
   }
 }
 
-function stopEmployeeStream(employeeId: string) {
+function closeEmployeeStream(employeeId: string, reason = "Dashboard session ended") {
   const employee = employees.get(employeeId);
-  if (employee) {
-    sendJson(employee.socket, { action: "STOP_STREAM" });
-  }
+  if (!employee) return;
+
+  sendJson(employee.socket, { action: "STOP_STREAM" });
+  employee.socket.close(4002, reason);
 }
 
 function closeClient(client: ScreenClient) {
@@ -69,9 +71,22 @@ function closeClient(client: ScreenClient) {
   }
 
   admins.delete(client);
+}
 
-  if (client.watchingId) {
-    stopEmployeeStream(client.watchingId);
+async function isActiveAgentMonitorSession(userId: string) {
+  try {
+    const user = await User.findById(userId)
+      .select("_id role accountStatus monitorSessionActive")
+      .lean();
+
+    return Boolean(
+      user &&
+        user.role === "agent" &&
+        (user.accountStatus || "approved") === "approved" &&
+        user.monitorSessionActive
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -111,6 +126,7 @@ function registerEmployee(client: ScreenClient) {
 
   employees.set(client.id, client);
   broadcastPresence();
+  sendJson(client.socket, { action: "START_STREAM" });
 }
 
 export function attachScreenMonitorServer(server: http.Server) {
@@ -132,7 +148,20 @@ export function attachScreenMonitorServer(server: http.Server) {
     }
   }, 30000);
 
-  wss.on("close", () => clearInterval(heartbeat));
+  const sessionGuard = setInterval(() => {
+    for (const employee of employees.values()) {
+      void isActiveAgentMonitorSession(employee.id).then((active) => {
+        if (!active) {
+          closeEmployeeStream(employee.id);
+        }
+      });
+    }
+  }, 5000);
+
+  wss.on("close", () => {
+    clearInterval(heartbeat);
+    clearInterval(sessionGuard);
+  });
 
   server.on("upgrade", async (request, socket, head) => {
     const host = request.headers.host || "localhost";
@@ -149,6 +178,12 @@ export function attachScreenMonitorServer(server: http.Server) {
     if ((type !== "employee" && type !== "admin") || !id || id.length > 120) {
       socket.destroy();
       return;
+    }
+
+    let monitorSessionActive = false;
+
+    if (type === "employee") {
+      monitorSessionActive = await isActiveAgentMonitorSession(id);
     }
 
     if (type === "admin") {
@@ -169,6 +204,7 @@ export function attachScreenMonitorServer(server: http.Server) {
         type,
         socket: ws,
         isAlive: true,
+        monitorSessionActive,
         watchingId: type === "admin" ? id : undefined,
       };
 
@@ -230,7 +266,6 @@ export function attachScreenMonitorServer(server: http.Server) {
         }
 
         if (message?.action === "STOP_STREAM") {
-          stopEmployeeStream(targetId);
           client.watchingId = undefined;
           sendJson(socket, { type: "stream", event: "stopped", id: targetId });
         }
@@ -240,6 +275,16 @@ export function attachScreenMonitorServer(server: http.Server) {
     });
 
     if (client.type === "employee") {
+      if (!client.monitorSessionActive) {
+        sendJson(socket, {
+          type: "status",
+          event: "waiting_for_dashboard_login",
+          id: client.id,
+        });
+        socket.close(4001, "Waiting for dashboard login");
+        return;
+      }
+
       registerEmployee(client);
       sendJson(socket, { type: "status", event: "registered", id: client.id });
       return;

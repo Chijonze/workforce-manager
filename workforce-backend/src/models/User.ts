@@ -10,6 +10,9 @@ export interface IUser extends Document {
   mfaSecret?: string;
   mfaPendingSecret?: string;
   assignedAgentIds?: mongoose.Types.ObjectId[];
+  monitorSessionActive?: boolean;
+  monitorLastLoginAt?: Date;
+  monitorLastLogoutAt?: Date;
 }
 
 const userSchema = new Schema<IUser>(
@@ -23,6 +26,9 @@ const userSchema = new Schema<IUser>(
     mfaSecret: { type: String, select: false },
     mfaPendingSecret: { type: String, select: false },
     assignedAgentIds: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    monitorSessionActive: { type: Boolean, default: false },
+    monitorLastLoginAt: Date,
+    monitorLastLogoutAt: Date,
   },
   { timestamps: true }
 );

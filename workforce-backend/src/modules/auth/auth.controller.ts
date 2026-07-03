@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import {
   registerUser,
   loginUser,
+  logoutUser,
   getCurrentUser,
   getUsers,
   startMfaSetup,
@@ -35,6 +36,17 @@ export const login = async (req: Request, res: Response) => {
     if (data.token && !data.mfaRequired && !data.mfaSetupRequired) {
       void notifyTelegramLogin(data.user, req);
     }
+
+    res.status(200).json(data);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const logout = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.userId;
+    const data = await logoutUser(userId);
 
     res.status(200).json(data);
   } catch (error: any) {
