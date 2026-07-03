@@ -5,6 +5,7 @@ import ShiftTemplate from "../../models/shiftTemplate.model";
 import User from "../../models/User";
 import { calculateOvertimeMinutes } from "../../utils/attendanceCompliance";
 import { combineDateAndTimeRange } from "../../utils/scheduleTime";
+import { hasApprovedLeave } from "../leave/leave.service";
 import { getUtcDayRange } from "../scheduling/enforcement/enforcement.utils";
 
 type TimelineEvent = {
@@ -18,6 +19,11 @@ type ActivityInterval = {
   type: ActivityType;
   start: Date;
   end: Date;
+};
+
+type DynamicAllowance = {
+  type: ActivityType;
+  durationMinutes: number;
 };
 
 const AUTO_CLOSE_GRACE_MINUTES = 120;
@@ -102,7 +108,7 @@ const getScheduledActivityIntervals = (
     after_call_work: "AFTER_CALL_WORK",
   };
   const breakIntervals = (template.breaks || [])
-    .filter((item: any) => item.startTime && item.endTime)
+    .filter((item: any) => (item.mode || "static") === "static" && item.startTime && item.endTime)
     .map((item: any) => {
       const { start, end } = combineDateAndTimeRange(baseDate, item.startTime, item.endTime);
       return {
@@ -125,6 +131,16 @@ const getScheduledActivityIntervals = (
   return [...breakIntervals, ...activityIntervals];
 };
 
+const getDynamicBreakAllowances = (template: any): DynamicAllowance[] => {
+  return (template.breaks || [])
+    .filter((item: any) => (item.mode || "static") === "dynamic")
+    .map((item: any) => ({
+      type: item.type === "lunch" ? "LUNCH" : "BREAK",
+      durationMinutes: Math.max(0, Number(item.durationMinutes) || 0),
+    }))
+    .filter((item: DynamicAllowance) => item.durationMinutes > 0);
+};
+
 const calculateActivityAdherenceScore = async (
   session: any,
   events: TimelineEvent[],
@@ -137,9 +153,10 @@ const calculateActivityAdherenceScore = async (
   if (!template) return 100;
 
   const scheduledIntervals = getScheduledActivityIntervals(session, template);
+  const dynamicAllowances = getDynamicBreakAllowances(template);
   const actualIntervals = getActivityIntervals(events, closingTime);
 
-  if (!scheduledIntervals.length) {
+  if (!scheduledIntervals.length && !dynamicAllowances.length) {
     return actualIntervals.length ? 0 : 100;
   }
 
@@ -158,17 +175,40 @@ const calculateActivityAdherenceScore = async (
 
     return sum + Math.min(minutesBetween(scheduled.start, scheduled.end), overlap);
   }, 0);
-  const matchedActualMinutes = actualIntervals.reduce((sum, actual) => {
+  const staticMatchedActualMinutes = actualIntervals.reduce((sum, actual) => {
     const overlap = scheduledIntervals
       .filter((scheduled) => scheduled.type === actual.type)
       .reduce((total, scheduled) => total + getOverlapMinutes(actual, scheduled), 0);
 
     return sum + Math.min(minutesBetween(actual.start, actual.end), overlap);
   }, 0);
-  const unscheduledMinutes = Math.max(0, actualMinutes - matchedActualMinutes);
-  const denominator = scheduledMinutes + unscheduledMinutes;
+  const dynamicAllowanceMinutes = dynamicAllowances.reduce(
+    (sum, allowance) => sum + allowance.durationMinutes,
+    0
+  );
+  const dynamicMatchedActualMinutes = dynamicAllowances.reduce((sum, allowance) => {
+    const actualDynamicMinutes = actualIntervals
+      .filter((actual) => actual.type === allowance.type)
+      .reduce((total, actual) => {
+        const staticOverlap = scheduledIntervals
+          .filter((scheduled) => scheduled.type === actual.type)
+          .reduce((overlapTotal, scheduled) => overlapTotal + getOverlapMinutes(actual, scheduled), 0);
 
-  return denominator ? clampPercent((matchedScheduledMinutes / denominator) * 100) : 100;
+        return total + Math.max(0, minutesBetween(actual.start, actual.end) - staticOverlap);
+      }, 0);
+
+    return sum + Math.min(allowance.durationMinutes, actualDynamicMinutes);
+  }, 0);
+  const matchedActualMinutes = Math.min(
+    actualMinutes,
+    staticMatchedActualMinutes + dynamicMatchedActualMinutes
+  );
+  const unscheduledMinutes = Math.max(0, actualMinutes - matchedActualMinutes);
+  const expectedMinutes = scheduledMinutes + dynamicAllowanceMinutes;
+  const matchedExpectedMinutes = matchedScheduledMinutes + dynamicMatchedActualMinutes;
+  const denominator = expectedMinutes + unscheduledMinutes;
+
+  return denominator ? clampPercent((matchedExpectedMinutes / denominator) * 100) : 100;
 };
 
 export const calculateShiftTotals = (
@@ -368,6 +408,10 @@ export const runExecutionMaintenance = async (now = new Date()) => {
   let missedShifts = 0;
 
   for (const schedule of endedSchedules) {
+    if (await hasApprovedLeave(schedule.userId, schedule.workDate)) {
+      continue;
+    }
+
     const existingSession = await ShiftSession.findOne({
       scheduleId: schedule._id,
     });
@@ -420,6 +464,7 @@ export const getDailyPerformance = async (
   date: Date | string = new Date()
 ) => {
   const { start, end } = getUtcDayRange(date);
+  const approvedLeave = await hasApprovedLeave(userId, start);
 
   const schedule = await Schedule.findOne({
     userId,
@@ -433,6 +478,28 @@ export const getDailyPerformance = async (
       { clockInTime: { $gte: start, $lt: end } },
     ],
   }).sort({ createdAt: -1 });
+
+  if (approvedLeave) {
+    return {
+      date: start,
+      scheduled: Boolean(schedule),
+      status: "approved_leave",
+      overallScore: 100,
+      kpiScore: 100,
+      adherenceScore: 100,
+      workedMinutes: 0,
+      scheduledMinutes: 0,
+      breakMinutes: 0,
+      lateMinutes: 0,
+      overtimeMinutes: 0,
+      breakdown: {
+        workScore: 100,
+        punctualityScore: 100,
+        breakScore: 100,
+        activityAdherenceScore: 100,
+      },
+    };
+  }
 
   if (!schedule && !session) {
     return {

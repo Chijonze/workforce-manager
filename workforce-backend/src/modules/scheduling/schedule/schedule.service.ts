@@ -1,19 +1,42 @@
 import Schedule from "../../../models/schedule.model";
 import ShiftSession from "../../../models/ShiftSession";
 import { normalizeToUtcDate } from "../enforcement/enforcement.utils";
-import { hasApprovedLeave } from "../../leave/leave.service";
 
 export const assignSchedule = async (data: any) => {
-  const workDate = normalizeToUtcDate(data.workDate);
+  const rawDates = Array.isArray(data.workDates) && data.workDates.length
+    ? data.workDates
+    : [data.workDate];
+  const uniqueDates: string[] = Array.from(new Set(rawDates.filter(Boolean).map(String)));
 
-  if (await hasApprovedLeave(data.userId, workDate)) {
-    throw new Error("Cannot assign a schedule on an approved leave day");
+  if (!data.userId) {
+    throw new Error("User ID is required");
   }
 
-  return await Schedule.create({
-    ...data,
-    workDate,
-  });
+  if (!data.shiftTemplateId) {
+    throw new Error("Shift template is required");
+  }
+
+  if (!uniqueDates.length) {
+    throw new Error("At least one work date is required");
+  }
+
+  const schedules = await Promise.all(
+    uniqueDates.map((date) => {
+      const workDate = normalizeToUtcDate(date);
+
+      return Schedule.findOneAndUpdate(
+        { userId: data.userId, workDate },
+        {
+          userId: data.userId,
+          shiftTemplateId: data.shiftTemplateId,
+          workDate,
+        },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
+    })
+  );
+
+  return schedules;
 };
 
 export const getSchedules = async () => {

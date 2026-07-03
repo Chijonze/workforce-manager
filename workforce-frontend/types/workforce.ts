@@ -18,6 +18,7 @@ export type ShiftTemplate = {
   breaks: {
     label: string;
     type?: "break" | "lunch";
+    mode?: "static" | "dynamic";
     startTime?: string;
     endTime?: string;
     durationMinutes: number;

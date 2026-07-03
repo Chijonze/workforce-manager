@@ -130,6 +130,11 @@ button:disabled {
 
 .panel {
   padding: 20px;
+  min-width: 0;
+}
+
+.scheduling-setup-panel {
+  grid-column: 1 / -1;
 }
 
 .panel-header {
@@ -920,6 +925,7 @@ button:disabled {
   display: grid;
   grid-column: 1 / -1;
   gap: 10px;
+  min-width: 0;
 }
 
 .template-activity-editor {
@@ -943,13 +949,20 @@ button:disabled {
 
 .break-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 140px 132px 132px auto;
+  grid-template-columns: minmax(160px, 1.3fr) repeat(4, minmax(112px, 1fr)) minmax(72px, auto);
   gap: 10px;
   align-items: end;
+  width: 100%;
+  min-width: 0;
   padding: 12px;
   background: #fbfcfb;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.break-duration-field {
+  grid-column: span 2;
+  min-width: 0;
 }
 
 .template-activity-row {
@@ -990,6 +1003,112 @@ button:disabled {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 900;
+  white-space: nowrap;
+}
+
+.work-date-picker {
+  padding: 12px;
+  background: #fbfcfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.work-date-picker-head,
+.picker-month-controls,
+.selected-date-chips {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.work-date-picker-head {
+  justify-content: space-between;
+}
+
+.picker-month-controls strong {
+  min-width: 150px;
+  color: var(--ink);
+  font-size: 14px;
+  text-align: center;
+}
+
+.picker-month-controls button,
+.selected-date-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 9px;
+  color: var(--primary-strong);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.calendar-weekdays.compact {
+  margin-top: 8px;
+  margin-bottom: 6px;
+}
+
+.work-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.work-date-cell {
+  display: grid;
+  align-content: space-between;
+  min-height: 52px;
+  padding: 7px;
+  color: var(--muted);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.work-date-cell strong {
+  color: var(--ink);
+}
+
+.work-date-cell span {
+  color: #7c3aed;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.work-date-cell.leave {
+  background: #f3e8ff;
+  border-color: #c4b5fd;
+}
+
+.work-date-cell.selected {
+  color: var(--primary-strong);
+  background: #e2f4ee;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.work-date-cell.selected.leave {
+  background: linear-gradient(135deg, #f3e8ff 0%, #f3e8ff 48%, #e2f4ee 48%, #e2f4ee 100%);
+}
+
+.work-date-cell.empty {
+  visibility: hidden;
+}
+
+.selected-date-chips {
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.selected-date-chips span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 label {

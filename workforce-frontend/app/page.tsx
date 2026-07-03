@@ -54,6 +54,7 @@ type AuthMode = "login" | "register";
 type BreakForm = {
   label: string;
   type: "break" | "lunch";
+  mode: "static" | "dynamic";
   startTime: string;
   endTime: string;
   durationMinutes: number;
@@ -118,8 +119,22 @@ const eventLabels: Record<ShiftEvent["type"], string> = {
 };
 
 const defaultBreaks: BreakForm[] = [
-  { label: "Morning break", type: "break", startTime: "10:00", endTime: "10:15", durationMinutes: 15 },
-  { label: "Lunch", type: "lunch", startTime: "14:00", endTime: "15:00", durationMinutes: 60 },
+  {
+    label: "Morning break",
+    type: "break",
+    mode: "static",
+    startTime: "10:00",
+    endTime: "10:15",
+    durationMinutes: 15,
+  },
+  {
+    label: "Lunch",
+    type: "lunch",
+    mode: "static",
+    startTime: "14:00",
+    endTime: "15:00",
+    durationMinutes: 45,
+  },
 ];
 
 const optionalTemplateActivities: TemplateActivityForm[] = [
@@ -175,6 +190,8 @@ const constrainedDurations: Partial<Record<ActivityState, number>> = {
   BREAK: 15,
   LUNCH: 60,
 };
+
+const dynamicBreakDurations = [5, 10, 15, 20, 25, 30, 35, 40, 45];
 
 const activityTone: Partial<Record<ActivityState, string>> = {
   BREAK: "warn",
@@ -346,7 +363,7 @@ export default function Home() {
   const [scheduleForm, setScheduleForm] = useState({
     userId: "",
     shiftTemplateId: "",
-    workDate: new Date().toISOString().slice(0, 10),
+    workDates: [new Date().toISOString().slice(0, 10)],
   });
   const [scheduleDeleteForm, setScheduleDeleteForm] = useState({
     userId: "",
@@ -372,6 +389,7 @@ export default function Home() {
   const [monitorStatus, setMonitorStatus] = useState("Disconnected");
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<string | null>(toDateKey(new Date()));
+  const [assignmentMonth, setAssignmentMonth] = useState(toDateKey(new Date()).slice(0, 7));
   const [leaveForm, setLeaveForm] = useState({
     leaveType: "annual" as LeaveRequest["leaveType"],
     startDate: toDateKey(new Date()),
@@ -397,7 +415,22 @@ export default function Home() {
   const elapsedSeconds = activityStart
     ? Math.max(0, Math.floor((now - new Date(activityStart).getTime()) / 1000))
     : 0;
-  const maxDuration = constrainedDurations[currentActivity];
+  const activeSchedule = activeShift?.shift.scheduleId
+    ? schedules.find((schedule) => schedule._id === activeShift.shift.scheduleId)
+    : schedules.find((schedule) => toDateKey(schedule.workDate) === toDateKey(new Date()));
+  const activeTemplate =
+    activeSchedule && typeof activeSchedule.shiftTemplateId !== "string"
+      ? activeSchedule.shiftTemplateId
+      : null;
+  const assignedActivityLimit =
+    currentActivity === "BREAK" || currentActivity === "LUNCH"
+      ? activeTemplate?.breaks.find(
+          (breakItem) =>
+            ((breakItem.type || "break") === "lunch" ? "LUNCH" : "BREAK") === currentActivity &&
+            (breakItem.mode || "static") === "dynamic"
+        )?.durationMinutes
+      : undefined;
+  const maxDuration = assignedActivityLimit || constrainedDurations[currentActivity];
   const remainingSeconds = maxDuration ? maxDuration * 60 - elapsedSeconds : null;
   const isOvertimeActivity = remainingSeconds !== null && remainingSeconds < 0;
   const selectedTransitionAllowed = allowedTransitions[currentActivity].includes(selectedActivity);
@@ -777,9 +810,10 @@ export default function Home() {
         nextBreaks.push({
           label: isLunch ? "Lunch" : `Break ${nextBreaks.length + 1}`,
           type: isLunch ? "lunch" : "break",
+          mode: "static",
           startTime: isLunch ? "14:00" : "10:00",
-          endTime: isLunch ? "15:00" : "10:15",
-          durationMinutes: isLunch ? 60 : 15,
+          endTime: isLunch ? "14:45" : "10:15",
+          durationMinutes: isLunch ? 45 : 15,
         });
       }
 
@@ -798,14 +832,37 @@ export default function Home() {
         if (itemIndex !== index) return item;
 
         const updated = { ...item, [key]: value };
-        const durationMinutes = minutesBetweenTimes(updated.startTime, updated.endTime);
+        const durationMinutes =
+          updated.mode === "static"
+            ? minutesBetweenTimes(updated.startTime, updated.endTime)
+            : Number(updated.durationMinutes);
 
         return {
           ...updated,
-          durationMinutes: durationMinutes || updated.durationMinutes,
+          durationMinutes:
+            updated.mode === "dynamic"
+              ? Math.min(45, Math.max(5, durationMinutes || 15))
+              : durationMinutes || updated.durationMinutes,
         };
       }),
     }));
+  }
+
+  function toggleScheduleDate(date: string) {
+    setScheduleForm((current) => {
+      const selected = new Set(current.workDates);
+
+      if (selected.has(date)) {
+        selected.delete(date);
+      } else {
+        selected.add(date);
+      }
+
+      return {
+        ...current,
+        workDates: Array.from(selected).sort(),
+      };
+    });
   }
 
   function updateTemplateActivity(
@@ -847,11 +904,14 @@ export default function Home() {
           breaks: selectedBreaks.map((item, index) => ({
             label: item.label || `Break ${index + 1}`,
             type: item.type,
-            startTime: item.startTime,
-            endTime: item.endTime,
+            mode: item.mode,
+            startTime: item.mode === "static" ? item.startTime : undefined,
+            endTime: item.mode === "static" ? item.endTime : undefined,
             durationMinutes:
-              minutesBetweenTimes(item.startTime, item.endTime) ||
-              Math.min(60, Math.max(15, Number(item.durationMinutes))),
+              item.mode === "static"
+                ? minutesBetweenTimes(item.startTime, item.endTime) ||
+                  Math.min(45, Math.max(5, Number(item.durationMinutes)))
+                : Math.min(45, Math.max(5, Number(item.durationMinutes))),
           })),
           activities: selectedActivities.map((item) => ({
             label: item.label,
@@ -906,8 +966,13 @@ export default function Home() {
     event.preventDefault();
     if (!token || !isAdmin) return;
 
+    if (!scheduleForm.workDates.length) {
+      notify("error", "Select at least one work date");
+      return;
+    }
+
     await runAction(async () => {
-      await apiRequest<Schedule>("/api/scheduling/schedule", {
+      await apiRequest<Schedule[]>("/api/scheduling/schedule", {
         method: "POST",
         token,
         body: scheduleForm,
@@ -1761,17 +1826,32 @@ export default function Home() {
           <>
         {!isAdmin && liveExecutionPanel}
 
-        <div className="dashboard-grid calendar-grid">
-          <MonthlyActivityCalendar
-            activeShift={activeShift}
-            dailyPerformance={dailyPerformance}
-            events={events}
-            leaveRequests={approvedLeaveRequests}
-            schedules={schedules}
-            selectedDay={selectedCalendarDay}
-            onSelectDay={setSelectedCalendarDay}
-          />
+        {!isAdmin ? (
+          <div className="dashboard-grid calendar-grid">
+            <MonthlyActivityCalendar
+              activeShift={activeShift}
+              dailyPerformance={dailyPerformance}
+              events={events}
+              leaveRequests={approvedLeaveRequests}
+              schedules={schedules}
+              selectedDay={selectedCalendarDay}
+              onSelectDay={setSelectedCalendarDay}
+            />
 
+            <LeavePanel
+              isAdmin={isAdmin}
+              leaveForm={leaveForm}
+              leaveRequests={myLeaveRequests}
+              loading={loading}
+              reviewComments={reviewComments}
+              users={users}
+              onChangeLeaveForm={setLeaveForm}
+              onChangeReviewComment={setReviewComments}
+              onReview={reviewLeave}
+              onSubmitLeave={submitLeaveRequest}
+            />
+          </div>
+        ) : (
           <LeavePanel
             isAdmin={isAdmin}
             leaveForm={leaveForm}
@@ -1784,7 +1864,7 @@ export default function Home() {
             onReview={reviewLeave}
             onSubmitLeave={submitLeaveRequest}
           />
-        </div>
+        )}
 
         <ChatPanel
           conversations={chatConversations}
@@ -1818,7 +1898,7 @@ export default function Home() {
 
         {isAdmin && (
           <div className="dashboard-grid">
-            <section className="panel">
+            <section className="panel scheduling-setup-panel">
               <div className="panel-header">
                 <div className="panel-title">
                   <CalendarDays size={20} />
@@ -1906,25 +1986,59 @@ export default function Home() {
                           </select>
                         </div>
                         <div className="field">
-                          <label htmlFor={`break-start-${index}`}>From</label>
-                          <input
-                            id={`break-start-${index}`}
-                            type="time"
-                            value={breakItem.startTime}
-                            onChange={(event) => updateBreak(index, "startTime", event.target.value)}
-                          />
+                          <label htmlFor={`break-mode-${index}`}>Rule</label>
+                          <select
+                            id={`break-mode-${index}`}
+                            value={breakItem.mode}
+                            onChange={(event) => updateBreak(index, "mode", event.target.value)}
+                          >
+                            <option value="static">Static</option>
+                            <option value="dynamic">Dynamic</option>
+                          </select>
                         </div>
-                        <div className="field">
-                          <label htmlFor={`break-end-${index}`}>To</label>
-                          <input
-                            id={`break-end-${index}`}
-                            type="time"
-                            value={breakItem.endTime}
-                            onChange={(event) => updateBreak(index, "endTime", event.target.value)}
-                          />
-                        </div>
+                        {breakItem.mode === "static" ? (
+                          <>
+                            <div className="field">
+                              <label htmlFor={`break-start-${index}`}>From</label>
+                              <input
+                                id={`break-start-${index}`}
+                                type="time"
+                                value={breakItem.startTime}
+                                onChange={(event) => updateBreak(index, "startTime", event.target.value)}
+                              />
+                            </div>
+                            <div className="field">
+                              <label htmlFor={`break-end-${index}`}>To</label>
+                              <input
+                                id={`break-end-${index}`}
+                                type="time"
+                                value={breakItem.endTime}
+                                onChange={(event) => updateBreak(index, "endTime", event.target.value)}
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="field break-duration-field">
+                            <label htmlFor={`break-duration-${index}`}>Duration</label>
+                            <select
+                              id={`break-duration-${index}`}
+                              value={breakItem.durationMinutes}
+                              onChange={(event) =>
+                                updateBreak(index, "durationMinutes", Number(event.target.value))
+                              }
+                            >
+                              {dynamicBreakDurations.map((minutes) => (
+                                <option key={minutes} value={minutes}>
+                                  {minutes} min
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <div className="break-duration-pill">
-                          {breakItem.durationMinutes || minutesBetweenTimes(breakItem.startTime, breakItem.endTime)}m
+                          {breakItem.mode === "dynamic"
+                            ? `${breakItem.durationMinutes}m flex`
+                            : `${breakItem.durationMinutes || minutesBetweenTimes(breakItem.startTime, breakItem.endTime)}m`}
                         </div>
                       </div>
                     ))}
@@ -2030,6 +2144,7 @@ export default function Home() {
                 </div>
 
                 <form className="form-grid" onSubmit={assignSchedule}>
+                
                   <div className="field">
                     <label htmlFor="assignee">Team member</label>
                     <select
@@ -2072,27 +2187,21 @@ export default function Home() {
                       ))}
                     </select>
                   </div>
-                  <div className="field">
-                    <label htmlFor="work-date">Work date</label>
-                    <input
-                      id="work-date"
-                      type="date"
-                      value={scheduleForm.workDate}
-                      onChange={(event) =>
-                        setScheduleForm((current) => ({
-                          ...current,
-                          workDate: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </div>
+                  <WorkDateMultiPicker
+                    leaveRequests={approvedLeaveRequests}
+                    month={assignmentMonth}
+                    selectedDates={scheduleForm.workDates}
+                    onChangeMonth={setAssignmentMonth}
+                    onToggleDate={toggleScheduleDate}
+                  />
                   <button className="button secondary" disabled={loading} type="submit">
                     <CalendarDays size={17} />
-                    Assign schedule
+                    Assign {scheduleForm.workDates.length || ""} schedule
+                    {scheduleForm.workDates.length === 1 ? "" : "s"}
                   </button>
                 </form>
 
+                <h2>Delete Schedules</h2>
                 <form className="form-grid" onSubmit={deleteSchedules}>
                   <div className="field">
                     <label htmlFor="delete-assignee">Team member</label>
@@ -2210,7 +2319,11 @@ export default function Home() {
                         {template.breaks
                           ?.map(
                             (item) =>
-                              `${item.label}: ${formatTimeRange(item.startTime, item.endTime)} (${item.durationMinutes}m)`
+                              `${item.label}: ${
+                                (item.mode || "static") === "dynamic"
+                                  ? `Dynamic (${item.durationMinutes}m)`
+                                  : `${formatTimeRange(item.startTime, item.endTime)} (${item.durationMinutes}m)`
+                              }`
                           )
                           .join(" | ") || "No breaks"}
                       </span>
@@ -2416,6 +2529,99 @@ function ScreenMonitorPanel({
   );
 }
 
+function WorkDateMultiPicker({
+  leaveRequests,
+  month,
+  onChangeMonth,
+  onToggleDate,
+  selectedDates,
+}: {
+  leaveRequests: LeaveRequest[];
+  month: string;
+  selectedDates: string[];
+  onChangeMonth: (month: string) => void;
+  onToggleDate: (date: string) => void;
+}) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const monthStart = new Date(Date.UTC(year, monthNumber - 1, 1, 12));
+  const monthEnd = new Date(Date.UTC(year, monthNumber, 0, 12));
+  const leadingDays = monthStart.getDay();
+  const totalCells = Math.ceil((leadingDays + monthEnd.getDate()) / 7) * 7;
+  const selectedSet = new Set(selectedDates);
+
+  const cells = Array.from({ length: totalCells }, (_, index) => {
+    const dayNumber = index - leadingDays + 1;
+    if (dayNumber < 1 || dayNumber > monthEnd.getDate()) return null;
+    return new Date(Date.UTC(year, monthNumber - 1, dayNumber, 12));
+  });
+
+  function shiftMonth(offset: number) {
+    const next = new Date(Date.UTC(year, monthNumber - 1 + offset, 1, 12));
+    onChangeMonth(`${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+
+  return (
+    <div className="field full work-date-picker">
+      <div className="work-date-picker-head">
+        <label>Work dates</label>
+        <div className="picker-month-controls">
+          <button aria-label="Previous month" type="button" onClick={() => shiftMonth(-1)}>
+            Previous
+          </button>
+          <strong>
+            {monthStart.toLocaleDateString(undefined, {
+              month: "long",
+              timeZone: BUSINESS_TIME_ZONE,
+              year: "numeric",
+            })}
+          </strong>
+          <button aria-label="Next month" type="button" onClick={() => shiftMonth(1)}>
+            Next
+          </button>
+        </div>
+      </div>
+      <div className="calendar-weekdays compact">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+          <span key={day}>{day}</span>
+        ))}
+      </div>
+      <div className="work-date-grid">
+        {cells.map((date, index) => {
+          if (!date) return <div className="work-date-cell empty" key={index} />;
+
+          const key = toDateKey(date);
+          const isSelected = selectedSet.has(key);
+          const isLeave = leaveRequests.some((request) => isDateInLeave(date, request));
+
+          return (
+            <button
+              className={`work-date-cell ${isSelected ? "selected" : ""} ${isLeave ? "leave" : ""}`}
+              key={key}
+              type="button"
+              onClick={() => onToggleDate(key)}
+            >
+              <strong>{date.getUTCDate()}</strong>
+              {isLeave && <span>Leave</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="selected-date-chips">
+        {selectedDates.length ? (
+          selectedDates.map((date) => (
+            <button key={date} type="button" onClick={() => onToggleDate(date)}>
+              {formatDate(date)}
+              <X size={13} />
+            </button>
+          ))
+        ) : (
+          <span>No dates selected</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MonthlyActivityCalendar({
   activeShift,
   dailyPerformance,
@@ -2545,8 +2751,11 @@ function MonthlyActivityCalendar({
                   <strong>{breakItem.label}</strong>
                   <span>
                     {(breakItem.type || "break") === "lunch" ? "Lunch" : "Break"} -{" "}
-                    {formatTimeRange(breakItem.startTime, breakItem.endTime)} -{" "}
-                    {breakItem.durationMinutes || minutesBetweenTimes(breakItem.startTime, breakItem.endTime)}m
+                    {(breakItem.mode || "static") === "dynamic"
+                      ? `Dynamic - ${breakItem.durationMinutes}m anytime during shift`
+                      : `${formatTimeRange(breakItem.startTime, breakItem.endTime)} - ${
+                          breakItem.durationMinutes || minutesBetweenTimes(breakItem.startTime, breakItem.endTime)
+                        }m`}
                   </span>
                 </div>
               ))
@@ -3449,6 +3658,19 @@ function AssignedSchedules({
                   <span className="muted">
                     {template.activities
                       .map((activity) => `${activity.label}: ${formatTimeRange(activity.startTime, activity.endTime)}`)
+                      .join(" | ")}
+                  </span>
+                ) : null}
+                {template?.breaks?.length ? (
+                  <span className="muted">
+                    {template.breaks
+                      .map((breakItem) =>
+                        `${breakItem.label}: ${
+                          (breakItem.mode || "static") === "dynamic"
+                            ? `Dynamic ${breakItem.durationMinutes}m`
+                            : `${formatTimeRange(breakItem.startTime, breakItem.endTime)}`
+                        }`
+                      )
                       .join(" | ")}
                   </span>
                 ) : null}
