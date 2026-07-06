@@ -47,6 +47,7 @@
     },
     "mac": {
       "category": "public.app-category.business",
+      "artifactName": "Workforce-Screen-Monitor-${version}-${arch}.${ext}",
       "target": [
         "dmg",
         "zip"
@@ -56,7 +57,7 @@
       }
     },
     "dmg": {
-      "artifactName": "Workforce-Screen-Monitor-${version}-mac.${ext}"
+      "artifactName": "Workforce-Screen-Monitor-${version}-${arch}.${ext}"
     },
     "portable": {
       "artifactName": "Workforce-Screen-Monitor-${version}-portable.exe"

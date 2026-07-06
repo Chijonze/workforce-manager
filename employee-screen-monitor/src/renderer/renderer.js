@@ -17,7 +17,9 @@ window.monitorClient.onStatus(({ status, detail: message }) => {
 
 window.monitorClient.getState().then((state) => {
   employeeInput.value = state.employeeId || "";
-  if (state.serverUrl) {
+  if (state.status) {
+    setStatus(state.status, state.detail || "");
+  } else if (state.serverUrl) {
     detail.textContent = `Server: ${state.serverUrl}`;
   }
 });

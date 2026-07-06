@@ -15,8 +15,16 @@ concurrency:
 
 jobs:
   build:
-    name: Build macOS DMG
+    name: Build macOS DMG (${{ matrix.arch }})
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            build-flag: --arm64
+          - arch: x64
+            build-flag: --x64
     defaults:
       run:
         working-directory: employee-screen-monitor
@@ -37,12 +45,12 @@ jobs:
         run: npm ci
 
       - name: Build macOS app
-        run: npm run build:mac
+        run: npm run build:mac -- ${{ matrix.build-flag }}
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: workforce-screen-monitor-mac
+          name: workforce-screen-monitor-mac-${{ matrix.arch }}
           path: |
             employee-screen-monitor/dist/*.dmg
             employee-screen-monitor/dist/*.zip

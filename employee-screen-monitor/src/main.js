@@ -19,6 +19,10 @@ let captureTimer = null;
 let captureInFlight = false;
 let streaming = false;
 let lastPongAt = 0;
+let currentStatus = {
+  status: "Disconnected",
+  detail: "",
+};
 
 function readJson(filePath) {
   try {
@@ -64,6 +68,10 @@ function sendToRenderer(channel, payload) {
 }
 
 function setStatus(status, detail) {
+  currentStatus = {
+    status,
+    detail: detail || "",
+  };
   sendToRenderer("monitor:status", { status, detail });
 }
 
@@ -100,6 +108,8 @@ function closeSocket() {
 
 function scheduleReconnect() {
   if (reconnectTimer || !employeeId) return;
+
+  setStatus("Waiting", "Waiting for dashboard login. Retrying connection...");
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -185,9 +195,10 @@ function connect(id) {
 
   saveState({ employeeId });
   closeSocket();
-  setStatus("Connecting");
+  const socketUrl = buildSocketUrl(employeeId);
+  setStatus("Connecting", `Connecting to ${socketUrl.replace(/([?&](?:token|key)=)[^&]+/g, "$1***")}`);
 
-  const activeSocket = new WebSocket(buildSocketUrl(employeeId), {
+  const activeSocket = new WebSocket(socketUrl, {
     perMessageDeflate: false,
     handshakeTimeout: 10000,
   });
@@ -228,7 +239,7 @@ function connect(id) {
   });
 
   activeSocket.on("error", (error) => {
-    setStatus("Disconnected", error.message);
+    setStatus("Disconnected", `Connection failed: ${error.message}`);
   });
 
   activeSocket.on("close", () => {
@@ -238,7 +249,7 @@ function connect(id) {
 
     stopHeartbeat();
     stopCapture();
-    setStatus("Waiting", "Waiting for dashboard login.");
+    setStatus("Waiting", "Waiting for dashboard login. Retrying connection...");
     scheduleReconnect();
   });
 }
@@ -274,6 +285,8 @@ app.whenReady().then(() => {
   ipcMain.handle("monitor:get-state", () => ({
     employeeId: loadState().employeeId || "",
     serverUrl: getConfig().serverUrl,
+    status: currentStatus.status,
+    detail: currentStatus.detail,
   }));
 
   ipcMain.handle("monitor:connect", (_event, id) => {
