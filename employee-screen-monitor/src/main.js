@@ -12,7 +12,7 @@ const DEFAULT_CONFIG = {
 
 let mainWindow;
 let socket = null;
-let employeeId = "";
+let employeeEmail = "";
 let reconnectTimer = null;
 let heartbeatTimer = null;
 let captureTimer = null;
@@ -107,13 +107,13 @@ function closeSocket() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer || !employeeId) return;
+  if (reconnectTimer || !employeeEmail) return;
 
-  setStatus("Waiting", "Waiting for dashboard login. Retrying connection...");
+  setStatus("Waiting", "Retrying connection...");
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connect(employeeId);
+    connect(employeeEmail);
   }, 3000);
 }
 
@@ -186,16 +186,16 @@ function startHeartbeat(activeSocket) {
 }
 
 function connect(id) {
-  employeeId = id.trim();
+  employeeEmail = id.trim().toLowerCase();
 
-  if (!employeeId) {
-    setStatus("Disconnected", "Employee ID is required");
+  if (!employeeEmail) {
+    setStatus("Disconnected", "Email is required");
     return;
   }
 
-  saveState({ employeeId });
+  saveState({ email: employeeEmail, employeeId: employeeEmail });
   closeSocket();
-  const socketUrl = buildSocketUrl(employeeId);
+  const socketUrl = buildSocketUrl(employeeEmail);
   setStatus("Connecting", `Connecting to ${socketUrl.replace(/([?&](?:token|key)=)[^&]+/g, "$1***")}`);
 
   const activeSocket = new WebSocket(socketUrl, {
@@ -205,8 +205,8 @@ function connect(id) {
   socket = activeSocket;
 
   activeSocket.on("open", () => {
-    setStatus("Waiting", "Connected. Waiting for dashboard login.");
-    activeSocket.send(JSON.stringify({ type: "status", event: "online", id: employeeId }));
+    setStatus("Live", "Connected and available for monitoring.");
+    activeSocket.send(JSON.stringify({ type: "status", event: "online", id: employeeEmail }));
     startHeartbeat(activeSocket);
   });
 
@@ -226,12 +226,12 @@ function connect(id) {
 
       if (message.action === "STOP_STREAM") {
         stopCapture();
-        setStatus("Waiting", "Dashboard session ended. Waiting for login.");
+        setStatus("Live", "Connected and available for monitoring.");
         return;
       }
 
-      if (message.event === "waiting_for_dashboard_login") {
-        setStatus("Waiting", "Waiting for dashboard login.");
+      if (message.event === "registered") {
+        setStatus("Live", "Connected and available for monitoring.");
       }
     } catch {
       setStatus(streaming ? "Live" : "Waiting", "Ignored invalid server command");
@@ -249,7 +249,7 @@ function connect(id) {
 
     stopHeartbeat();
     stopCapture();
-    setStatus("Waiting", "Waiting for dashboard login. Retrying connection...");
+    setStatus("Waiting", "Retrying connection...");
     scheduleReconnect();
   });
 }
@@ -283,6 +283,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   ipcMain.handle("monitor:get-state", () => ({
+    email: loadState().email || loadState().employeeId || "",
     employeeId: loadState().employeeId || "",
     serverUrl: getConfig().serverUrl,
     status: currentStatus.status,
@@ -296,9 +297,9 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  const savedEmployeeId = String(loadState().employeeId || "").trim();
-  if (savedEmployeeId) {
-    connect(savedEmployeeId);
+  const savedEmail = String(loadState().email || loadState().employeeId || "").trim();
+  if (savedEmail) {
+    connect(savedEmail);
   }
 });
 

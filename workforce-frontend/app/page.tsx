@@ -2469,7 +2469,7 @@ function ScreenMonitorPanel({
           <Monitor size={20} />
           <div>
             <h2>Screen Monitor</h2>
-            <p className="panel-subtitle">On-demand live view for online desktop agents</p>
+            <p className="panel-subtitle">On-demand live view for online desktop emails</p>
           </div>
         </div>
         <div className="screen-monitor-header-actions">
@@ -2491,7 +2491,7 @@ function ScreenMonitorPanel({
       <div className="screen-monitor-grid">
         <div className="screen-monitor-controls">
           <div className="field">
-            <label htmlFor="screen-monitor-employee">Online employee</label>
+            <label htmlFor="screen-monitor-employee">Online email</label>
             <select
               id="screen-monitor-employee"
               value={selectedEmployeeId}
@@ -2505,7 +2505,7 @@ function ScreenMonitorPanel({
                   </option>
                 ))
               ) : (
-                <option value="">No employees online</option>
+                <option value="">No emails online</option>
               )}
             </select>
           </div>

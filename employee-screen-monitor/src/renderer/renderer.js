@@ -1,5 +1,5 @@
 const form = document.getElementById("connect-form");
-const employeeInput = document.getElementById("employee-id");
+const emailInput = document.getElementById("employee-email");
 const statusDot = document.getElementById("status-dot");
 const statusLabel = document.getElementById("status-label");
 const detail = document.getElementById("detail");
@@ -16,7 +16,7 @@ window.monitorClient.onStatus(({ status, detail: message }) => {
 });
 
 window.monitorClient.getState().then((state) => {
-  employeeInput.value = state.employeeId || "";
+  emailInput.value = state.email || state.employeeId || "";
   if (state.status) {
     setStatus(state.status, state.detail || "");
   } else if (state.serverUrl) {
@@ -24,27 +24,27 @@ window.monitorClient.getState().then((state) => {
   }
 });
 
-function connectSavedEmployee() {
-  const employeeId = employeeInput.value.trim();
+function connectSavedEmail() {
+  const email = emailInput.value.trim();
 
-  if (!employeeId) {
-    setStatus("Disconnected", "Enter the agent ID to enable automatic streaming.");
+  if (!email) {
+    setStatus("Disconnected", "Enter your email to enable automatic streaming.");
     return;
   }
 
   setStatus("Connecting");
-  void window.monitorClient.connect(employeeId);
+  void window.monitorClient.connect(email);
 }
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  connectSavedEmployee();
+  connectSavedEmail();
 });
 
-employeeInput.addEventListener("input", () => {
+emailInput.addEventListener("input", () => {
   if (saveTimer) {
     clearTimeout(saveTimer);
   }
 
-  saveTimer = setTimeout(connectSavedEmployee, 600);
+  saveTimer = setTimeout(connectSavedEmail, 600);
 });

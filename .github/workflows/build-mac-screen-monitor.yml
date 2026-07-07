@@ -44,15 +44,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build macOS app
+      - name: Build macOS DMG
         run: npm run build:mac -- ${{ matrix.build-flag }}
 
-      - name: Upload macOS artifacts
+      - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          name: workforce-screen-monitor-mac-${{ matrix.arch }}
+          name: workforce-screen-monitor-mac-dmg-${{ matrix.arch }}
+          path: employee-screen-monitor/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Upload macOS support artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: workforce-screen-monitor-mac-support-${{ matrix.arch }}
           path: |
-            employee-screen-monitor/dist/*.dmg
             employee-screen-monitor/dist/*.zip
             employee-screen-monitor/dist/*.blockmap
           if-no-files-found: error
