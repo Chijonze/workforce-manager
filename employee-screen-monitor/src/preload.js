@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("monitorClient", {
-  connect: (email) => ipcRenderer.invoke("monitor:connect", email),
+  connect: (monitorId) => ipcRenderer.invoke("monitor:connect", monitorId),
   getState: () => ipcRenderer.invoke("monitor:get-state"),
   onStatus: (handler) => {
     const listener = (_event, payload) => handler(payload);

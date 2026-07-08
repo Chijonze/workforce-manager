@@ -12,7 +12,7 @@ const DEFAULT_CONFIG = {
 
 let mainWindow;
 let socket = null;
-let employeeEmail = "";
+let monitorId = "";
 let reconnectTimer = null;
 let heartbeatTimer = null;
 let captureTimer = null;
@@ -107,13 +107,13 @@ function closeSocket() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer || !employeeEmail) return;
+  if (reconnectTimer || !monitorId) return;
 
   setStatus("Waiting", "Retrying connection...");
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connect(employeeEmail);
+    connect(monitorId);
   }, 3000);
 }
 
@@ -134,7 +134,8 @@ async function captureFrame() {
     const jpeg = image.toJPEG(Math.max(1, Math.min(100, Number(config.jpegQuality) || 60)));
     socket.send(jpeg, { binary: true });
   } catch (error) {
-    setStatus("Live", getCaptureErrorMessage(error));
+    stopCapture();
+    setStatus("Waiting", getCaptureErrorMessage(error));
   } finally {
     captureInFlight = false;
   }
@@ -186,16 +187,16 @@ function startHeartbeat(activeSocket) {
 }
 
 function connect(id) {
-  employeeEmail = id.trim().toLowerCase();
+  monitorId = id.trim();
 
-  if (!employeeEmail) {
-    setStatus("Disconnected", "Email is required");
+  if (!monitorId) {
+    setStatus("Disconnected", "Monitor ID is required");
     return;
   }
 
-  saveState({ email: employeeEmail, employeeId: employeeEmail });
+  saveState({ monitorId, employeeId: monitorId });
   closeSocket();
-  const socketUrl = buildSocketUrl(employeeEmail);
+  const socketUrl = buildSocketUrl(monitorId);
   setStatus("Connecting", `Connecting to ${socketUrl.replace(/([?&](?:token|key)=)[^&]+/g, "$1***")}`);
 
   const activeSocket = new WebSocket(socketUrl, {
@@ -206,7 +207,7 @@ function connect(id) {
 
   activeSocket.on("open", () => {
     setStatus("Live", "Connected and available for monitoring.");
-    activeSocket.send(JSON.stringify({ type: "status", event: "online", id: employeeEmail }));
+    activeSocket.send(JSON.stringify({ type: "status", event: "online", id: monitorId }));
     startHeartbeat(activeSocket);
   });
 
@@ -283,6 +284,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   ipcMain.handle("monitor:get-state", () => ({
+    monitorId: loadState().monitorId || loadState().email || loadState().employeeId || "",
     email: loadState().email || loadState().employeeId || "",
     employeeId: loadState().employeeId || "",
     serverUrl: getConfig().serverUrl,
@@ -297,9 +299,9 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  const savedEmail = String(loadState().email || loadState().employeeId || "").trim();
-  if (savedEmail) {
-    connect(savedEmail);
+  const savedMonitorId = String(loadState().monitorId || loadState().email || loadState().employeeId || "").trim();
+  if (savedMonitorId) {
+    connect(savedMonitorId);
   }
 });
 

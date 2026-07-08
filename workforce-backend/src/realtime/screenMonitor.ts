@@ -100,7 +100,6 @@ function registerEmployee(client: ScreenClient) {
 
   employees.set(client.id, client);
   broadcastPresence();
-  sendJson(client.socket, { action: "START_STREAM" });
 }
 
 export function attachScreenMonitorServer(server: http.Server) {

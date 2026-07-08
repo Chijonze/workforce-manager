@@ -15,15 +15,15 @@ concurrency:
 
 jobs:
   build:
-    name: Build macOS DMG (${{ matrix.arch }})
+    name: Build macOS DMG (${{ matrix.name }})
     runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
+          - name: arm
             build-flag: --arm64
-          - arch: x64
+          - name: regular
             build-flag: --x64
     defaults:
       run:
@@ -45,20 +45,11 @@ jobs:
         run: npm ci
 
       - name: Build macOS DMG
-        run: npm run build:mac -- ${{ matrix.build-flag }}
+        run: npx electron-builder --mac dmg ${{ matrix.build-flag }}
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          name: workforce-screen-monitor-mac-dmg-${{ matrix.arch }}
+          name: workforce-screen-monitor-mac-dmg-${{ matrix.name }}
           path: employee-screen-monitor/dist/*.dmg
-          if-no-files-found: error
-
-      - name: Upload macOS support artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: workforce-screen-monitor-mac-support-${{ matrix.arch }}
-          path: |
-            employee-screen-monitor/dist/*.zip
-            employee-screen-monitor/dist/*.blockmap
           if-no-files-found: error
