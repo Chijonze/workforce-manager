@@ -1,6 +1,7 @@
 "use client";
 
 import { CSSProperties, FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
@@ -288,6 +289,12 @@ function formatTimeRange(startTime?: string, endTime?: string) {
   const endDate = new Date(`${baseDate}T${normalizedEnd}:00Z`);
 
   return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
+}
+
+function getScheduleTemplateId(schedule: Schedule) {
+  return typeof schedule.shiftTemplateId === "string"
+    ? schedule.shiftTemplateId
+    : schedule.shiftTemplateId?._id;
 }
 
 function formatDuration(totalSeconds: number) {
@@ -932,19 +939,17 @@ export default function Home() {
     if (!token || !isAdmin) return;
 
     const assignedCount = schedules.filter((schedule) => {
-      const templateId =
-        typeof schedule.shiftTemplateId === "string"
-          ? schedule.shiftTemplateId
-          : schedule.shiftTemplateId._id;
-      return templateId === template._id;
+      return getScheduleTemplateId(schedule) === template._id;
     }).length;
 
-    if (assignedCount) {
-      notify("error", "Delete assigned schedules before deleting this template");
-      return;
-    }
+    const actionLabel = assignedCount ? "Archive" : "Delete";
+    const detail = assignedCount
+      ? `This template is attached to ${assignedCount} schedule${
+          assignedCount === 1 ? "" : "s"
+        }. It will be hidden from admin setup but kept for historical shift records.`
+      : "This template is not attached to any schedules and will be deleted.";
 
-    if (!window.confirm(`Delete ${template.name} template?`)) {
+    if (!window.confirm(`${actionLabel} ${template.name} template?\n\n${detail}`)) {
       return;
     }
 
@@ -959,7 +964,7 @@ export default function Home() {
         shiftTemplateId: current.shiftTemplateId === template._id ? "" : current.shiftTemplateId,
       }));
       await refreshWorkspace();
-    }, "Template deleted");
+    }, assignedCount ? "Template archived" : "Template deleted");
   }
 
   async function assignSchedule(event: FormEvent<HTMLFormElement>) {
@@ -2110,11 +2115,7 @@ export default function Home() {
                   {templates.length ? (
                     templates.map((template) => {
                       const assignedCount = schedules.filter((schedule) => {
-                        const templateId =
-                          typeof schedule.shiftTemplateId === "string"
-                            ? schedule.shiftTemplateId
-                            : schedule.shiftTemplateId._id;
-                        return templateId === template._id;
+                        return getScheduleTemplateId(schedule) === template._id;
                       }).length;
 
                       return (
@@ -2130,17 +2131,17 @@ export default function Home() {
                           </div>
                           <button
                             className="button danger schedule-delete-button"
-                            disabled={loading || assignedCount > 0}
+                            disabled={loading}
                             title={
                               assignedCount
-                                ? "Delete assigned schedules before deleting this template"
+                                ? "Archive template and keep historical schedule records intact"
                                 : "Delete template"
                             }
                             type="button"
                             onClick={() => deleteTemplate(template)}
                           >
                             <Trash2 size={16} />
-                            Delete
+                            {assignedCount ? "Archive" : "Delete"}
                           </button>
                         </article>
                       );
@@ -2352,7 +2353,7 @@ export default function Home() {
               </div>
             </section>
 
-            <AssignedSchedules schedules={schedules} users={users} onDeleteSchedule={deleteSingleSchedule} />
+            <ScheduleSummary schedules={schedules} users={users} />
           </div>
         )}
 
@@ -3586,6 +3587,81 @@ function AdminOverviewPanel({
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+function ScheduleSummary({ schedules, users }: { schedules: Schedule[]; users: User[] }) {
+  const todayKey = toDateKey(new Date());
+  const londonToday = londonDateParts();
+  const monthKey = dateKeyFromParts(londonToday.year, londonToday.month, 1).slice(0, 7);
+  const nextSevenEnd = new Date();
+  nextSevenEnd.setDate(nextSevenEnd.getDate() + 7);
+
+  const assignedUsers = new Set(schedules.map((schedule) => schedule.userId));
+  const upcomingSchedules = schedules
+    .filter((schedule) => toDateKey(schedule.workDate) >= todayKey)
+    .sort((left, right) => toDateKey(left.workDate).localeCompare(toDateKey(right.workDate)));
+  const monthCount = schedules.filter((schedule) => toDateKey(schedule.workDate).startsWith(monthKey)).length;
+  const nextSevenCount = schedules.filter((schedule) => {
+    const key = toDateKey(schedule.workDate);
+    return key >= todayKey && key <= toDateKey(nextSevenEnd);
+  }).length;
+  const nextSchedule = upcomingSchedules[0];
+  const nextTemplate =
+    nextSchedule && typeof nextSchedule.shiftTemplateId !== "string"
+      ? nextSchedule.shiftTemplateId
+      : null;
+  const nextMember = nextSchedule ? users.find((item) => item._id === nextSchedule.userId) : null;
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <CalendarDays size={20} />
+          <div>
+            <h2>Schedules</h2>
+            <p className="panel-subtitle">Assigned work dates summary</p>
+          </div>
+        </div>
+        <Link className="button secondary" href="/assignments">
+          <Eye size={17} />
+          View assignments
+        </Link>
+      </div>
+
+      <div className="metrics compact">
+        <div className="metric">
+          <span>Total assignments</span>
+          <strong>{schedules.length}</strong>
+        </div>
+        <div className="metric">
+          <span>This month</span>
+          <strong>{monthCount}</strong>
+        </div>
+        <div className="metric">
+          <span>Next 7 days</span>
+          <strong>{nextSevenCount}</strong>
+        </div>
+        <div className="metric">
+          <span>Assigned users</span>
+          <strong>{assignedUsers.size}</strong>
+        </div>
+      </div>
+
+      {nextSchedule ? (
+        <article className="record">
+          <div className="record-row">
+            <span className="record-title">{nextTemplate?.name || "Assigned shift"}</span>
+            <span className="pill">{formatDate(nextSchedule.workDate)}</span>
+          </div>
+          <span className="muted">
+            Next assignment: {nextMember?.name || `User ID: ${nextSchedule.userId}`}
+          </span>
+        </article>
+      ) : (
+        <p className="muted">No upcoming assignments.</p>
+      )}
     </section>
   );
 }

@@ -12,7 +12,8 @@ export const createTemplate = async (req: Request, res: Response) => {
 
 export const getTemplates = async (_: Request, res: Response) => {
   try {
-    const templates = await service.getTemplates();
+    const includeInactive = String(_.query.includeInactive || "") === "true";
+    const templates = await service.getTemplates(includeInactive);
     res.json(templates);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
