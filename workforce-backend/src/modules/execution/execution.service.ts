@@ -57,6 +57,25 @@ const activityEndTypes: Partial<Record<string, ActivityType>> = {
   AFTER_CALL_WORK_END: "AFTER_CALL_WORK",
 };
 
+const workStartTypes = new Set([
+  "SHIFT_START",
+  "WORK_START",
+  "BREAK_END",
+  "LUNCH_END",
+  "MEETING_END",
+  "TRAINING_END",
+  "AFTER_CALL_WORK_END",
+]);
+
+const workStopTypes = new Set([
+  "BREAK_START",
+  "LUNCH_START",
+  "MEETING_START",
+  "TRAINING_START",
+  "AFTER_CALL_WORK_START",
+  "SHIFT_END",
+]);
+
 const getOverlapMinutes = (left: ActivityInterval, right: ActivityInterval) => {
   const start = Math.max(left.start.getTime(), right.start.getTime());
   const end = Math.min(left.end.getTime(), right.end.getTime());
@@ -225,19 +244,11 @@ export const calculateShiftTotals = (
   for (const event of timeline) {
     const timestamp = new Date(event.timestamp);
 
-    if (event.type === "WORK_START") {
+    if (workStartTypes.has(event.type)) {
       lastWorkStart = timestamp;
     }
 
-    if (
-      [
-        "BREAK_START",
-        "LUNCH_START",
-        "MEETING_START",
-        "TRAINING_START",
-        "AFTER_CALL_WORK_START",
-      ].includes(event.type)
-    ) {
+    if (workStopTypes.has(event.type)) {
       if (lastWorkStart) {
         totalWorkedMinutes += minutesBetween(lastWorkStart, timestamp);
         lastWorkStart = null;
@@ -271,10 +282,9 @@ const calculateScore = async (
   now = new Date()
 ) => {
   const scheduledMinutes = scheduledMinutesForSession(session);
-  const workedMinutes =
-    session.status === "active"
-      ? session.totalWorkedMinutes || 0
-      : session.totalWorkedMinutes || 0;
+  const liveTotals = calculateShiftTotals(events, session.clockOutTime || now);
+  const workedMinutes = liveTotals.totalWorkedMinutes;
+  const breakMinutes = liveTotals.totalBreakMinutes;
   const activityAdherenceScore = await calculateActivityAdherenceScore(session, events, now);
 
   const workScore = scheduledMinutes
@@ -294,6 +304,7 @@ const calculateScore = async (
       overtimePenalty: 0,
       scheduledMinutes,
       workedMinutes: 0,
+      breakMinutes: 0,
       evaluatedAt: now,
     };
   }
@@ -312,12 +323,15 @@ const calculateScore = async (
     overtimePenalty,
     scheduledMinutes,
     workedMinutes,
+    breakMinutes,
     evaluatedAt: now,
   };
 };
 
 const kpiFieldsFromScore = (score: any) => ({
   scheduledMinutes: score.scheduledMinutes,
+  totalWorkedMinutes: score.workedMinutes,
+  totalBreakMinutes: score.breakMinutes,
   kpiScore: score.overall,
   adherenceScore: score.activityAdherenceScore,
   workScore: score.workScore,
@@ -456,7 +470,26 @@ export const runExecutionMaintenance = async (now = new Date()) => {
     missedShifts += 1;
   }
 
-  return { autoClosed, missedShifts };
+  const { end } = getUtcDayRange(now);
+  const todaysSessions = await ShiftSession.find({
+    $or: [
+      { scheduledStartTime: { $gte: start, $lt: end } },
+      { clockInTime: { $gte: start, $lt: end } },
+    ],
+  });
+
+  let recalculatedSessions = 0;
+
+  for (const session of todaysSessions) {
+    await persistShiftKpi(
+      session._id.toString(),
+      session.userId,
+      session.clockOutTime || now
+    );
+    recalculatedSessions += 1;
+  }
+
+  return { autoClosed, missedShifts, recalculatedSessions };
 };
 
 export const getDailyPerformance = async (
@@ -571,7 +604,7 @@ export const getDailyPerformance = async (
     adherenceScore: score.activityAdherenceScore,
     workedMinutes: score.workedMinutes,
     scheduledMinutes: score.scheduledMinutes,
-    breakMinutes: session.totalBreakMinutes || 0,
+    breakMinutes: score.breakMinutes,
     lateMinutes: session.lateMinutes || 0,
     overtimeMinutes: session.overtimeMinutes || 0,
     breakdown: {

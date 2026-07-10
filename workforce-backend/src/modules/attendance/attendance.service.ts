@@ -44,7 +44,17 @@ const calculateShiftTotals = (
   for (const event of timeline) {
     const timestamp = new Date(event.timestamp);
 
-    if (event.type === "WORK_START") {
+    if (
+      [
+        "SHIFT_START",
+        "WORK_START",
+        "BREAK_END",
+        "LUNCH_END",
+        "MEETING_END",
+        "TRAINING_END",
+        "AFTER_CALL_WORK_END",
+      ].includes(event.type)
+    ) {
       lastWorkStart = timestamp;
     }
 
@@ -55,6 +65,7 @@ const calculateShiftTotals = (
         "MEETING_START",
         "TRAINING_START",
         "AFTER_CALL_WORK_START",
+        "SHIFT_END",
       ].includes(event.type)
     ) {
       if (lastWorkStart) {
