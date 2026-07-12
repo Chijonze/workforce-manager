@@ -3524,6 +3524,12 @@ function AdminOverviewPanel({
               Download Excel
             </button>
           )}
+          {canDownload && (
+            <Link className="button secondary" href="/execution-report">
+              <CalendarDays size={17} />
+              Detailed reports
+            </Link>
+          )}
           {onRunMaintenance && (
             <button className="button secondary" disabled={loading} type="button" onClick={onRunMaintenance}>
               <RefreshCw size={17} />

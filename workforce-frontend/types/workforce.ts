@@ -132,6 +132,23 @@ export type AdminOverview = {
   schedules: Schedule[];
 };
 
+export type ExecutionReport = {
+  startDate: string;
+  endDate: string;
+  totals: {
+    records: number;
+    users: number;
+    scheduledMinutes: number;
+    workedMinutes: number;
+    breakMinutes: number;
+    lateMinutes: number;
+    overtimeMinutes: number;
+    averageAdherence: number;
+    averagePerformance: number;
+  };
+  rows: { date: string; user: User; performance: DailyPerformance }[];
+};
+
 export type LeaveRequest = {
   _id: string;
   userId: string;

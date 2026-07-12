@@ -342,6 +342,18 @@ button:disabled {
   margin-bottom: 0;
 }
 
+.execution-report-page {
+  max-width: 1500px;
+}
+
+.execution-report-filters {
+  align-items: end;
+}
+
+.report-metrics {
+  margin: 18px 0;
+}
+
 .execution-grid {
   display: grid;
   grid-template-columns: minmax(280px, 0.82fr) minmax(320px, 1fr);

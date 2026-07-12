@@ -720,3 +720,76 @@ export const getAdminOverview = async (date: Date | string = new Date(), current
     schedules,
   };
 };
+
+export const getAdminExecutionReport = async (
+  startDate: Date | string,
+  endDate: Date | string,
+  currentUser?: any
+) => {
+  const { start } = getUtcDayRange(startDate);
+  const { start: endStart } = getUtcDayRange(endDate);
+
+  if (endStart < start) {
+    throw new Error("End date must be on or after start date");
+  }
+
+  const dayCount = Math.floor((endStart.getTime() - start.getTime()) / 86400000) + 1;
+  if (dayCount > 366) {
+    throw new Error("Select a period of up to 366 days");
+  }
+
+  await runExecutionMaintenance();
+
+  const supervisor = currentUser?.role === "supervisor"
+    ? await User.findById(currentUser.userId).select("assignedAgentIds")
+    : null;
+  const assignedAgentIds = (supervisor?.assignedAgentIds || []).map(String);
+  const userQuery = supervisor
+    ? { _id: { $in: assignedAgentIds }, role: "agent" }
+    : {};
+  const users = await User.find(userQuery).select("_id name email role");
+  const dates = Array.from({ length: dayCount }, (_, index) => {
+    const date = new Date(start);
+    date.setUTCDate(date.getUTCDate() + index);
+    return date;
+  });
+
+  const rows = (await Promise.all(
+    dates.flatMap((date) => users.map(async (user: any) => ({
+      date,
+      user: { _id: user._id, name: user.name, email: user.email, role: user.role },
+      performance: await getDailyPerformance(user._id.toString(), date),
+    })))
+  )).filter((item) => item.performance.scheduled || item.performance.status !== "unscheduled");
+
+  const totals = rows.reduce(
+    (result, item) => {
+      result.scheduledMinutes += item.performance.scheduledMinutes;
+      result.workedMinutes += item.performance.workedMinutes;
+      result.breakMinutes += item.performance.breakMinutes;
+      result.lateMinutes += item.performance.lateMinutes;
+      result.overtimeMinutes += item.performance.overtimeMinutes;
+      result.adherenceTotal += item.performance.adherenceScore ?? 0;
+      result.performanceTotal += item.performance.overallScore;
+      return result;
+    },
+    { scheduledMinutes: 0, workedMinutes: 0, breakMinutes: 0, lateMinutes: 0, overtimeMinutes: 0, adherenceTotal: 0, performanceTotal: 0 }
+  );
+
+  return {
+    startDate: start,
+    endDate: endStart,
+    totals: {
+      records: rows.length,
+      users: users.length,
+      scheduledMinutes: totals.scheduledMinutes,
+      workedMinutes: totals.workedMinutes,
+      breakMinutes: totals.breakMinutes,
+      lateMinutes: totals.lateMinutes,
+      overtimeMinutes: totals.overtimeMinutes,
+      averageAdherence: rows.length ? clampPercent(totals.adherenceTotal / rows.length) : 0,
+      averagePerformance: rows.length ? clampPercent(totals.performanceTotal / rows.length) : 0,
+    },
+    rows,
+  };
+};
