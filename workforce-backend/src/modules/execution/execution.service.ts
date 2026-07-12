@@ -593,7 +593,21 @@ export const getDailyPerformance = async (
     session.totalBreakMinutes = totals.totalBreakMinutes;
   }
 
-  const score = await calculateScore(session, events, session.clockOutTime || new Date());
+  // A closed shift is a historical record. Its KPI is calculated and saved at
+  // close time, so do not re-score it later using the current time/template.
+  const hasPersistedKpi = Boolean(session.kpiEvaluatedAt);
+  const score = hasPersistedKpi && session.status !== "active"
+    ? {
+        overall: session.kpiScore ?? 0,
+        workScore: session.workScore ?? 0,
+        punctualityScore: session.punctualityScore ?? 0,
+        breakScore: session.activityAdherenceScore ?? session.adherenceScore ?? 0,
+        activityAdherenceScore: session.activityAdherenceScore ?? session.adherenceScore ?? 0,
+        scheduledMinutes: session.scheduledMinutes ?? scheduledMinutesForSession(session),
+        workedMinutes: session.totalWorkedMinutes ?? 0,
+        breakMinutes: session.totalBreakMinutes ?? 0,
+      }
+    : await calculateScore(session, events, session.clockOutTime || new Date());
 
   return {
     date: start,

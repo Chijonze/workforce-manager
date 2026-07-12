@@ -383,6 +383,7 @@ export default function Home() {
   const [events, setEvents] = useState<ShiftEvent[]>([]);
   const [dailyPerformance, setDailyPerformance] = useState<DailyPerformance | null>(null);
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
+  const [overviewDate, setOverviewDate] = useState(() => toDateKey(new Date()));
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [chatRecipients, setChatRecipients] = useState<User[]>([]);
   const [chatConversations, setChatConversations] = useState<ChatConversation[]>([]);
@@ -579,7 +580,7 @@ export default function Home() {
     if (!authToken || !currentUser) return;
 
     if (currentUser.role === "supervisor") {
-      const overview = await apiRequest<AdminOverview>("/api/execution/admin/overview", {
+      const overview = await apiRequest<AdminOverview>(`/api/execution/admin/overview?date=${overviewDate}`, {
         token: authToken,
       });
 
@@ -623,7 +624,7 @@ export default function Home() {
         apiRequest<ShiftTemplate[]>("/api/scheduling/templates", { token: authToken }),
         apiRequest<Schedule[]>("/api/scheduling/schedule", { token: authToken }),
         apiRequest<User[]>("/api/auth/users", { token: authToken }),
-        apiRequest<AdminOverview>("/api/execution/admin/overview", { token: authToken }),
+        apiRequest<AdminOverview>(`/api/execution/admin/overview?date=${overviewDate}`, { token: authToken }),
         apiRequest<LeaveRequest[]>("/api/leave", { token: authToken }),
       ]);
 
@@ -1433,6 +1434,14 @@ export default function Home() {
         canDownload={isAdmin}
         loading={loading}
         overview={adminOverview}
+        selectedDate={overviewDate}
+        onSelectDate={(date) => {
+          setOverviewDate(date);
+          void runAction(async () => {
+            const overview = await apiRequest<AdminOverview>(`/api/execution/admin/overview?date=${date}`, { token });
+            setAdminOverview(overview);
+          });
+        }}
         onRunMaintenance={isAdmin ? runMaintenance : undefined}
       />
     ) : null;
@@ -3432,13 +3441,27 @@ function AdminOverviewPanel({
   canDownload = false,
   loading,
   overview,
+  selectedDate,
+  onSelectDate,
   onRunMaintenance,
 }: {
   canDownload?: boolean;
   loading: boolean;
   overview: AdminOverview;
+  selectedDate: string;
+  onSelectDate: (date: string) => void;
   onRunMaintenance?: () => void;
 }) {
+  const [view, setView] = useState<"summary" | "history">("summary");
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const selectedUser = overview.users.find((item) => item.user._id === selectedUserId) || overview.users[0];
+
+  useEffect(() => {
+    if (!overview.users.some((item) => item.user._id === selectedUserId)) {
+      setSelectedUserId(overview.users[0]?.user._id || "");
+    }
+  }, [overview.users, selectedUserId]);
+
   function downloadOverviewExcel() {
     const rows = overview.users.map((item) => {
       const adherence =
@@ -3509,6 +3532,38 @@ function AdminOverviewPanel({
           )}
         </div>
       </div>
+
+      <div className="overview-tabs" role="tablist" aria-label="Execution overview views">
+        <button className={`button ${view === "summary" ? "" : "secondary"}`} type="button" onClick={() => setView("summary")}>Summary</button>
+        <button className={`button ${view === "history" ? "" : "secondary"}`} type="button" onClick={() => setView("history")}>Activity history</button>
+      </div>
+
+      {view === "history" ? (
+        <div className="overview-history">
+          <div className="overview-filters">
+            <label>Activity date
+              <input type="date" value={selectedDate} max={toDateKey(new Date())} onChange={(event) => onSelectDate(event.target.value)} />
+            </label>
+            <label>Team member
+              <select value={selectedUser?.user._id || ""} onChange={(event) => setSelectedUserId(event.target.value)}>
+                {overview.users.map((item) => <option key={item.user._id} value={item.user._id}>{item.user.name} ({item.user.email})</option>)}
+              </select>
+            </label>
+          </div>
+          {selectedUser ? (
+            <div className="metrics admin-metrics history-metrics">
+              <div className="metric"><span>Status</span><strong>{selectedUser.performance.status}</strong></div>
+              <div className="metric"><span>Adherence</span><strong>{selectedUser.performance.adherenceScore ?? selectedUser.performance.breakdown.activityAdherenceScore ?? 0}%</strong></div>
+              <div className="metric"><span>Work done</span><strong>{selectedUser.performance.workedMinutes}m</strong></div>
+              <div className="metric"><span>Scheduled</span><strong>{selectedUser.performance.scheduledMinutes}m</strong></div>
+              <div className="metric"><span>Overall</span><strong>{selectedUser.performance.overallScore}%</strong></div>
+              <div className="metric"><span>Breaks</span><strong>{selectedUser.performance.breakMinutes}m</strong></div>
+              <div className="metric"><span>Late</span><strong>{selectedUser.performance.lateMinutes}m</strong></div>
+              <div className="metric"><span>Overtime</span><strong>{selectedUser.performance.overtimeMinutes}m</strong></div>
+            </div>
+          ) : <p className="empty-state">No team members are available for this view.</p>}
+        </div>
+      ) : <>
 
       <div className="metrics admin-metrics">
         <div className="metric">
@@ -3587,6 +3642,7 @@ function AdminOverviewPanel({
           </tbody>
         </table>
       </div>
+      </>}
     </section>
   );
 }
