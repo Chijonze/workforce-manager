@@ -68,7 +68,10 @@ const eventsWithinScoreWindow = (
     .map((event) => {
       const timestamp = new Date(event.timestamp);
       return {
-        ...event,
+        // Mongoose documents do not expose schema fields through object spread.
+        // Preserve the event type explicitly so the KPI state machine can
+        // recognise work, break, and shift-end transitions.
+        type: event.type,
         // A shift which started slightly before its scheduled window still
         // earns time only from the scheduled start onward.
         timestamp: new Date(Math.max(timestamp.getTime(), start.getTime())),
