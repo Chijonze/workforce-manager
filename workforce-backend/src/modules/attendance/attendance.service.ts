@@ -149,7 +149,9 @@ const schedule = await Schedule.findOne({
     template.endTime
   );
 
-  
+  if (now < scheduledStartTime || now > scheduledEndTime) {
+    throw new Error("Shift can only be started during its scheduled window");
+  }
 
   // LATE CALCULATION
   const lateMinutes = calculateLateMinutes(

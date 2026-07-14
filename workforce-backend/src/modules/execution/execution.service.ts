@@ -567,17 +567,21 @@ export const getDailyPerformance = async (
       date: start,
       scheduled: true,
       status: missed ? "missed" : "scheduled",
-      overallScore: missed ? 0 : 100,
+      // A scheduled shift is not evidence of completed work. Scores must only
+      // reflect server-recorded shift activity, never the absence of a session.
+      overallScore: 0,
+      kpiScore: 0,
+      adherenceScore: 0,
       workedMinutes: 0,
       scheduledMinutes: minutesBetween(scheduledStartTime, scheduledEndTime),
       breakMinutes: 0,
       lateMinutes: 0,
       overtimeMinutes: 0,
       breakdown: {
-        workScore: missed ? 0 : 100,
-        punctualityScore: missed ? 0 : 100,
-        breakScore: missed ? 0 : 100,
-        activityAdherenceScore: missed ? 0 : 100,
+        workScore: 0,
+        punctualityScore: 0,
+        breakScore: 0,
+        activityAdherenceScore: 0,
       },
     };
   }

@@ -1549,7 +1549,7 @@ export default function Home() {
         </div>
         <div className="metric">
           <span>Today adherence</span>
-          <strong>{dailyPerformance?.adherenceScore ?? dailyPerformance?.overallScore ?? 100}%</strong>
+          <strong>{dailyPerformance?.adherenceScore ?? dailyPerformance?.overallScore ?? 0}%</strong>
         </div>
       </div>
     </section>
@@ -2697,7 +2697,7 @@ function MonthlyActivityCalendar({
             </p>
           </div>
         </div>
-        <span className="pill">{dailyPerformance?.overallScore ?? 100}% today</span>
+        <span className="pill">{dailyPerformance?.overallScore ?? 0}% today</span>
       </div>
 
       <div className="calendar-weekdays">
@@ -2726,7 +2726,7 @@ function MonthlyActivityCalendar({
             >
               <strong>{date.getDate()}</strong>
               {isScheduled && !leave && <span>Scheduled</span>}
-              {isToday && !leave && <i>{dailyPerformance?.overallScore ?? 100}%</i>}
+              {isToday && !leave && <i>{dailyPerformance?.overallScore ?? 0}%</i>}
             </button>
           );
         })}
