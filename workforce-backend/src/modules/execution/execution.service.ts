@@ -60,13 +60,21 @@ const eventsWithinScoreWindow = (
   start: Date,
   end: Date
 ): TimelineEvent[] =>
-  events.map((event) => {
-    const timestamp = new Date(event.timestamp);
-    return {
-      ...event,
-      timestamp: new Date(Math.max(start.getTime(), Math.min(timestamp.getTime(), end.getTime()))),
-    };
-  });
+  events
+    // Events received after a shift has closed must not be collapsed onto the
+    // scheduled end. Doing so can turn a delayed WORK_START/BREAK_END into the
+    // final state of the shift and overwrite the completed KPI with zeroes.
+    .filter((event) => new Date(event.timestamp) <= end)
+    .map((event) => {
+      const timestamp = new Date(event.timestamp);
+      return {
+        ...event,
+        // A shift which started slightly before its scheduled window still
+        // earns time only from the scheduled start onward.
+        timestamp: new Date(Math.max(timestamp.getTime(), start.getTime())),
+      };
+    })
+    .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
 
 const activityStartTypes: Partial<Record<string, ActivityType>> = {
   BREAK_START: "BREAK",
