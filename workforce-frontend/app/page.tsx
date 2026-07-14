@@ -1540,7 +1540,7 @@ export default function Home() {
         <div className="metric">
           <span>Worked duration</span>
           <strong>
-            {activeShift?.shift.totalWorkedMinutes ?? minutesBetween(activeShift?.shift.clockInTime)}m
+            {dailyPerformance?.workedMinutes ?? 0}m
           </strong>
         </div>
         <div className="metric">

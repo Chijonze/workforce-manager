@@ -26,8 +26,6 @@ type DynamicAllowance = {
   durationMinutes: number;
 };
 
-const AUTO_CLOSE_GRACE_MINUTES = 120;
-
 const clampPercent = (value: number) => {
   return Math.max(0, Math.min(100, Math.round(value)));
 };
@@ -40,6 +38,35 @@ const minutesBetween = (start?: Date, end?: Date) => {
 const scheduledMinutesForSession = (session: any) => {
   return minutesBetween(session.scheduledStartTime, session.scheduledEndTime);
 };
+
+const scoreWindowForSession = (session: any, requestedClosingTime: Date) => {
+  const scheduledStart = session.scheduledStartTime
+    ? new Date(session.scheduledStartTime)
+    : new Date(session.clockInTime);
+  const scheduledEnd = session.scheduledEndTime
+    ? new Date(session.scheduledEndTime)
+    : requestedClosingTime;
+  const requestedEnd = new Date(requestedClosingTime);
+  const closingTime = new Date(Math.min(requestedEnd.getTime(), scheduledEnd.getTime()));
+
+  return {
+    start: scheduledStart,
+    end: closingTime < scheduledStart ? scheduledStart : closingTime,
+  };
+};
+
+const eventsWithinScoreWindow = (
+  events: TimelineEvent[],
+  start: Date,
+  end: Date
+): TimelineEvent[] =>
+  events.map((event) => {
+    const timestamp = new Date(event.timestamp);
+    return {
+      ...event,
+      timestamp: new Date(Math.max(start.getTime(), Math.min(timestamp.getTime(), end.getTime()))),
+    };
+  });
 
 const activityStartTypes: Partial<Record<string, ActivityType>> = {
   BREAK_START: "BREAK",
@@ -282,10 +309,16 @@ const calculateScore = async (
   now = new Date()
 ) => {
   const scheduledMinutes = scheduledMinutesForSession(session);
-  const liveTotals = calculateShiftTotals(events, session.clockOutTime || now);
+  const scoreWindow = scoreWindowForSession(session, session.clockOutTime || now);
+  const boundedEvents = eventsWithinScoreWindow(events, scoreWindow.start, scoreWindow.end);
+  const liveTotals = calculateShiftTotals(boundedEvents, scoreWindow.end);
   const workedMinutes = liveTotals.totalWorkedMinutes;
   const breakMinutes = liveTotals.totalBreakMinutes;
-  const activityAdherenceScore = await calculateActivityAdherenceScore(session, events, now);
+  const activityAdherenceScore = await calculateActivityAdherenceScore(
+    session,
+    boundedEvents,
+    scoreWindow.end
+  );
 
   const workScore = scheduledMinutes
     ? clampPercent((workedMinutes / scheduledMinutes) * 100)
@@ -305,7 +338,7 @@ const calculateScore = async (
       scheduledMinutes,
       workedMinutes: 0,
       breakMinutes: 0,
-      evaluatedAt: now,
+      evaluatedAt: scoreWindow.end,
     };
   }
 
@@ -324,7 +357,7 @@ const calculateScore = async (
     scheduledMinutes,
     workedMinutes,
     breakMinutes,
-    evaluatedAt: now,
+    evaluatedAt: scoreWindow.end,
   };
 };
 
@@ -365,10 +398,10 @@ export const persistShiftKpi = async (
   );
 };
 
-export const runExecutionMaintenance = async (now = new Date()) => {
+export const autoCloseExpiredShifts = async (now = new Date()) => {
   const activeShifts = await ShiftSession.find({
     status: "active",
-    scheduledEndTime: { $lte: new Date(now.getTime() - AUTO_CLOSE_GRACE_MINUTES * 60000) },
+    scheduledEndTime: { $lte: now },
   });
 
   let autoClosed = 0;
@@ -385,7 +418,10 @@ export const runExecutionMaintenance = async (now = new Date()) => {
       shift.scheduledEndTime
     );
 
-    await ShiftSession.findByIdAndUpdate(shift._id, {
+    const closedShift = await ShiftSession.findOneAndUpdate({
+      _id: shift._id,
+      status: "active",
+    }, {
       status: "expired",
       clockOutTime: shift.scheduledEndTime || now,
       totalWorkedMinutes: totals.totalWorkedMinutes,
@@ -393,7 +429,9 @@ export const runExecutionMaintenance = async (now = new Date()) => {
       overtimeMinutes,
       autoClosed: true,
       closureReason: "auto_closed",
-    });
+    }, { new: true });
+
+    if (!closedShift) continue;
 
     await ShiftEvent.create({
       shiftId: shift._id,
@@ -413,6 +451,12 @@ export const runExecutionMaintenance = async (now = new Date()) => {
 
     autoClosed += 1;
   }
+
+  return autoClosed;
+};
+
+export const runExecutionMaintenance = async (now = new Date()) => {
+  const autoClosed = await autoCloseExpiredShifts(now);
 
   const { start } = getUtcDayRange(now);
   const endedSchedules = await Schedule.find({

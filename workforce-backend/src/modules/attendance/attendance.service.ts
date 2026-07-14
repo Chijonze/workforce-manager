@@ -326,34 +326,26 @@ if (
 }
 
   const now = new Date();
+  const closingTime = shift.scheduledEndTime && now > shift.scheduledEndTime
+    ? shift.scheduledEndTime
+    : now;
   const events = await ShiftEvent.find({
     shiftId: shiftObjectId,
     userId,
   }).sort({ createdAt: 1 });
-  const totals = calculateShiftTotals(events, now);
-
-  // OVERTIME
-  const overtimeMinutes =
-    calculateOvertimeMinutes(
-      now,
-      shift.scheduledEndTime
-    );
+  const totals = calculateShiftTotals(events, closingTime);
 
   let attendanceStatus =
     shift.attendanceStatus;
-
-  if (overtimeMinutes > 0) {
-    attendanceStatus = "overtime";
-  }
 
   const session =
     await ShiftSession.findByIdAndUpdate(
       shiftObjectId,
       {
         status: "completed",
-        clockOutTime: now,
+        clockOutTime: closingTime,
 
-        overtimeMinutes,
+        overtimeMinutes: 0,
         totalWorkedMinutes: totals.totalWorkedMinutes,
         totalBreakMinutes: totals.totalBreakMinutes,
 
@@ -366,10 +358,10 @@ if (
     shiftId,
     userId,
     type: "SHIFT_END",
-    timestamp: now,
+    timestamp: closingTime,
   });
 
-  return persistShiftKpi(shiftId, userId, now);
+  return persistShiftKpi(shiftId, userId, closingTime);
 };
 
 export const createEvent = async (
