@@ -209,9 +209,26 @@ const calculateActivityAdherenceScore = async (
 
   if (!template) return 100;
 
-  const scheduledIntervals = getScheduledActivityIntervals(session, template);
+  const allScheduledIntervals = getScheduledActivityIntervals(session, template);
   const dynamicAllowances = getDynamicBreakAllowances(template);
   const actualIntervals = getActivityIntervals(events, closingTime);
+
+  const scheduledEnd = session.scheduledEndTime
+    ? new Date(session.scheduledEndTime)
+    : closingTime;
+  const isLiveEvaluation = session.status === "active" && closingTime < scheduledEnd;
+  // Future static activities are not missed during an active shift. Evaluate
+  // only the part of the schedule that has elapsed, then use the complete
+  // schedule once the shift is closed.
+  const scheduledIntervals = isLiveEvaluation
+    ? allScheduledIntervals
+        .filter((interval) => interval.start < closingTime)
+        .map((interval) => ({
+          ...interval,
+          end: interval.end < closingTime ? interval.end : closingTime,
+        }))
+        .filter((interval) => interval.end > interval.start)
+    : allScheduledIntervals;
 
   if (!scheduledIntervals.length && !dynamicAllowances.length) {
     return actualIntervals.length ? 0 : 100;
@@ -239,10 +256,12 @@ const calculateActivityAdherenceScore = async (
 
     return sum + Math.min(minutesBetween(actual.start, actual.end), overlap);
   }, 0);
-  const dynamicAllowanceMinutes = dynamicAllowances.reduce(
-    (sum, allowance) => sum + allowance.durationMinutes,
-    0
-  );
+  const dynamicAllowanceMinutes = isLiveEvaluation
+    ? 0
+    : dynamicAllowances.reduce(
+        (sum, allowance) => sum + allowance.durationMinutes,
+        0
+      );
   const dynamicMatchedActualMinutes = dynamicAllowances.reduce((sum, allowance) => {
     const actualDynamicMinutes = actualIntervals
       .filter((actual) => actual.type === allowance.type)
@@ -262,7 +281,9 @@ const calculateActivityAdherenceScore = async (
   );
   const unscheduledMinutes = Math.max(0, actualMinutes - matchedActualMinutes);
   const expectedMinutes = scheduledMinutes + dynamicAllowanceMinutes;
-  const matchedExpectedMinutes = matchedScheduledMinutes + dynamicMatchedActualMinutes;
+  const matchedExpectedMinutes = matchedScheduledMinutes + (
+    isLiveEvaluation ? 0 : dynamicMatchedActualMinutes
+  );
   const denominator = expectedMinutes + unscheduledMinutes;
 
   return denominator ? clampPercent((matchedExpectedMinutes / denominator) * 100) : 100;
