@@ -326,9 +326,8 @@ if (
 }
 
   const now = new Date();
-  const closingTime = shift.scheduledEndTime && now > shift.scheduledEndTime
-    ? shift.scheduledEndTime
-    : now;
+  // Retain the real clock-out time; scheduled end is only the KPI/overtime baseline.
+  const closingTime = now;
   const events = await ShiftEvent.find({
     shiftId: shiftObjectId,
     userId,
@@ -345,7 +344,7 @@ if (
         status: "completed",
         clockOutTime: closingTime,
 
-        overtimeMinutes: 0,
+        overtimeMinutes: calculateOvertimeMinutes(closingTime, shift.scheduledEndTime),
         totalWorkedMinutes: totals.totalWorkedMinutes,
         totalBreakMinutes: totals.totalBreakMinutes,
 

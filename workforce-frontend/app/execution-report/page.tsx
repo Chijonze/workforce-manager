@@ -29,6 +29,11 @@ export default function ExecutionReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  function setReportDates(start: string, end: string) {
+    setStartDate(start);
+    setEndDate(end);
+  }
+
   useEffect(() => {
     const savedToken = window.localStorage.getItem("workforce_token");
     if (!savedToken) {
@@ -83,11 +88,11 @@ export default function ExecutionReportPage() {
     <section className="panel">
       <div className="panel-header">
         <div className="panel-title"><ShieldCheck size={20} /><div><h1>Execution Reports</h1><p className="panel-subtitle">Flexible historical adherence and workforce execution reporting</p></div></div>
-        <div className="review-actions"><Link className="button secondary" href="/"><Home size={17} />Dashboard</Link><button className="button secondary" type="button" disabled={loading || !token} onClick={() => loadReport()}><RefreshCw size={17} />Refresh</button><button className="button" type="button" disabled={!rows.length} onClick={downloadExcel}><Download size={17} />Download Excel</button></div>
+        <div className="review-actions"><Link className="button secondary" href="/"><Home size={17} />Dashboard</Link><button className="button secondary" type="button" disabled={loading || !token} onClick={() => loadReport()}><RefreshCw size={17} />Refresh</button><button className="button secondary" type="button" disabled={loading || !token} onClick={() => { setReportDates(today, today); void loadReport(token, today, today); }}>Today</button><button className="button" type="button" disabled={!rows.length} onClick={downloadExcel}><Download size={17} />Download Excel</button></div>
       </div>
       <div className="form-grid execution-report-filters">
-        <div className="field"><label htmlFor="execution-start">From date</label><input id="execution-start" type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></div>
-        <div className="field"><label htmlFor="execution-end">To date</label><input id="execution-end" type="date" value={endDate} min={startDate} max={today} onChange={(event) => setEndDate(event.target.value)} /></div>
+        <div className="field"><label htmlFor="execution-start">From date</label><input id="execution-start" type="date" value={startDate} onChange={(event) => { const next = event.target.value; setReportDates(next, next > endDate ? next : endDate); }} /></div>
+        <div className="field"><label htmlFor="execution-end">To date</label><input id="execution-end" type="date" value={endDate} onChange={(event) => { const next = event.target.value; setReportDates(next < startDate ? next : startDate, next); }} /></div>
         <div className="field"><label htmlFor="execution-user">Team member</label><select id="execution-user" value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">All team members</option>{users.map((user) => <option key={user._id} value={user._id}>{user.name} ({user.email})</option>)}</select></div>
         <button className="button" type="button" disabled={loading} onClick={() => loadReport()}>Apply period</button>
       </div>

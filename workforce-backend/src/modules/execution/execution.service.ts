@@ -43,11 +43,9 @@ const scoreWindowForSession = (session: any, requestedClosingTime: Date) => {
   const scheduledStart = session.scheduledStartTime
     ? new Date(session.scheduledStartTime)
     : new Date(session.clockInTime);
-  const scheduledEnd = session.scheduledEndTime
-    ? new Date(session.scheduledEndTime)
-    : requestedClosingTime;
-  const requestedEnd = new Date(requestedClosingTime);
-  const closingTime = new Date(Math.min(requestedEnd.getTime(), scheduledEnd.getTime()));
+  // Scheduled time is the KPI target, not a ceiling on recorded work. The old
+  // ceiling silently discarded valid work after a short scheduled block.
+  const closingTime = new Date(requestedClosingTime);
 
   return {
     start: scheduledStart,
