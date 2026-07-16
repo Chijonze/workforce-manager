@@ -12,8 +12,7 @@ const PORT = process.env.PORT || 5000;
 const startServer = async () => {
   await connectDB();
 
-  // Shift records are closed at the scheduled end even when the user leaves
-  // the browser open or never submits an end-shift request.
+  // Unattended shifts are hard-closed after the maximum active duration.
   await autoCloseExpiredShifts().catch((error) => {
     console.error("Initial shift auto-close failed", error);
   });

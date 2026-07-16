@@ -30,6 +30,11 @@ const clampPercent = (value: number) => {
   return Math.max(0, Math.min(100, Math.round(value)));
 };
 
+// A schedule defines expected hours, not a forced sign-out point. Keep an
+// abandoned browser session bounded, while allowing legitimate overtime to be
+// recorded and ended normally by the agent.
+const MAX_ACTIVE_SHIFT_MINUTES = 12 * 60;
+
 const minutesBetween = (start?: Date, end?: Date) => {
   if (!start || !end) return 0;
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60000));
@@ -429,22 +434,28 @@ export const persistShiftKpi = async (
 };
 
 export const autoCloseExpiredShifts = async (now = new Date()) => {
+  const maximumShiftStart = new Date(
+    now.getTime() - MAX_ACTIVE_SHIFT_MINUTES * 60 * 1000
+  );
   const activeShifts = await ShiftSession.find({
     status: "active",
-    scheduledEndTime: { $lte: now },
+    clockInTime: { $lte: maximumShiftStart },
   });
 
   let autoClosed = 0;
 
   for (const shift of activeShifts) {
+    const closingTime = new Date(
+      new Date(shift.clockInTime).getTime() + MAX_ACTIVE_SHIFT_MINUTES * 60 * 1000
+    );
     const events = await ShiftEvent.find({
       shiftId: shift._id,
       userId: shift.userId,
     }).sort({ createdAt: 1 });
 
-    const totals = calculateShiftTotals(events, shift.scheduledEndTime || now);
+    const totals = calculateShiftTotals(events, closingTime);
     const overtimeMinutes = calculateOvertimeMinutes(
-      shift.scheduledEndTime || now,
+      closingTime,
       shift.scheduledEndTime
     );
 
@@ -453,7 +464,7 @@ export const autoCloseExpiredShifts = async (now = new Date()) => {
       status: "active",
     }, {
       status: "expired",
-      clockOutTime: shift.scheduledEndTime || now,
+      clockOutTime: closingTime,
       totalWorkedMinutes: totals.totalWorkedMinutes,
       totalBreakMinutes: totals.totalBreakMinutes,
       overtimeMinutes,
@@ -467,7 +478,7 @@ export const autoCloseExpiredShifts = async (now = new Date()) => {
       shiftId: shift._id,
       userId: shift.userId,
       type: "SHIFT_END",
-      timestamp: shift.scheduledEndTime || now,
+      timestamp: closingTime,
       metadata: {
         violation: "AUTO_CLOSED",
       },
@@ -476,7 +487,7 @@ export const autoCloseExpiredShifts = async (now = new Date()) => {
     await persistShiftKpi(
       shift._id.toString(),
       shift.userId,
-      shift.scheduledEndTime || now
+      closingTime
     );
 
     autoClosed += 1;
