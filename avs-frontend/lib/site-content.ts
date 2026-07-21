@@ -19,7 +19,7 @@ export const site = {
   domain: "https://advancedvirtualsolutions.com",
   logo: "/avs-logo.png",
   wordmarkLogo: "/avs-logo-wordmark.png",
-  email: "hello@advancedvirtualsolutions.com",
+  email: "info@advancedvirtualsolutions.com",
   phone: "44 7882 615046",
   phoneDisplay: "+44 7882 615046",
   phoneHref: "tel:+447882615046",
