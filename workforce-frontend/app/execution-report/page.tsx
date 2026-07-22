@@ -9,6 +9,7 @@ import type { ExecutionReport, User } from "@/types/workforce";
 
 const BUSINESS_TIME_ZONE = "Europe/London";
 const DEFAULT_HOURLY_RATE = 4.5;
+const INVOICE_TEAL = "FF1A9797";
 const AVS_INVOICE_LOGO_FALLBACK =
   "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 160'%3E%3Crect width='900' height='160' fill='white'/%3E%3Ctext x='32' y='76' font-family='Arial,sans-serif' font-size='44' font-weight='700' fill='%231a9797'%3EADVANCED VIRTUAL%3C/text%3E%3Ctext x='32' y='124' font-family='Arial,sans-serif' font-size='44' font-weight='700' fill='%230f172a'%3ESOLUTIONS%3C/text%3E%3C/svg%3E";
 
@@ -26,6 +27,11 @@ function escapeExcelCell(value: string | number | undefined | null) {
 function toExcelDate(value: string) {
   const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return dateOnly ? `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}` : value.slice(0, 10);
+}
+
+function invoiceHours(workedMinutes: number) {
+  const workedHours = workedMinutes / 60;
+  return workedHours >= 7 ? 8 : Number(workedHours.toFixed(2));
 }
 
 function formatInvoiceDate(value: string | Date) {
@@ -97,7 +103,7 @@ function buildInvoiceWorkbookHtml(
     const previousWeek = previousDate
       ? Math.floor((new Date(previousDate).getTime() - periodStart) / 604800000) + 1
       : 0;
-    const hours = Number((row.performance.workedMinutes / 60).toFixed(2));
+    const hours = invoiceHours(row.performance.workedMinutes);
     const dateLabel = rowDate !== previousDate ? formatBillingPeriod(rowDate, rowDate) : "";
 
     return `
@@ -272,7 +278,7 @@ async function buildNativeInvoiceWorkbook(
   });
 
   const totalRow = firstDataRow + sortedRows.length;
-  const totalHours = Number((sortedRows.reduce((total, row) => total + row.performance.workedMinutes / 60, 0)).toFixed(2));
+  const totalHours = Number((sortedRows.reduce((total, row) => total + invoiceHours(row.performance.workedMinutes), 0)).toFixed(2));
   const totalAmount = Number((totalHours * DEFAULT_HOURLY_RATE).toFixed(2));
   worksheet.mergeCells(`A${totalRow}:D${totalRow}`); worksheet.getCell(`A${totalRow}`).value = "TOTAL";
   worksheet.mergeCells(`E${totalRow}:F${totalRow}`); worksheet.getCell(`E${totalRow}`).value = { formula: sortedRows.length ? `SUM(E${firstDataRow}:E${totalRow - 1})` : "0", result: totalHours };
@@ -290,8 +296,9 @@ async function buildNativeInvoiceWorkbook(
 
   const paymentRow = summaryRow + 7;
   [["Name:", "Advanced Virtual Solutions Ltd"], ["Acc No:", "82440452"], ["Sort Code:", "60-84-64"], ["IBAN:", "GB22 TRWI 6084 6482 4404 52"], ["Swift/BIC:", "TRWIGB2LXXX"], ["Bank name:", "Wise Payments Limited"]].forEach(([label, value], index) => { const row = paymentRow + index + (index >= 3 ? 1 : 0); worksheet.getCell(`A${row}`).value = label; worksheet.getCell(`A${row}`).font = { bold: true }; worksheet.mergeCells(`B${row}:F${row}`); worksheet.getCell(`B${row}`).value = value; });
-  worksheet.mergeCells(`G${paymentRow + 4}:J${paymentRow + 4}`); worksheet.getCell(`G${paymentRow + 4}`).value = "TERMS AND CONDITIONS"; worksheet.getCell(`G${paymentRow + 4}`).font = { bold: true };
+  worksheet.mergeCells(`G${paymentRow + 4}:J${paymentRow + 4}`); worksheet.getCell(`G${paymentRow + 4}`).value = "TERMS AND CONDITIONS"; worksheet.getCell(`G${paymentRow + 4}`).style = cellStyle(INVOICE_TEAL); worksheet.getCell(`G${paymentRow + 4}`).font = { bold: true };
   worksheet.mergeCells(`G${paymentRow + 5}:J${paymentRow + 8}`); worksheet.getCell(`G${paymentRow + 5}`).value = "Payment is due within 15 days from the invoice date.\nKindly quote the invoice number with your payment.\nPlease contact us within 5 business days if you have any questions regarding this invoice.\nThank you for choosing Advanced Virtual Solutions Ltd."; worksheet.getCell(`G${paymentRow + 5}`).alignment = { wrapText: true, vertical: "top" }; worksheet.getRow(paymentRow + 5).height = 70;
+  worksheet.mergeCells(`A${paymentRow + 10}:J${paymentRow + 10}`); worksheet.getCell(`A${paymentRow + 10}`).value = "ADVANCED VIRTUAL SOLUTIONS LTD  •  Thank you for your business"; worksheet.getCell(`A${paymentRow + 10}`).style = cellStyle(INVOICE_TEAL); worksheet.getCell(`A${paymentRow + 10}`).font = { bold: true, color: { argb: "FFFFFFFF" } }; worksheet.getRow(paymentRow + 10).height = 24;
   return workbook.xlsx.writeBuffer();
 }
 
