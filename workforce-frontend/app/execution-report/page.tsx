@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ExcelJS from "exceljs";
 import { Download, Home, RefreshCw, ShieldCheck } from "lucide-react";
 import { apiRequest, formatDate } from "@/lib/api";
 import type { ExecutionReport, User } from "@/types/workforce";
@@ -179,6 +180,121 @@ function buildInvoiceWorkbookHtml(
     </html>`;
 }
 
+async function buildNativeInvoiceWorkbook(
+  report: ExecutionReport,
+  rows: ExecutionReport["rows"],
+  selectedUser: User | undefined
+) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Advanced Virtual Solutions Ltd";
+  workbook.created = new Date();
+  workbook.calcProperties.fullCalcOnLoad = true;
+  const worksheet = workbook.addWorksheet("Invoice", {
+    pageSetup: { fitToPage: true, fitToWidth: 1, fitToHeight: 0, orientation: "portrait" },
+    views: [{ showGridLines: false }],
+  });
+  worksheet.columns = [
+    { width: 12 }, { width: 12 }, { width: 12 }, { width: 30 }, { width: 13 },
+    { width: 4 }, { width: 13 }, { width: 4 }, { width: 15 }, { width: 4 },
+  ];
+  worksheet.properties.defaultRowHeight = 19;
+
+  const border = { style: "thin" as const, color: { argb: "FFB7B7B7" } };
+  const cellStyle = (fill?: string): Partial<ExcelJS.Style> => ({
+    alignment: { vertical: "middle", horizontal: "center" },
+    border: { top: border, left: border, bottom: border, right: border },
+    ...(fill ? { fill: { type: "pattern", pattern: "solid", fgColor: { argb: fill } } } : {}),
+  });
+  const invoiceDate = formatInvoiceDate(new Date());
+  const invoiceNumber = `AVS-${toExcelDate(report.endDate).replace(/-/g, "")}-${String(rows.length).padStart(4, "0")}`;
+  const billingPeriod = formatBillingPeriod(report.startDate, report.endDate);
+  const recipient = selectedUser ? `${selectedUser.name} (${selectedUser.email})` : "Dignity Housing Ltd";
+  const sortedRows = [...rows].sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.user.name.localeCompare(right.user.name));
+
+  worksheet.mergeCells("A1:J3");
+  worksheet.getCell("A1").alignment = { vertical: "middle", horizontal: "center" };
+  worksheet.getCell("A1").value = "ADVANCED VIRTUAL SOLUTIONS";
+  worksheet.getCell("A1").font = { bold: true, size: 20, color: { argb: "FF1A9797" } };
+  [1, 2, 3].forEach((row) => { worksheet.getRow(row).height = 28; });
+  try {
+    const response = await fetch("/avs-invoice-logo.png");
+    if (response.ok) {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = "";
+      bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+      const logoId = workbook.addImage({ base64: window.btoa(binary), extension: "png" });
+      worksheet.getCell("A1").value = "";
+      worksheet.addImage(logoId, { tl: { col: 1.4, row: 0.25 }, ext: { width: 330, height: 72 } });
+    }
+  } catch {}
+
+  const details: Array<[string, string, string, string]> = [
+    ["INVOICE NUMBER:", invoiceNumber, "DATE:", invoiceDate],
+    ["Billed to:", "Issued by:", "", ""],
+    [recipient, "Advanced Virtual Solutions Ltd", "", ""],
+    ["69 Ferndale Road", "31 Northfield Road", "", ""],
+    ["London, N15 6UG", "London, N16 5RL", "", ""],
+    ["Company No: 12304250", "Company No: 17232919", "", ""],
+  ];
+  worksheet.mergeCells("A4:B4"); worksheet.getCell("A4").value = details[0][0];
+  worksheet.mergeCells("C4:F4"); worksheet.getCell("C4").value = details[0][1];
+  worksheet.mergeCells("G4:H4"); worksheet.getCell("G4").value = details[0][2];
+  worksheet.mergeCells("I4:J4"); worksheet.getCell("I4").value = details[0][3];
+  ["A4", "G4"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true }; worksheet.getCell(cell).alignment = { horizontal: "right" }; });
+  [[5, details[1]], [6, details[2]], [7, details[3]], [8, details[4]], [9, details[5]]].forEach(([row, values]) => {
+    const rowNumber = Number(row);
+    const content = values as [string, string, string, string];
+    worksheet.mergeCells(`A${rowNumber}:D${rowNumber}`); worksheet.getCell(`A${rowNumber}`).value = content[0];
+    worksheet.mergeCells(`F${rowNumber}:J${rowNumber}`); worksheet.getCell(`F${rowNumber}`).value = content[1];
+  });
+  ["A5", "F5"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true }; });
+
+  [["A10:D10", "WEEK/DAYS"], ["E10:F10", "HOURS WORKED"], ["G10:H10", "HOURLY RATE"], ["I10:J10", "AMOUNT (£)"]].forEach(([range, value]) => {
+    worksheet.mergeCells(range); const cell = worksheet.getCell(range.split(":")[0]); cell.value = value; cell.style = cellStyle("FF1A9797"); cell.font = { bold: true };
+  });
+
+  const firstDataRow = 11;
+  const periodStart = new Date(toExcelDate(report.startDate)).getTime();
+  sortedRows.forEach((row, index) => {
+    const excelRow = firstDataRow + index;
+    const rowDate = toExcelDate(row.date);
+    const previousDate = index ? toExcelDate(sortedRows[index - 1].date) : "";
+    const week = Math.floor((new Date(rowDate).getTime() - periodStart) / 604800000) + 1;
+    const previousWeek = previousDate ? Math.floor((new Date(previousDate).getTime() - periodStart) / 604800000) + 1 : 0;
+    const hours = Number((row.performance.workedMinutes / 60).toFixed(2));
+    worksheet.mergeCells(`A${excelRow}:D${excelRow}`); worksheet.getCell(`A${excelRow}`).value = `${week !== previousWeek ? `WEEK ${week} — ` : ""}${formatWeekday(row.date)} - ${row.user.name}`;
+    worksheet.mergeCells(`E${excelRow}:F${excelRow}`); worksheet.getCell(`E${excelRow}`).value = hours;
+    worksheet.mergeCells(`G${excelRow}:H${excelRow}`); worksheet.getCell(`G${excelRow}`).value = DEFAULT_HOURLY_RATE;
+    worksheet.mergeCells(`I${excelRow}:J${excelRow}`); worksheet.getCell(`I${excelRow}`).value = { formula: `E${excelRow}*G${excelRow}`, result: Number((hours * DEFAULT_HOURLY_RATE).toFixed(2)) };
+    ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${excelRow}`).style = cellStyle(); });
+    worksheet.getCell(`A${excelRow}`).alignment = { vertical: "middle", horizontal: "left" };
+    worksheet.getCell(`E${excelRow}`).numFmt = "0.00"; worksheet.getCell(`G${excelRow}`).numFmt = "£#,##0.00"; worksheet.getCell(`I${excelRow}`).numFmt = "£#,##0.00";
+  });
+
+  const totalRow = firstDataRow + sortedRows.length;
+  const totalHours = Number((sortedRows.reduce((total, row) => total + row.performance.workedMinutes / 60, 0)).toFixed(2));
+  const totalAmount = Number((totalHours * DEFAULT_HOURLY_RATE).toFixed(2));
+  worksheet.mergeCells(`A${totalRow}:D${totalRow}`); worksheet.getCell(`A${totalRow}`).value = "TOTAL";
+  worksheet.mergeCells(`E${totalRow}:F${totalRow}`); worksheet.getCell(`E${totalRow}`).value = { formula: sortedRows.length ? `SUM(E${firstDataRow}:E${totalRow - 1})` : "0", result: totalHours };
+  worksheet.mergeCells(`G${totalRow}:H${totalRow}`); worksheet.getCell(`G${totalRow}`).value = DEFAULT_HOURLY_RATE;
+  worksheet.mergeCells(`I${totalRow}:J${totalRow}`); worksheet.getCell(`I${totalRow}`).value = { formula: sortedRows.length ? `SUM(I${firstDataRow}:I${totalRow - 1})` : "0", result: totalAmount };
+  ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${totalRow}`).style = cellStyle(); worksheet.getCell(`${column}${totalRow}`).font = { bold: true }; });
+  worksheet.getCell(`E${totalRow}`).numFmt = "0.00"; worksheet.getCell(`G${totalRow}`).numFmt = "£#,##0.00"; worksheet.getCell(`I${totalRow}`).numFmt = "£#,##0.00";
+
+  const summaryRow = totalRow + 2;
+  worksheet.mergeCells(`H${summaryRow}:J${summaryRow}`); worksheet.getCell(`H${summaryRow}`).value = "INVOICE SUMMARY"; worksheet.getCell(`H${summaryRow}`).style = cellStyle("FF1A9797"); worksheet.getCell(`H${summaryRow}`).font = { bold: true };
+  worksheet.mergeCells(`A${summaryRow + 1}:F${summaryRow + 1}`); worksheet.getCell(`A${summaryRow + 1}`).value = "Kindly make payment to Advanced Virtual Solutions Ltd using the details below.";
+  worksheet.getCell(`H${summaryRow + 1}`).value = "Billing Period"; worksheet.getCell(`H${summaryRow + 1}`).font = { bold: true }; worksheet.mergeCells(`I${summaryRow + 1}:J${summaryRow + 1}`); worksheet.getCell(`I${summaryRow + 1}`).value = billingPeriod;
+  const summaryValues: Array<[string, ExcelJS.CellValue, string]> = [["Total Hours", { formula: `E${totalRow}`, result: totalHours }, "0.00"], ["Hourly Rate", { formula: `G${totalRow}`, result: DEFAULT_HOURLY_RATE }, "£#,##0.00"], ["Tax", 0, "£#,##0.00"], ["Total Due", { formula: `I${totalRow}-I${summaryRow + 4}`, result: totalAmount }, "£#,##0.00"]];
+  summaryValues.forEach(([label, value, numFmt], index) => { const row = summaryRow + 2 + index; worksheet.getCell(`H${row}`).value = label; worksheet.getCell(`H${row}`).font = { bold: true }; worksheet.mergeCells(`I${row}:J${row}`); worksheet.getCell(`I${row}`).value = value; worksheet.getCell(`I${row}`).numFmt = numFmt; if (label === "Total Due") worksheet.getCell(`I${row}`).font = { bold: true }; });
+
+  const paymentRow = summaryRow + 7;
+  [["Name:", "Advanced Virtual Solutions Ltd"], ["Acc No:", "82440452"], ["Sort Code:", "60-84-64"], ["IBAN:", "GB22 TRWI 6084 6482 4404 52"], ["Swift/BIC:", "TRWIGB2LXXX"], ["Bank name:", "Wise Payments Limited"]].forEach(([label, value], index) => { const row = paymentRow + index + (index >= 3 ? 1 : 0); worksheet.getCell(`A${row}`).value = label; worksheet.getCell(`A${row}`).font = { bold: true }; worksheet.mergeCells(`B${row}:F${row}`); worksheet.getCell(`B${row}`).value = value; });
+  worksheet.mergeCells(`G${paymentRow + 4}:J${paymentRow + 4}`); worksheet.getCell(`G${paymentRow + 4}`).value = "TERMS AND CONDITIONS"; worksheet.getCell(`G${paymentRow + 4}`).font = { bold: true };
+  worksheet.mergeCells(`G${paymentRow + 5}:J${paymentRow + 8}`); worksheet.getCell(`G${paymentRow + 5}`).value = "Payment is due within 15 days from the invoice date.\nKindly quote the invoice number with your payment.\nPlease contact us within 5 business days if you have any questions regarding this invoice.\nThank you for choosing Advanced Virtual Solutions Ltd."; worksheet.getCell(`G${paymentRow + 5}`).alignment = { wrapText: true, vertical: "top" }; worksheet.getRow(paymentRow + 5).height = 70;
+  return workbook.xlsx.writeBuffer();
+}
+
 export default function ExecutionReportPage() {
   const today = dateKey();
   const [token, setToken] = useState<string | null>(null);
@@ -236,13 +352,13 @@ export default function ExecutionReportPage() {
   async function downloadExcel() {
     if (!report) return;
     const selectedUser = userId ? users.find((user) => user._id === userId) : undefined;
-    const logoDataUri = await getInvoiceLogoDataUri();
-    const blob = new Blob([buildInvoiceWorkbookHtml(report, rows, selectedUser, logoDataUri)], {
-      type: "application/vnd.ms-excel;charset=utf-8",
+    const buffer = await buildNativeInvoiceWorkbook(report, rows, selectedUser);
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `avs-invoice-${startDate}-to-${endDate}.xls`;
+    link.download = `avs-invoice-${startDate}-to-${endDate}.xlsx`;
     link.click();
     URL.revokeObjectURL(link.href);
   }
