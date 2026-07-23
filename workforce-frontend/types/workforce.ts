@@ -98,6 +98,7 @@ export type DailyPerformance = {
   kpiScore?: number;
   adherenceScore?: number;
   workedMinutes: number;
+  invoiceWorkedMinutes?: number;
   scheduledMinutes: number;
   breakMinutes: number;
   lateMinutes: number;

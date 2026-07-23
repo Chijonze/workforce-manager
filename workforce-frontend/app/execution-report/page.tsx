@@ -29,9 +29,9 @@ function toExcelDate(value: string) {
   return dateOnly ? `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}` : value.slice(0, 10);
 }
 
-function invoiceHours(workedMinutes: number) {
-  const workedHours = workedMinutes / 60;
-  return workedHours > 7 && workedHours <= 8 ? 8 : Number(workedHours.toFixed(2));
+function invoiceHours(workedMinutes: number, invoiceWorkedMinutes?: number) {
+  const billableMinutes = invoiceWorkedMinutes ?? (workedMinutes > 420 && workedMinutes <= 480 ? 480 : workedMinutes);
+  return Number((billableMinutes / 60).toFixed(2));
 }
 
 function formatInvoiceDate(value: string | Date) {
@@ -267,7 +267,7 @@ async function buildNativeInvoiceWorkbook(
     const previousDate = index ? toExcelDate(sortedRows[index - 1].date) : "";
     const week = Math.floor((new Date(rowDate).getTime() - periodStart) / 604800000) + 1;
     const previousWeek = previousDate ? Math.floor((new Date(previousDate).getTime() - periodStart) / 604800000) + 1 : 0;
-    const hours = Number((row.performance.workedMinutes / 60).toFixed(2));
+    const hours = invoiceHours(row.performance.workedMinutes, row.performance.invoiceWorkedMinutes);
     worksheet.mergeCells(`A${excelRow}:D${excelRow}`); worksheet.getCell(`A${excelRow}`).value = `${week !== previousWeek ? `WEEK ${week} — ` : ""}${formatWeekday(row.date)} - ${row.user.name}`;
     worksheet.mergeCells(`E${excelRow}:F${excelRow}`); worksheet.getCell(`E${excelRow}`).value = hours;
     worksheet.mergeCells(`G${excelRow}:H${excelRow}`); worksheet.getCell(`G${excelRow}`).value = DEFAULT_HOURLY_RATE;
@@ -278,7 +278,7 @@ async function buildNativeInvoiceWorkbook(
   });
 
   const totalRow = firstDataRow + sortedRows.length;
-  const totalHours = Number((sortedRows.reduce((total, row) => total + invoiceHours(row.performance.workedMinutes), 0)).toFixed(2));
+  const totalHours = Number((sortedRows.reduce((total, row) => total + invoiceHours(row.performance.workedMinutes, row.performance.invoiceWorkedMinutes), 0)).toFixed(2));
   const totalAmount = Number((totalHours * DEFAULT_HOURLY_RATE).toFixed(2));
   worksheet.mergeCells(`A${totalRow}:D${totalRow}`); worksheet.getCell(`A${totalRow}`).value = "TOTAL";
   worksheet.mergeCells(`E${totalRow}:F${totalRow}`); worksheet.getCell(`E${totalRow}`).value = { formula: sortedRows.length ? `SUM(E${firstDataRow}:E${totalRow - 1})` : "0", result: totalHours };

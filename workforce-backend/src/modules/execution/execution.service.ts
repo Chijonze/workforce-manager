@@ -844,11 +844,18 @@ export const getAdminExecutionReport = async (
   });
 
   const rows = (await Promise.all(
-    dates.flatMap((date) => users.map(async (user: any) => ({
-      date,
-      user: { _id: user._id, name: user.name, email: user.email, role: user.role },
-      performance: await getDailyPerformance(user._id.toString(), date),
-    })))
+    dates.flatMap((date) => users.map(async (user: any) => {
+      const performance = await getDailyPerformance(user._id.toString(), date);
+      const invoiceWorkedMinutes = performance.workedMinutes > 420 && performance.workedMinutes <= 480
+        ? 480
+        : performance.workedMinutes;
+
+      return {
+        date,
+        user: { _id: user._id, name: user.name, email: user.email, role: user.role },
+        performance: { ...performance, invoiceWorkedMinutes },
+      };
+    }))
   )).filter((item) => item.performance.scheduled || item.performance.status !== "unscheduled");
 
   const totals = rows.reduce(
