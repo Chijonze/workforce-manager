@@ -9,7 +9,10 @@ import type { ExecutionReport, User } from "@/types/workforce";
 
 const BUSINESS_TIME_ZONE = "Europe/London";
 const DEFAULT_HOURLY_RATE = 4.5;
-const INVOICE_TEAL = "FF1A9797";
+const INVOICE_TEAL = "FF0798B4";
+const INVOICE_NAVY = "FF073B4C";
+const INVOICE_LIGHT_TEAL = "FFEAF9FC";
+const INVOICE_LIGHT_GREY = "FFF5F7F8";
 const AVS_INVOICE_LOGO_FALLBACK =
   "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 160'%3E%3Crect width='900' height='160' fill='white'/%3E%3Ctext x='32' y='76' font-family='Arial,sans-serif' font-size='44' font-weight='700' fill='%231a9797'%3EADVANCED VIRTUAL%3C/text%3E%3Ctext x='32' y='124' font-family='Arial,sans-serif' font-size='44' font-weight='700' fill='%230f172a'%3ESOLUTIONS%3C/text%3E%3C/svg%3E";
 
@@ -65,7 +68,7 @@ function excelFormula(formula: string) {
 
 async function getInvoiceLogoDataUri() {
   try {
-    const response = await fetch("/avs-invoice-logo.png");
+    const response = await fetch("/avs-invoice-logo.jpg");
     if (!response.ok) return AVS_INVOICE_LOGO_FALLBACK;
     const blob = await response.blob();
 
@@ -200,12 +203,13 @@ async function buildNativeInvoiceWorkbook(
     views: [{ showGridLines: false }],
   });
   worksheet.columns = [
-    { width: 12 }, { width: 12 }, { width: 12 }, { width: 30 }, { width: 13 },
-    { width: 4 }, { width: 13 }, { width: 4 }, { width: 15 }, { width: 4 },
+    { width: 11 }, { width: 11 }, { width: 11 }, { width: 29 }, { width: 13 },
+    { width: 4 }, { width: 13 }, { width: 4 }, { width: 15 }, { width: 7 },
   ];
-  worksheet.properties.defaultRowHeight = 19;
+  worksheet.properties.defaultRowHeight = 21;
 
-  const border = { style: "thin" as const, color: { argb: "FFB7B7B7" } };
+  const border = { style: "thin" as const, color: { argb: "FF9BB2BA" } };
+  const strongBorder = { style: "medium" as const, color: { argb: INVOICE_NAVY } };
   const cellStyle = (fill?: string): Partial<ExcelJS.Style> => ({
     alignment: { vertical: "middle", horizontal: "center" },
     border: { top: border, left: border, bottom: border, right: border },
@@ -220,17 +224,17 @@ async function buildNativeInvoiceWorkbook(
   worksheet.mergeCells("A1:J3");
   worksheet.getCell("A1").alignment = { vertical: "middle", horizontal: "center" };
   worksheet.getCell("A1").value = "ADVANCED VIRTUAL SOLUTIONS";
-  worksheet.getCell("A1").font = { bold: true, size: 20, color: { argb: "FF1A9797" } };
-  [1, 2, 3].forEach((row) => { worksheet.getRow(row).height = 28; });
+  worksheet.getCell("A1").font = { bold: true, size: 20, color: { argb: INVOICE_NAVY } };
+  [1, 2, 3].forEach((row) => { worksheet.getRow(row).height = 30; });
   try {
-    const response = await fetch("/avs-invoice-logo.png");
+    const response = await fetch("/avs-invoice-logo.jpg");
     if (response.ok) {
       const bytes = new Uint8Array(await response.arrayBuffer());
       let binary = "";
       bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-      const logoId = workbook.addImage({ base64: window.btoa(binary), extension: "png" });
+      const logoId = workbook.addImage({ base64: window.btoa(binary), extension: "jpeg" });
       worksheet.getCell("A1").value = "";
-      worksheet.addImage(logoId, { tl: { col: 1.4, row: 0.25 }, ext: { width: 330, height: 72 } });
+      worksheet.addImage(logoId, { tl: { col: 1.7, row: 0.18 }, ext: { width: 290, height: 108 } });
     }
   } catch {}
 
@@ -246,18 +250,22 @@ async function buildNativeInvoiceWorkbook(
   worksheet.mergeCells("C4:F4"); worksheet.getCell("C4").value = details[0][1];
   worksheet.mergeCells("G4:H4"); worksheet.getCell("G4").value = details[0][2];
   worksheet.mergeCells("I4:J4"); worksheet.getCell("I4").value = details[0][3];
-  ["A4", "G4"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true }; worksheet.getCell(cell).alignment = { horizontal: "right" }; });
+  ["A4", "C4", "G4", "I4"].forEach((cell) => { worksheet.getCell(cell).style = cellStyle(INVOICE_LIGHT_GREY); });
+  ["A4", "G4"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true, color: { argb: INVOICE_NAVY } }; worksheet.getCell(cell).alignment = { horizontal: "right", vertical: "middle" }; });
+  ["C4", "I4"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true }; });
   [[5, details[1]], [6, details[2]], [7, details[3]], [8, details[4]], [9, details[5]]].forEach(([row, values]) => {
     const rowNumber = Number(row);
     const content = values as [string, string, string, string];
     worksheet.mergeCells(`A${rowNumber}:D${rowNumber}`); worksheet.getCell(`A${rowNumber}`).value = content[0];
     worksheet.mergeCells(`F${rowNumber}:J${rowNumber}`); worksheet.getCell(`F${rowNumber}`).value = content[1];
   });
-  ["A5", "F5"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true }; });
+  ["A5", "F5"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true, color: { argb: INVOICE_NAVY } }; worksheet.getCell(cell).fill = { type: "pattern", pattern: "solid", fgColor: { argb: INVOICE_LIGHT_TEAL } }; });
+  [5, 6, 7, 8, 9].forEach((row) => { worksheet.getRow(row).height = 20; });
 
   [["A10:D10", "WEEK/DAYS"], ["E10:F10", "HOURS WORKED"], ["G10:H10", "HOURLY RATE"], ["I10:J10", "AMOUNT (£)"]].forEach(([range, value]) => {
-    worksheet.mergeCells(range); const cell = worksheet.getCell(range.split(":")[0]); cell.value = value; cell.style = cellStyle("FF1A9797"); cell.font = { bold: true };
+    worksheet.mergeCells(range); const cell = worksheet.getCell(range.split(":")[0]); cell.value = value; cell.style = { ...cellStyle(INVOICE_NAVY), border: { top: strongBorder, left: border, bottom: strongBorder, right: border } }; cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
   });
+  worksheet.getRow(10).height = 25;
 
   const firstDataRow = 11;
   const periodStart = new Date(toExcelDate(report.startDate)).getTime();
@@ -272,9 +280,12 @@ async function buildNativeInvoiceWorkbook(
     worksheet.mergeCells(`E${excelRow}:F${excelRow}`); worksheet.getCell(`E${excelRow}`).value = hours;
     worksheet.mergeCells(`G${excelRow}:H${excelRow}`); worksheet.getCell(`G${excelRow}`).value = DEFAULT_HOURLY_RATE;
     worksheet.mergeCells(`I${excelRow}:J${excelRow}`); worksheet.getCell(`I${excelRow}`).value = { formula: `E${excelRow}*G${excelRow}`, result: Number((hours * DEFAULT_HOURLY_RATE).toFixed(2)) };
-    ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${excelRow}`).style = cellStyle(); });
-    worksheet.getCell(`A${excelRow}`).alignment = { vertical: "middle", horizontal: "left" };
+    const fill = index % 2 === 0 ? INVOICE_LIGHT_GREY : undefined;
+    ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${excelRow}`).style = cellStyle(fill); });
+    worksheet.getCell(`A${excelRow}`).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    ["E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${excelRow}`).alignment = { vertical: "middle", horizontal: "center" }; });
     worksheet.getCell(`E${excelRow}`).numFmt = "0.00"; worksheet.getCell(`G${excelRow}`).numFmt = "£#,##0.00"; worksheet.getCell(`I${excelRow}`).numFmt = "£#,##0.00";
+    worksheet.getRow(excelRow).height = 24;
   });
 
   const totalRow = firstDataRow + sortedRows.length;
@@ -284,20 +295,21 @@ async function buildNativeInvoiceWorkbook(
   worksheet.mergeCells(`E${totalRow}:F${totalRow}`); worksheet.getCell(`E${totalRow}`).value = { formula: sortedRows.length ? `SUM(E${firstDataRow}:E${totalRow - 1})` : "0", result: totalHours };
   worksheet.mergeCells(`G${totalRow}:H${totalRow}`); worksheet.getCell(`G${totalRow}`).value = DEFAULT_HOURLY_RATE;
   worksheet.mergeCells(`I${totalRow}:J${totalRow}`); worksheet.getCell(`I${totalRow}`).value = { formula: sortedRows.length ? `SUM(I${firstDataRow}:I${totalRow - 1})` : "0", result: totalAmount };
-  ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${totalRow}`).style = cellStyle(); worksheet.getCell(`${column}${totalRow}`).font = { bold: true }; });
+  ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${totalRow}`).style = { ...cellStyle(INVOICE_LIGHT_TEAL), border: { top: strongBorder, left: border, bottom: strongBorder, right: border } }; worksheet.getCell(`${column}${totalRow}`).font = { bold: true, color: { argb: INVOICE_NAVY } }; });
   worksheet.getCell(`E${totalRow}`).numFmt = "0.00"; worksheet.getCell(`G${totalRow}`).numFmt = "£#,##0.00"; worksheet.getCell(`I${totalRow}`).numFmt = "£#,##0.00";
 
+  worksheet.getRow(totalRow).height = 26;
   const summaryRow = totalRow + 2;
-  worksheet.mergeCells(`H${summaryRow}:J${summaryRow}`); worksheet.getCell(`H${summaryRow}`).value = "INVOICE SUMMARY"; worksheet.getCell(`H${summaryRow}`).style = cellStyle("FF1A9797"); worksheet.getCell(`H${summaryRow}`).font = { bold: true };
-  worksheet.mergeCells(`A${summaryRow + 1}:F${summaryRow + 1}`); worksheet.getCell(`A${summaryRow + 1}`).value = "Kindly make payment to Advanced Virtual Solutions Ltd using the details below.";
-  worksheet.getCell(`H${summaryRow + 1}`).value = "Billing Period"; worksheet.getCell(`H${summaryRow + 1}`).font = { bold: true }; worksheet.mergeCells(`I${summaryRow + 1}:J${summaryRow + 1}`); worksheet.getCell(`I${summaryRow + 1}`).value = billingPeriod;
+  worksheet.mergeCells(`H${summaryRow}:J${summaryRow}`); worksheet.getCell(`H${summaryRow}`).value = "INVOICE SUMMARY"; worksheet.getCell(`H${summaryRow}`).style = cellStyle(INVOICE_NAVY); worksheet.getCell(`H${summaryRow}`).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  worksheet.mergeCells(`A${summaryRow + 1}:F${summaryRow + 1}`); worksheet.getCell(`A${summaryRow + 1}`).value = "Kindly make payment to Advanced Virtual Solutions Ltd using the details below."; worksheet.getCell(`A${summaryRow + 1}`).font = { italic: true, color: { argb: INVOICE_NAVY } };
+  worksheet.getCell(`H${summaryRow + 1}`).value = "Billing Period"; worksheet.getCell(`H${summaryRow + 1}`).style = cellStyle(); worksheet.getCell(`H${summaryRow + 1}`).font = { bold: true }; worksheet.mergeCells(`I${summaryRow + 1}:J${summaryRow + 1}`); worksheet.getCell(`I${summaryRow + 1}`).value = billingPeriod; worksheet.getCell(`I${summaryRow + 1}`).style = cellStyle();
   const summaryValues: Array<[string, ExcelJS.CellValue, string]> = [["Total Hours", { formula: `E${totalRow}`, result: totalHours }, "0.00"], ["Hourly Rate", { formula: `G${totalRow}`, result: DEFAULT_HOURLY_RATE }, "£#,##0.00"], ["Tax", 0, "£#,##0.00"], ["Total Due", { formula: `I${totalRow}-I${summaryRow + 4}`, result: totalAmount }, "£#,##0.00"]];
-  summaryValues.forEach(([label, value, numFmt], index) => { const row = summaryRow + 2 + index; worksheet.getCell(`H${row}`).value = label; worksheet.getCell(`H${row}`).font = { bold: true }; worksheet.mergeCells(`I${row}:J${row}`); worksheet.getCell(`I${row}`).value = value; worksheet.getCell(`I${row}`).numFmt = numFmt; if (label === "Total Due") worksheet.getCell(`I${row}`).font = { bold: true }; });
+  summaryValues.forEach(([label, value, numFmt], index) => { const row = summaryRow + 2 + index; const emphasis = index === 3; worksheet.getCell(`H${row}`).value = label; worksheet.getCell(`H${row}`).style = cellStyle(emphasis ? INVOICE_LIGHT_TEAL : undefined); worksheet.getCell(`H${row}`).font = { bold: true, color: emphasis ? { argb: INVOICE_NAVY } : undefined }; worksheet.mergeCells(`I${row}:J${row}`); worksheet.getCell(`I${row}`).value = value; worksheet.getCell(`I${row}`).style = cellStyle(emphasis ? INVOICE_LIGHT_TEAL : undefined); worksheet.getCell(`I${row}`).numFmt = numFmt; if (emphasis) worksheet.getCell(`I${row}`).font = { bold: true, color: { argb: INVOICE_NAVY } }; });
 
   const paymentRow = summaryRow + 7;
-  [["Name:", "Advanced Virtual Solutions Ltd"], ["Acc No:", "82440452"], ["Sort Code:", "60-84-64"], ["IBAN:", "GB22 TRWI 6084 6482 4404 52"], ["Swift/BIC:", "TRWIGB2LXXX"], ["Bank name:", "Wise Payments Limited"]].forEach(([label, value], index) => { const row = paymentRow + index + (index >= 3 ? 1 : 0); worksheet.getCell(`A${row}`).value = label; worksheet.getCell(`A${row}`).font = { bold: true }; worksheet.mergeCells(`B${row}:F${row}`); worksheet.getCell(`B${row}`).value = value; });
-  worksheet.mergeCells(`G${paymentRow + 4}:J${paymentRow + 4}`); worksheet.getCell(`G${paymentRow + 4}`).value = "TERMS AND CONDITIONS"; worksheet.getCell(`G${paymentRow + 4}`).style = cellStyle(INVOICE_TEAL); worksheet.getCell(`G${paymentRow + 4}`).font = { bold: true };
-  worksheet.mergeCells(`G${paymentRow + 5}:J${paymentRow + 8}`); worksheet.getCell(`G${paymentRow + 5}`).value = "Payment is due within 15 days from the invoice date.\nKindly quote the invoice number with your payment.\nPlease contact us within 5 business days if you have any questions regarding this invoice.\nThank you for choosing Advanced Virtual Solutions Ltd."; worksheet.getCell(`G${paymentRow + 5}`).alignment = { wrapText: true, vertical: "top" }; worksheet.getRow(paymentRow + 5).height = 70;
+  [["Name:", "Advanced Virtual Solutions Ltd"], ["Acc No:", "82440452"], ["Sort Code:", "60-84-64"], ["IBAN:", "GB22 TRWI 6084 6482 4404 52"], ["Swift/BIC:", "TRWIGB2LXXX"], ["Bank name:", "Wise Payments Limited"]].forEach(([label, value], index) => { const row = paymentRow + index + (index >= 3 ? 1 : 0); worksheet.getCell(`A${row}`).value = label; worksheet.getCell(`A${row}`).style = cellStyle(INVOICE_LIGHT_TEAL); worksheet.getCell(`A${row}`).font = { bold: true, color: { argb: INVOICE_NAVY } }; worksheet.mergeCells(`B${row}:F${row}`); worksheet.getCell(`B${row}`).value = value; worksheet.getCell(`B${row}`).style = cellStyle(); worksheet.getCell(`B${row}`).alignment = { vertical: "middle", horizontal: "left" }; });
+  worksheet.mergeCells(`G${paymentRow + 4}:J${paymentRow + 4}`); worksheet.getCell(`G${paymentRow + 4}`).value = "TERMS AND CONDITIONS"; worksheet.getCell(`G${paymentRow + 4}`).style = cellStyle(INVOICE_NAVY); worksheet.getCell(`G${paymentRow + 4}`).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  worksheet.mergeCells(`G${paymentRow + 5}:J${paymentRow + 8}`); worksheet.getCell(`G${paymentRow + 5}`).value = "Payment is due within 15 days from the invoice date.\nKindly quote the invoice number with your payment.\nPlease contact us within 5 business days if you have any questions regarding this invoice.\nThank you for choosing Advanced Virtual Solutions Ltd."; worksheet.getCell(`G${paymentRow + 5}`).style = cellStyle(INVOICE_LIGHT_GREY); worksheet.getCell(`G${paymentRow + 5}`).alignment = { wrapText: true, vertical: "top", horizontal: "left" }; worksheet.getRow(paymentRow + 5).height = 70;
   worksheet.mergeCells(`A${paymentRow + 10}:J${paymentRow + 10}`); worksheet.getCell(`A${paymentRow + 10}`).value = "ADVANCED VIRTUAL SOLUTIONS LTD  •  Thank you for your business"; worksheet.getCell(`A${paymentRow + 10}`).style = cellStyle(INVOICE_TEAL); worksheet.getCell(`A${paymentRow + 10}`).font = { bold: true, color: { argb: "FFFFFFFF" } }; worksheet.getRow(paymentRow + 10).height = 24;
   return workbook.xlsx.writeBuffer();
 }
