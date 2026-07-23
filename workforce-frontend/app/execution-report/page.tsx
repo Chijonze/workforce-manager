@@ -86,7 +86,7 @@ async function getInvoiceLogoDataUri() {
 function buildInvoiceWorkbookHtml(
   report: ExecutionReport,
   rows: ExecutionReport["rows"],
-  selectedUser: User | undefined,
+  billedTo: User,
   logoDataUri: string
 ) {
   const invoiceDate = formatInvoiceDate(new Date());
@@ -125,9 +125,7 @@ function buildInvoiceWorkbookHtml(
   const taxRow = totalRow + 5;
   const hoursFormula = sortedRows.map((_, index) => `E${firstDataRow + index}`).join(",");
   const amountFormula = sortedRows.map((_, index) => `I${firstDataRow + index}`).join(",");
-  const recipientLabel = selectedUser
-    ? `${selectedUser.name} (${selectedUser.email})`
-    : "Dignity Housing Ltd";
+  const recipientLabel = billedTo.name;
 
   return `
     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
@@ -192,7 +190,7 @@ function buildInvoiceWorkbookHtml(
 async function buildNativeInvoiceWorkbook(
   report: ExecutionReport,
   rows: ExecutionReport["rows"],
-  selectedUser: User | undefined
+  billedTo: User
 ) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Advanced Virtual Solutions Ltd";
@@ -218,7 +216,7 @@ async function buildNativeInvoiceWorkbook(
   const invoiceDate = formatInvoiceDate(new Date());
   const invoiceNumber = `AVS-${toExcelDate(report.endDate).replace(/-/g, "")}-${String(rows.length).padStart(4, "0")}`;
   const billingPeriod = formatBillingPeriod(report.startDate, report.endDate);
-  const recipient = selectedUser ? `${selectedUser.name} (${selectedUser.email})` : "Dignity Housing Ltd";
+  const recipient = billedTo.name;
   const sortedRows = [...rows].sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.user.name.localeCompare(right.user.name));
 
   worksheet.mergeCells("A1:J3");
@@ -321,6 +319,8 @@ export default function ExecutionReportPage() {
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [userId, setUserId] = useState("");
+  const [hiringManagerId, setHiringManagerId] = useState("");
+  const [hiringManagers, setHiringManagers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -351,8 +351,16 @@ export default function ExecutionReportPage() {
     try {
       const currentUser = await apiRequest<User>("/api/auth/me", { token: authToken });
       if (currentUser.role !== "admin") throw new Error("Only admins can view execution reports.");
-      const data = await apiRequest<ExecutionReport>(`/api/execution/admin/report?startDate=${start}&endDate=${end}`, { token: authToken });
+      const [data, allUsers] = await Promise.all([
+        apiRequest<ExecutionReport>(`/api/execution/admin/report?startDate=${start}&endDate=${end}`, { token: authToken }),
+        apiRequest<User[]>("/api/auth/users", { token: authToken }),
+      ]);
       setReport(data);
+      setHiringManagers(
+        allUsers
+          .filter((user) => user.role === "supervisor" && user.accountStatus !== "pending")
+          .sort((left, right) => left.name.localeCompare(right.name))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load execution report.");
       setReport(null);
@@ -367,11 +375,11 @@ export default function ExecutionReportPage() {
     return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
   }, [report]);
   const rows = useMemo(() => report?.rows.filter((row) => !userId || row.user._id === userId) || [], [report, userId]);
+  const selectedHiringManager = hiringManagers.find((manager) => manager._id === hiringManagerId);
 
   async function downloadExcel() {
-    if (!report) return;
-    const selectedUser = userId ? users.find((user) => user._id === userId) : undefined;
-    const buffer = await buildNativeInvoiceWorkbook(report, rows, selectedUser);
+    if (!report || !selectedHiringManager) return;
+    const buffer = await buildNativeInvoiceWorkbook(report, rows, selectedHiringManager);
     const blob = new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
@@ -386,12 +394,13 @@ export default function ExecutionReportPage() {
     <section className="panel">
       <div className="panel-header">
         <div className="panel-title"><ShieldCheck size={20} /><div><h1>Execution Reports</h1><p className="panel-subtitle">Flexible historical adherence and workforce execution reporting</p></div></div>
-        <div className="review-actions"><Link className="button secondary" href="/"><Home size={17} />Dashboard</Link><button className="button secondary" type="button" disabled={loading || !token} onClick={() => loadReport()}><RefreshCw size={17} />Refresh</button><button className="button secondary" type="button" disabled={loading || !token} onClick={() => { setReportDates(today, today); void loadReport(token, today, today); }}>Today</button><button className="button" type="button" disabled={!rows.length} onClick={downloadExcel}><Download size={17} />Download Excel</button></div>
+        <div className="review-actions"><Link className="button secondary" href="/"><Home size={17} />Dashboard</Link><button className="button secondary" type="button" disabled={loading || !token} onClick={() => loadReport()}><RefreshCw size={17} />Refresh</button><button className="button secondary" type="button" disabled={loading || !token} onClick={() => { setReportDates(today, today); void loadReport(token, today, today); }}>Today</button><button className="button" type="button" disabled={!rows.length || !selectedHiringManager} onClick={downloadExcel} title={selectedHiringManager ? "Download invoice" : "Select a hiring manager to bill before downloading"}><Download size={17} />Download Excel</button></div>
       </div>
       <div className="form-grid execution-report-filters">
         <div className="field"><label htmlFor="execution-start">From date</label><input id="execution-start" type="date" value={startDate} onChange={(event) => { const next = event.target.value; setReportDates(next, next > endDate ? next : endDate); }} /></div>
         <div className="field"><label htmlFor="execution-end">To date</label><input id="execution-end" type="date" value={endDate} onChange={(event) => { const next = event.target.value; setReportDates(next < startDate ? next : startDate, next); }} /></div>
         <div className="field"><label htmlFor="execution-user">Team member</label><select id="execution-user" value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">All team members</option>{users.map((user) => <option key={user._id} value={user._id}>{user.name} ({user.email})</option>)}</select></div>
+        <div className="field"><label htmlFor="invoice-hiring-manager">Invoice billed to</label><select id="invoice-hiring-manager" value={hiringManagerId} onChange={(event) => setHiringManagerId(event.target.value)} disabled={loading || !hiringManagers.length}><option value="">Select hiring manager</option>{hiringManagers.map((manager) => <option key={manager._id} value={manager._id}>{manager.name} ({manager.email})</option>)}</select></div>
         <button className="button" type="button" disabled={loading} onClick={() => loadReport()}>Apply period</button>
       </div>
     </section>
