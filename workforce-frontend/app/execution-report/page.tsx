@@ -31,7 +31,7 @@ function toExcelDate(value: string) {
 
 function invoiceHours(workedMinutes: number) {
   const workedHours = workedMinutes / 60;
-  return workedHours >= 7 ? 8 : Number(workedHours.toFixed(2));
+  return workedHours > 7 && workedHours <= 8 ? 8 : Number(workedHours.toFixed(2));
 }
 
 function formatInvoiceDate(value: string | Date) {
