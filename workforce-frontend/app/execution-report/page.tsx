@@ -126,6 +126,8 @@ function buildInvoiceWorkbookHtml(
   const hoursFormula = sortedRows.map((_, index) => `E${firstDataRow + index}`).join(",");
   const amountFormula = sortedRows.map((_, index) => `I${firstDataRow + index}`).join(",");
   const recipientLabel = billedTo.organizationName || billedTo.name;
+  const recipientAddress = billedTo.organizationAddress || "";
+  const recipientCompanyNumber = billedTo.companyNumber || "";
 
   return `
     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
@@ -160,10 +162,10 @@ function buildInvoiceWorkbookHtml(
           <tr><td class="label" colspan="2">INVOICE NUMBER:</td><td colspan="4">${escapeExcelCell(invoiceNumber)}</td><td class="label" colspan="2">DATE:</td><td colspan="2">${escapeExcelCell(invoiceDate)}</td></tr>
           <tr><td class="left-title" colspan="4">Billed to:</td><td></td><td class="left-title" colspan="5">Issued by:</td></tr>
           <tr><td colspan="4">${escapeExcelCell(recipientLabel)}</td><td></td><td colspan="5">Advanced Virtual Solutions Ltd</td></tr>
-          <tr><td colspan="4">69 Ferndale Road</td><td></td><td colspan="5">31 Northfield Road</td></tr>
-          <tr><td colspan="4">London</td><td></td><td colspan="5">London</td></tr>
-          <tr><td colspan="4">N15 6UG</td><td></td><td colspan="5">N16 5RL</td></tr>
-          <tr><td colspan="4">Company No: 12304250</td><td></td><td colspan="5">Company No: 17232919</td></tr>
+          <tr><td colspan="4">${escapeExcelCell(recipientAddress)}</td><td></td><td colspan="5">31 Northfield Road</td></tr>
+          <tr><td colspan="4"></td><td></td><td colspan="5">London</td></tr>
+          <tr><td colspan="4"></td><td></td><td colspan="5">N16 5RL</td></tr>
+          <tr><td colspan="4">${escapeExcelCell(recipientCompanyNumber ? `Company No: ${recipientCompanyNumber}` : "")}</td><td></td><td colspan="5">Company No: 17232919</td></tr>
           <tr><td class="section" colspan="4">WEEK/DAYS</td><td class="section" colspan="2">HOURS WORKED</td><td class="section" colspan="2">HOURLY RATE</td><td class="section" colspan="2">AMOUNT (&pound;)</td></tr>
           ${dataRows.join("")}
           <tr><td class="total" colspan="4">TOTAL</td><td class="total number" colspan="2" ${excelFormula(hoursFormula ? `=SUM(${hoursFormula})` : "=0")}>0</td><td class="total currency" colspan="2" x:num="${DEFAULT_HOURLY_RATE}">${DEFAULT_HOURLY_RATE.toFixed(2)}</td><td class="total currency" colspan="2" ${excelFormula(amountFormula ? `=SUM(${amountFormula})` : "=0")}>0</td></tr>
@@ -217,6 +219,8 @@ async function buildNativeInvoiceWorkbook(
   const invoiceNumber = `AVS-${toExcelDate(report.endDate).replace(/-/g, "")}-${String(rows.length).padStart(4, "0")}`;
   const billingPeriod = formatBillingPeriod(report.startDate, report.endDate);
   const recipient = billedTo.organizationName || billedTo.name;
+  const recipientAddress = billedTo.organizationAddress || "";
+  const recipientCompanyNumber = billedTo.companyNumber ? `Company No: ${billedTo.companyNumber}` : "";
   const sortedRows = [...rows].sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.user.name.localeCompare(right.user.name));
 
   worksheet.mergeCells("A1:J3");
@@ -240,9 +244,9 @@ async function buildNativeInvoiceWorkbook(
     ["INVOICE NUMBER:", invoiceNumber, "DATE:", invoiceDate],
     ["Billed to:", "Issued by:", "", ""],
     [recipient, "Advanced Virtual Solutions Ltd", "", ""],
-    ["69 Ferndale Road", "31 Northfield Road", "", ""],
-    ["London, N15 6UG", "London, N16 5RL", "", ""],
-    ["Company No: 12304250", "Company No: 17232919", "", ""],
+    [recipientAddress, "31 Northfield Road", "", ""],
+    ["", "London, N16 5RL", "", ""],
+    [recipientCompanyNumber, "Company No: 17232919", "", ""],
   ];
   worksheet.mergeCells("A4:B4"); worksheet.getCell("A4").value = details[0][0];
   worksheet.mergeCells("C4:F4"); worksheet.getCell("C4").value = details[0][1];
@@ -258,7 +262,8 @@ async function buildNativeInvoiceWorkbook(
     worksheet.mergeCells(`F${rowNumber}:J${rowNumber}`); worksheet.getCell(`F${rowNumber}`).value = content[1];
   });
   ["A5", "F5"].forEach((cell) => { worksheet.getCell(cell).font = { bold: true, color: { argb: INVOICE_NAVY } }; worksheet.getCell(cell).fill = { type: "pattern", pattern: "solid", fgColor: { argb: INVOICE_LIGHT_TEAL } }; });
-  [5, 6, 7, 8, 9].forEach((row) => { worksheet.getRow(row).height = 20; });
+  [5, 6, 8, 9].forEach((row) => { worksheet.getRow(row).height = 20; });
+  worksheet.getRow(7).height = recipientAddress ? 40 : 20;
 
   [["A10:D10", "WEEK/DAYS"], ["E10:F10", "HOURS WORKED"], ["G10:H10", "HOURLY RATE"], ["I10:J10", "AMOUNT (£)"]].forEach(([range, value]) => {
     worksheet.mergeCells(range); const cell = worksheet.getCell(range.split(":")[0]); cell.value = value; cell.style = { ...cellStyle(INVOICE_NAVY), border: { top: strongBorder, left: border, bottom: strongBorder, right: border } }; cell.font = { bold: true, color: { argb: "FFFFFFFF" } };

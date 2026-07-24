@@ -5,6 +5,8 @@ export type User = {
   name: string;
   email: string;
   organizationName?: string;
+  organizationAddress?: string;
+  companyNumber?: string;
   role: Role;
   accountStatus?: "pending" | "approved";
   mfaEnabled?: boolean;

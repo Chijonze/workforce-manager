@@ -355,8 +355,10 @@ export default function Home() {
     password: "",
     role: "agent" as Extract<Role, "agent" | "supervisor">,
     organizationName: "",
+    organizationAddress: "",
+    companyNumber: "",
   });
-  const [profileForm, setProfileForm] = useState({ name: "", organizationName: "" });
+  const [profileForm, setProfileForm] = useState({ name: "", organizationName: "", organizationAddress: "", companyNumber: "" });
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   const [mfaSetup, setMfaSetup] = useState<MfaSetup | null>(null);
@@ -546,7 +548,7 @@ export default function Home() {
 
   useEffect(() => {
     if (user?.role === "supervisor") {
-      setProfileForm({ name: user.name, organizationName: user.organizationName || "" });
+      setProfileForm({ name: user.name, organizationName: user.organizationName || "", organizationAddress: user.organizationAddress || "", companyNumber: user.companyNumber || "" });
     }
   }, [user]);
 
@@ -710,6 +712,7 @@ export default function Home() {
             password: authForm.password,
             role: authForm.role,
             ...(authForm.role === "supervisor" ? { organizationName: authForm.organizationName } : {}),
+            ...(authForm.role === "supervisor" ? { organizationAddress: authForm.organizationAddress, companyNumber: authForm.companyNumber } : {}),
           };
 
     const result = await runAction(
@@ -1672,17 +1675,20 @@ export default function Home() {
                 </div>
 
                 {authForm.role === "supervisor" && (
-                  <div className="field">
-                    <label htmlFor="organization-name">Organisation name</label>
-                    <input
-                      id="organization-name"
-                      value={authForm.organizationName}
-                      onChange={(event) =>
-                        setAuthForm((current) => ({ ...current, organizationName: event.target.value }))
-                      }
-                      required
-                    />
-                  </div>
+                  <>
+                    <div className="field">
+                      <label htmlFor="organization-name">Organisation name</label>
+                      <input id="organization-name" value={authForm.organizationName} onChange={(event) => setAuthForm((current) => ({ ...current, organizationName: event.target.value }))} required />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="organization-address">Organisation address</label>
+                      <textarea id="organization-address" value={authForm.organizationAddress} onChange={(event) => setAuthForm((current) => ({ ...current, organizationAddress: event.target.value }))} required />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="company-number">Company number</label>
+                      <input id="company-number" value={authForm.companyNumber} onChange={(event) => setAuthForm((current) => ({ ...current, companyNumber: event.target.value }))} required />
+                    </div>
+                  </>
                 )}
               </>
             )}
@@ -1862,6 +1868,8 @@ export default function Home() {
                 <div className="field"><label htmlFor="profile-name">Name</label><input id="profile-name" value={profileForm.name} onChange={(event) => setProfileForm((current) => ({ ...current, name: event.target.value }))} required /></div>
                 <div className="field"><label htmlFor="profile-email">Email</label><input id="profile-email" type="email" value={user.email} disabled /></div>
                 <div className="field"><label htmlFor="profile-organization">Organisation name</label><input id="profile-organization" value={profileForm.organizationName} onChange={(event) => setProfileForm((current) => ({ ...current, organizationName: event.target.value }))} required /></div>
+                <div className="field"><label htmlFor="profile-address">Organisation address</label><textarea id="profile-address" value={profileForm.organizationAddress} onChange={(event) => setProfileForm((current) => ({ ...current, organizationAddress: event.target.value }))} required /></div>
+                <div className="field"><label htmlFor="profile-company-number">Company number</label><input id="profile-company-number" value={profileForm.companyNumber} onChange={(event) => setProfileForm((current) => ({ ...current, companyNumber: event.target.value }))} required /></div>
                 <button className="button" type="submit" disabled={loading}>Save profile</button>
               </form>
             </section>

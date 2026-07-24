@@ -39,13 +39,17 @@ export const registerUser = async (
   email: string,
   password: string,
   requestedRole: "agent" | "supervisor" = "agent",
-  organizationName?: string
+  organizationName?: string,
+  organizationAddress?: string,
+  companyNumber?: string
 ) => {
   const role = requestedRole === "supervisor" ? "supervisor" : "agent";
   const normalizedOrganizationName = organizationName?.trim();
+  const normalizedOrganizationAddress = organizationAddress?.trim();
+  const normalizedCompanyNumber = companyNumber?.trim();
 
-  if (role === "supervisor" && !normalizedOrganizationName) {
-    throw new Error("Organisation name is required for hiring managers");
+  if (role === "supervisor" && (!normalizedOrganizationName || !normalizedOrganizationAddress || !normalizedCompanyNumber)) {
+    throw new Error("Organisation name, address, and company number are required for hiring managers");
   }
   const existingUser = await User.findOne({ email });
 
@@ -60,7 +64,11 @@ export const registerUser = async (
     email,
     password: hashedPassword,
     role,
-    ...(role === "supervisor" ? { organizationName: normalizedOrganizationName } : {}),
+    ...(role === "supervisor" ? {
+      organizationName: normalizedOrganizationName,
+      organizationAddress: normalizedOrganizationAddress,
+      companyNumber: normalizedCompanyNumber,
+    } : {}),
     accountStatus: role === "supervisor" ? "pending" : "approved",
   });
 
@@ -136,7 +144,7 @@ export const logoutUser = async (userId: string) => {
 };
 
 export const getUsers = async () => {
-  return await User.find().select("_id name email organizationName role accountStatus mfaEnabled assignedAgentIds createdAt").sort({
+  return await User.find().select("_id name email organizationName organizationAddress companyNumber role accountStatus mfaEnabled assignedAgentIds createdAt").sort({
     name: 1,
   });
 };
@@ -144,22 +152,28 @@ export const getUsers = async () => {
 export const updateHiringManagerProfile = async (
   userId: string,
   name: string,
-  organizationName: string
+  organizationName: string,
+  organizationAddress: string,
+  companyNumber: string
 ) => {
   const normalizedName = name?.trim();
   const normalizedOrganizationName = organizationName?.trim();
+  const normalizedOrganizationAddress = organizationAddress?.trim();
+  const normalizedCompanyNumber = companyNumber?.trim();
 
-  if (!normalizedName || !normalizedOrganizationName) {
-    throw new Error("Name and organisation name are required");
+  if (!normalizedName || !normalizedOrganizationName || !normalizedOrganizationAddress || !normalizedCompanyNumber) {
+    throw new Error("Name, organisation name, address, and company number are required");
   }
 
-  const user = await User.findById(userId).select("_id name email organizationName role accountStatus mfaEnabled");
+  const user = await User.findById(userId).select("_id name email organizationName organizationAddress companyNumber role accountStatus mfaEnabled");
   if (!user || user.role !== "supervisor") {
     throw new Error("Hiring manager not found");
   }
 
   user.name = normalizedName;
   user.organizationName = normalizedOrganizationName;
+  user.organizationAddress = normalizedOrganizationAddress;
+  user.companyNumber = normalizedCompanyNumber;
   await user.save();
 
   return sanitizeUser(user);

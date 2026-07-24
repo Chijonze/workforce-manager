@@ -18,9 +18,9 @@ import { notifyTelegramLogin } from "../../utils/telegramNotifier";
 
 export const register = async (req: Request, res: Response) => {
   try {
-    const { name, email, password, role, organizationName } = req.body;
+    const { name, email, password, role, organizationName, organizationAddress, companyNumber } = req.body;
 
-    const data = await registerUser(name, email, password, role, organizationName);
+    const data = await registerUser(name, email, password, role, organizationName, organizationAddress, companyNumber);
 
     res.status(201).json(data);
   } catch (error: any) {
@@ -47,7 +47,13 @@ export const login = async (req: Request, res: Response) => {
 export const updateProfile = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.userId;
-    const user = await updateHiringManagerProfile(userId, req.body.name, req.body.organizationName);
+    const user = await updateHiringManagerProfile(
+      userId,
+      req.body.name,
+      req.body.organizationName,
+      req.body.organizationAddress,
+      req.body.companyNumber
+    );
 
     res.status(200).json(user);
   } catch (error: any) {
