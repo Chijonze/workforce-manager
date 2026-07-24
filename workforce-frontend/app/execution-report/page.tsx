@@ -125,7 +125,7 @@ function buildInvoiceWorkbookHtml(
   const taxRow = totalRow + 5;
   const hoursFormula = sortedRows.map((_, index) => `E${firstDataRow + index}`).join(",");
   const amountFormula = sortedRows.map((_, index) => `I${firstDataRow + index}`).join(",");
-  const recipientLabel = billedTo.name;
+  const recipientLabel = billedTo.organizationName || billedTo.name;
 
   return `
     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
@@ -216,7 +216,7 @@ async function buildNativeInvoiceWorkbook(
   const invoiceDate = formatInvoiceDate(new Date());
   const invoiceNumber = `AVS-${toExcelDate(report.endDate).replace(/-/g, "")}-${String(rows.length).padStart(4, "0")}`;
   const billingPeriod = formatBillingPeriod(report.startDate, report.endDate);
-  const recipient = billedTo.name;
+  const recipient = billedTo.organizationName || billedTo.name;
   const sortedRows = [...rows].sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.user.name.localeCompare(right.user.name));
 
   worksheet.mergeCells("A1:J3");

@@ -12,6 +12,7 @@ import {
   confirmMfa,
   verifyMfa,
   verifyReturn,
+  updateProfile,
 } from "./auth.controller";
 import { protect, requireAdmin, requireNonSupervisor } from "../../middleware/auth.middleware";
 
@@ -22,6 +23,7 @@ router.post("/login", login);
 router.post("/logout", protect, logout);
 router.post("/mfa/verify", verifyMfa);
 router.get("/me", protect, me);
+router.put("/me/profile", protect, updateProfile);
 router.post("/mfa/setup", protect, requireNonSupervisor, setupMfa);
 router.post("/mfa/confirm", protect, requireNonSupervisor, confirmMfa);
 router.post("/mfa/verify-return", protect, requireNonSupervisor, verifyReturn);

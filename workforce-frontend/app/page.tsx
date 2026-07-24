@@ -354,7 +354,9 @@ export default function Home() {
     email: "",
     password: "",
     role: "agent" as Extract<Role, "agent" | "supervisor">,
+    organizationName: "",
   });
+  const [profileForm, setProfileForm] = useState({ name: "", organizationName: "" });
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   const [mfaSetup, setMfaSetup] = useState<MfaSetup | null>(null);
@@ -542,6 +544,12 @@ export default function Home() {
     }, 3200);
   }
 
+  useEffect(() => {
+    if (user?.role === "supervisor") {
+      setProfileForm({ name: user.name, organizationName: user.organizationName || "" });
+    }
+  }, [user]);
+
   async function runAction<T>(action: () => Promise<T>, success?: string) {
     setLoading(true);
 
@@ -701,6 +709,7 @@ export default function Home() {
             email: authForm.email,
             password: authForm.password,
             role: authForm.role,
+            ...(authForm.role === "supervisor" ? { organizationName: authForm.organizationName } : {}),
           };
 
     const result = await runAction(
@@ -739,6 +748,22 @@ export default function Home() {
     }
 
     await refreshWorkspace(result.token, result.user);
+  }
+
+  async function saveHiringManagerProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+
+    const updatedUser = await runAction(
+      () => apiRequest<User>("/api/auth/me/profile", {
+        method: "PUT",
+        token,
+        body: profileForm,
+      }),
+      "Profile updated"
+    );
+
+    if (updatedUser) setUser(updatedUser);
   }
 
   async function verifyPendingMfa(event: FormEvent<HTMLFormElement>) {
@@ -1645,6 +1670,20 @@ export default function Home() {
                     <option value="supervisor">Hiring manager</option>
                   </select>
                 </div>
+
+                {authForm.role === "supervisor" && (
+                  <div className="field">
+                    <label htmlFor="organization-name">Organisation name</label>
+                    <input
+                      id="organization-name"
+                      value={authForm.organizationName}
+                      onChange={(event) =>
+                        setAuthForm((current) => ({ ...current, organizationName: event.target.value }))
+                      }
+                      required
+                    />
+                  </div>
+                )}
               </>
             )}
 
@@ -1815,6 +1854,17 @@ export default function Home() {
       <div className="page stack">
         {isSupervisor ? (
           <>
+            <section className="panel">
+              <div className="panel-header">
+                <div className="panel-title"><UserRound size={20} /><div><h2>My profile</h2><p className="panel-subtitle">Keep your billing details up to date.</p></div></div>
+              </div>
+              <form className="form-grid" onSubmit={saveHiringManagerProfile}>
+                <div className="field"><label htmlFor="profile-name">Name</label><input id="profile-name" value={profileForm.name} onChange={(event) => setProfileForm((current) => ({ ...current, name: event.target.value }))} required /></div>
+                <div className="field"><label htmlFor="profile-email">Email</label><input id="profile-email" type="email" value={user.email} disabled /></div>
+                <div className="field"><label htmlFor="profile-organization">Organisation name</label><input id="profile-organization" value={profileForm.organizationName} onChange={(event) => setProfileForm((current) => ({ ...current, organizationName: event.target.value }))} required /></div>
+                <button className="button" type="submit" disabled={loading}>Save profile</button>
+              </form>
+            </section>
             <ScreenMonitorPanel
               canvasRef={monitorCanvasRef}
               employees={onlineMonitorIds}

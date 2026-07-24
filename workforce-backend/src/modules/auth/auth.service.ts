@@ -38,9 +38,15 @@ export const registerUser = async (
   name: string,
   email: string,
   password: string,
-  requestedRole: "agent" | "supervisor" = "agent"
+  requestedRole: "agent" | "supervisor" = "agent",
+  organizationName?: string
 ) => {
   const role = requestedRole === "supervisor" ? "supervisor" : "agent";
+  const normalizedOrganizationName = organizationName?.trim();
+
+  if (role === "supervisor" && !normalizedOrganizationName) {
+    throw new Error("Organisation name is required for hiring managers");
+  }
   const existingUser = await User.findOne({ email });
 
   if (existingUser) {
@@ -54,6 +60,7 @@ export const registerUser = async (
     email,
     password: hashedPassword,
     role,
+    ...(role === "supervisor" ? { organizationName: normalizedOrganizationName } : {}),
     accountStatus: role === "supervisor" ? "pending" : "approved",
   });
 
@@ -129,9 +136,33 @@ export const logoutUser = async (userId: string) => {
 };
 
 export const getUsers = async () => {
-  return await User.find().select("_id name email role accountStatus mfaEnabled assignedAgentIds createdAt").sort({
+  return await User.find().select("_id name email organizationName role accountStatus mfaEnabled assignedAgentIds createdAt").sort({
     name: 1,
   });
+};
+
+export const updateHiringManagerProfile = async (
+  userId: string,
+  name: string,
+  organizationName: string
+) => {
+  const normalizedName = name?.trim();
+  const normalizedOrganizationName = organizationName?.trim();
+
+  if (!normalizedName || !normalizedOrganizationName) {
+    throw new Error("Name and organisation name are required");
+  }
+
+  const user = await User.findById(userId).select("_id name email organizationName role accountStatus mfaEnabled");
+  if (!user || user.role !== "supervisor") {
+    throw new Error("Hiring manager not found");
+  }
+
+  user.name = normalizedName;
+  user.organizationName = normalizedOrganizationName;
+  await user.save();
+
+  return sanitizeUser(user);
 };
 
 export const updateAssignedAgents = async (supervisorId: string, agentIds: string[]) => {

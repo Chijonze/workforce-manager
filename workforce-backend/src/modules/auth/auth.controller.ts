@@ -12,14 +12,15 @@ import {
   deleteUserAccount,
   approveUserAccount,
   updateAssignedAgents,
+  updateHiringManagerProfile,
 } from "./auth.service";
 import { notifyTelegramLogin } from "../../utils/telegramNotifier";
 
 export const register = async (req: Request, res: Response) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, organizationName } = req.body;
 
-    const data = await registerUser(name, email, password, role);
+    const data = await registerUser(name, email, password, role, organizationName);
 
     res.status(201).json(data);
   } catch (error: any) {
@@ -38,6 +39,17 @@ export const login = async (req: Request, res: Response) => {
     }
 
     res.status(200).json(data);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const updateProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.userId;
+    const user = await updateHiringManagerProfile(userId, req.body.name, req.body.organizationName);
+
+    res.status(200).json(user);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
