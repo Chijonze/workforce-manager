@@ -272,32 +272,52 @@ async function buildNativeInvoiceWorkbook(
 
   const firstDataRow = 11;
   const periodStart = new Date(toExcelDate(report.startDate)).getTime();
-  sortedRows.forEach((row, index) => {
-    const excelRow = firstDataRow + index;
+  let currentRow = firstDataRow;
+  let lastWeek = 0;
+  let dataIndex = 0;
+  const dataRows: number[] = [];
+  sortedRows.forEach((row) => {
     const rowDate = toExcelDate(row.date);
-    const previousDate = index ? toExcelDate(sortedRows[index - 1].date) : "";
     const week = Math.floor((new Date(rowDate).getTime() - periodStart) / 604800000) + 1;
-    const previousWeek = previousDate ? Math.floor((new Date(previousDate).getTime() - periodStart) / 604800000) + 1 : 0;
+    if (week !== lastWeek) {
+      worksheet.mergeCells(`A${currentRow}:J${currentRow}`);
+      const weekCell = worksheet.getCell(`A${currentRow}`);
+      weekCell.value = `WEEK ${week}`;
+      weekCell.style = {
+        fill: { type: "pattern", pattern: "solid", fgColor: { argb: INVOICE_LIGHT_TEAL } },
+        font: { bold: true, color: { argb: INVOICE_NAVY }, size: 11 },
+        alignment: { vertical: "middle", horizontal: "left" },
+        border: { top: border, left: border, bottom: border, right: border },
+      };
+      worksheet.getRow(currentRow).height = 22;
+      currentRow++;
+      lastWeek = week;
+    }
+    const excelRow = currentRow;
+    dataRows.push(excelRow);
     const hours = invoiceHours(row.performance.workedMinutes, row.performance.invoiceWorkedMinutes);
-    worksheet.mergeCells(`A${excelRow}:D${excelRow}`); worksheet.getCell(`A${excelRow}`).value = `${week !== previousWeek ? `WEEK ${week} — ` : ""}${formatWeekday(row.date)} - ${row.user.name}`;
+    worksheet.mergeCells(`A${excelRow}:D${excelRow}`);
     worksheet.mergeCells(`E${excelRow}:F${excelRow}`); worksheet.getCell(`E${excelRow}`).value = hours;
     worksheet.mergeCells(`G${excelRow}:H${excelRow}`); worksheet.getCell(`G${excelRow}`).value = DEFAULT_HOURLY_RATE;
     worksheet.mergeCells(`I${excelRow}:J${excelRow}`); worksheet.getCell(`I${excelRow}`).value = { formula: `E${excelRow}*G${excelRow}`, result: Number((hours * DEFAULT_HOURLY_RATE).toFixed(2)) };
-    const fill = index % 2 === 0 ? INVOICE_LIGHT_GREY : undefined;
+    worksheet.getCell(`A${excelRow}`).value = `${formatWeekday(row.date)} - ${row.user.name}`;
+    const fill = dataIndex % 2 === 0 ? INVOICE_LIGHT_GREY : undefined;
     ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${excelRow}`).style = cellStyle(fill); });
     worksheet.getCell(`A${excelRow}`).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
     ["E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${excelRow}`).alignment = { vertical: "middle", horizontal: "center" }; });
     worksheet.getCell(`E${excelRow}`).numFmt = "0.00"; worksheet.getCell(`G${excelRow}`).numFmt = "£#,##0.00"; worksheet.getCell(`I${excelRow}`).numFmt = "£#,##0.00";
     worksheet.getRow(excelRow).height = 24;
+    currentRow++;
+    dataIndex++;
   });
 
-  const totalRow = firstDataRow + sortedRows.length;
+  const totalRow = currentRow;
   const totalHours = Number((sortedRows.reduce((total, row) => total + invoiceHours(row.performance.workedMinutes, row.performance.invoiceWorkedMinutes), 0)).toFixed(2));
   const totalAmount = Number((totalHours * DEFAULT_HOURLY_RATE).toFixed(2));
   worksheet.mergeCells(`A${totalRow}:D${totalRow}`); worksheet.getCell(`A${totalRow}`).value = "TOTAL";
-  worksheet.mergeCells(`E${totalRow}:F${totalRow}`); worksheet.getCell(`E${totalRow}`).value = { formula: sortedRows.length ? `SUM(E${firstDataRow}:E${totalRow - 1})` : "0", result: totalHours };
+  worksheet.mergeCells(`E${totalRow}:F${totalRow}`); worksheet.getCell(`E${totalRow}`).value = { formula: dataRows.length ? `SUM(${dataRows.map((row) => `E${row}`).join(",")})` : "0", result: totalHours };
   worksheet.mergeCells(`G${totalRow}:H${totalRow}`); worksheet.getCell(`G${totalRow}`).value = DEFAULT_HOURLY_RATE;
-  worksheet.mergeCells(`I${totalRow}:J${totalRow}`); worksheet.getCell(`I${totalRow}`).value = { formula: sortedRows.length ? `SUM(I${firstDataRow}:I${totalRow - 1})` : "0", result: totalAmount };
+  worksheet.mergeCells(`I${totalRow}:J${totalRow}`); worksheet.getCell(`I${totalRow}`).value = { formula: dataRows.length ? `SUM(${dataRows.map((row) => `I${row}`).join(",")})` : "0", result: totalAmount };
   ["A", "E", "G", "I"].forEach((column) => { worksheet.getCell(`${column}${totalRow}`).style = { ...cellStyle(INVOICE_LIGHT_TEAL), border: { top: strongBorder, left: border, bottom: strongBorder, right: border } }; worksheet.getCell(`${column}${totalRow}`).font = { bold: true, color: { argb: INVOICE_NAVY } }; });
   worksheet.getCell(`E${totalRow}`).numFmt = "0.00"; worksheet.getCell(`G${totalRow}`).numFmt = "£#,##0.00"; worksheet.getCell(`I${totalRow}`).numFmt = "£#,##0.00";
 
