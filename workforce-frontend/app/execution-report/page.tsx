@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ExcelJS from "exceljs";
-import { Download, Home, RefreshCw, ShieldCheck } from "lucide-react";
+import { pdf } from "@react-pdf/renderer";
+import { Download, FileSpreadsheet, FileText, Home, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { InvoicePDF } from "@/components/InvoicePDF";
 import { apiRequest, formatDate } from "@/lib/api";
+import type { InvoiceData } from "@/types/invoice";
 import type { ExecutionReport, User } from "@/types/workforce";
 
 const BUSINESS_TIME_ZONE = "Europe/London";
@@ -337,6 +340,40 @@ async function buildNativeInvoiceWorkbook(
   return workbook.xlsx.writeBuffer();
 }
 
+function buildInvoicePdfData(
+  report: ExecutionReport,
+  rows: ExecutionReport["rows"],
+  billedTo: User,
+  logoSrc: string
+): InvoiceData {
+  const invoiceNumber = `AVS-${toExcelDate(report.endDate).replace(/-/g, "")}-${String(rows.length).padStart(4, "0")}`;
+  const recipient = billedTo.organizationName || billedTo.name;
+  const recipientDetails = [billedTo.organizationAddress, billedTo.companyNumber ? `Company No: ${billedTo.companyNumber}` : ""]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    logoText: "AVS",
+    logoSrc,
+    invoiceNumber,
+    invoiceDate: formatInvoiceDate(new Date()),
+    billingPeriod: formatBillingPeriod(report.startDate, report.endDate),
+    fromName: "Advanced Virtual Solutions Ltd",
+    fromAddress: "31 Northfield Road\nLondon, N16 5RL\nCompany No: 17232919",
+    toName: recipient,
+    toAddress: recipientDetails || "Address not provided",
+    items: [...rows]
+      .sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.user.name.localeCompare(right.user.name))
+      .map((row) => ({
+        date: formatInvoiceDate(row.date),
+        description: `${formatWeekday(row.date)} - ${row.user.name}`,
+        hours: invoiceHours(row.performance.workedMinutes, row.performance.invoiceWorkedMinutes),
+        rate: DEFAULT_HOURLY_RATE,
+      })),
+    terms: "Payment is due within 15 days from the invoice date. Kindly quote the invoice number with your payment. Please contact us within 5 business days if you have any questions regarding this invoice.",
+  };
+}
+
 export default function ExecutionReportPage() {
   const today = dateKey();
   const [token, setToken] = useState<string | null>(null);
@@ -348,6 +385,8 @@ export default function ExecutionReportPage() {
   const [hiringManagers, setHiringManagers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloadOptionsOpen, setDownloadOptionsOpen] = useState(false);
+  const [downloading, setDownloading] = useState<"excel" | "pdf" | null>(null);
 
   function setReportDates(start: string, end: string) {
     setStartDate(start);
@@ -415,11 +454,40 @@ export default function ExecutionReportPage() {
     URL.revokeObjectURL(link.href);
   }
 
+  async function downloadPdf() {
+    if (!report || !selectedHiringManager) return;
+    setDownloading("pdf");
+    try {
+      const logoSrc = await getInvoiceLogoDataUri();
+      const data = buildInvoicePdfData(report, rows, selectedHiringManager, logoSrc);
+      const blob = await pdf(<InvoicePDF data={data} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `avs-invoice-${startDate}-to-${endDate}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setDownloadOptionsOpen(false);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  async function chooseExcel() {
+    setDownloading("excel");
+    try {
+      await downloadExcel();
+      setDownloadOptionsOpen(false);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
   return <main className="app-shell execution-report-page">
     <section className="panel">
       <div className="panel-header">
         <div className="panel-title"><ShieldCheck size={20} /><div><h1>Execution Reports</h1><p className="panel-subtitle">Flexible historical adherence and workforce execution reporting</p></div></div>
-        <div className="review-actions"><Link className="button secondary" href="/"><Home size={17} />Dashboard</Link><button className="button secondary" type="button" disabled={loading || !token} onClick={() => loadReport()}><RefreshCw size={17} />Refresh</button><button className="button secondary" type="button" disabled={loading || !token} onClick={() => { setReportDates(today, today); void loadReport(token, today, today); }}>Today</button><button className="button" type="button" disabled={!rows.length || !selectedHiringManager} onClick={downloadExcel} title={selectedHiringManager ? "Download invoice" : "Select a hiring manager to bill before downloading"}><Download size={17} />Download Excel</button></div>
+        <div className="review-actions"><Link className="button secondary" href="/"><Home size={17} />Dashboard</Link><button className="button secondary" type="button" disabled={loading || !token} onClick={() => loadReport()}><RefreshCw size={17} />Refresh</button><button className="button secondary" type="button" disabled={loading || !token} onClick={() => { setReportDates(today, today); void loadReport(token, today, today); }}>Today</button><button className="button" type="button" disabled={!rows.length || !selectedHiringManager} onClick={() => setDownloadOptionsOpen(true)} title={selectedHiringManager ? "Choose an invoice download format" : "Select a hiring manager to bill before downloading"}><Download size={17} />Download invoice</button></div>
       </div>
       <div className="form-grid execution-report-filters">
         <div className="field"><label htmlFor="execution-start">From date</label><input id="execution-start" type="date" value={startDate} onChange={(event) => { const next = event.target.value; setReportDates(next, next > endDate ? next : endDate); }} /></div>
@@ -434,5 +502,6 @@ export default function ExecutionReportPage() {
       <section className="metrics admin-metrics report-metrics"><div className="metric"><span>Records</span><strong>{rows.length}</strong></div><div className="metric"><span>Period</span><strong>{formatDate(report.startDate)} - {formatDate(report.endDate)}</strong></div><div className="metric"><span>Avg adherence</span><strong>{report.totals.averageAdherence}%</strong></div><div className="metric"><span>Avg performance</span><strong>{report.totals.averagePerformance}%</strong></div><div className="metric"><span>Work done</span><strong>{report.totals.workedMinutes}m</strong></div><div className="metric"><span>Scheduled</span><strong>{report.totals.scheduledMinutes}m</strong></div></section>
       <section className="panel"><div className="panel-header"><div className="panel-title"><ShieldCheck size={20} /><div><h2>Execution records</h2><p className="panel-subtitle">One row per team member and scheduled activity date</p></div></div></div><div className="table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>User</th><th>Status</th><th>Overall</th><th>Adherence</th><th>Worked</th><th>Scheduled</th><th>Breaks</th><th>Late</th><th>Overtime</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.date}-${row.user._id}`}><td>{formatDate(row.date)}</td><td><strong>{row.user.name}</strong><span>{row.user.email}</span></td><td>{row.performance.status}</td><td>{row.performance.overallScore}%</td><td>{row.performance.adherenceScore ?? row.performance.breakdown.activityAdherenceScore ?? 0}%</td><td>{row.performance.workedMinutes}m</td><td>{row.performance.scheduledMinutes}m</td><td>{row.performance.breakMinutes}m</td><td>{row.performance.lateMinutes}m</td><td>{row.performance.overtimeMinutes}m</td></tr>)}</tbody></table>{!loading && !rows.length && <p className="muted">No execution records match this period.</p>}</div></section>
     </>}
+    {downloadOptionsOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => !downloading && setDownloadOptionsOpen(false)}><section className="auth-panel invoice-download-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-download-title" onMouseDown={(event) => event.stopPropagation()}><div className="invoice-download-modal-header"><div><h2 id="invoice-download-title">Download invoice</h2><p className="panel-subtitle">Choose the file format for this detailed report.</p></div><button className="icon-button" type="button" onClick={() => setDownloadOptionsOpen(false)} disabled={Boolean(downloading)} aria-label="Close download options"><X size={18} /></button></div><div className="invoice-download-options"><button type="button" className="invoice-download-option" onClick={() => void chooseExcel()} disabled={Boolean(downloading)}><FileSpreadsheet size={24} /><span><strong>As Excel</strong><small>Editable workbook with invoice styling</small></span></button><button type="button" className="invoice-download-option" onClick={() => void downloadPdf()} disabled={Boolean(downloading)}><FileText size={24} /><span><strong>As PDF</strong><small>Ready-to-send branded invoice</small></span></button></div>{downloading && <p className="muted">Preparing your {downloading.toUpperCase()} invoice…</p>}</section></div>}
   </main>;
 }

@@ -350,6 +350,68 @@ button:disabled {
   align-items: end;
 }
 
+.invoice-download-modal {
+  display: grid;
+  gap: 18px;
+  width: min(560px, 100%);
+  box-shadow: 0 24px 70px rgba(24, 33, 31, 0.2);
+}
+
+.invoice-download-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.invoice-download-modal-header h2 {
+  margin: 0;
+}
+
+.invoice-download-modal-header .panel-subtitle {
+  margin: 5px 0 0;
+}
+
+.invoice-download-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.invoice-download-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 96px;
+  padding: 16px;
+  color: var(--primary-strong);
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.invoice-download-option:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: #ecfdf5;
+  transform: translateY(-1px);
+}
+
+.invoice-download-option svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.invoice-download-option span {
+  display: grid;
+  gap: 4px;
+}
+
+.invoice-download-option small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .report-metrics {
   margin: 18px 0;
 }
