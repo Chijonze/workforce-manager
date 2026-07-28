@@ -16,8 +16,6 @@ const INVOICE_TEAL = "FF0798B4";
 const INVOICE_NAVY = "FF073B4C";
 const INVOICE_LIGHT_TEAL = "FFEAF9FC";
 const INVOICE_LIGHT_GREY = "FFF5F7F8";
-const AVS_INVOICE_LOGO_FALLBACK =
-  "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 160'%3E%3Crect width='900' height='160' fill='white'/%3E%3Ctext x='32' y='76' font-family='Arial,sans-serif' font-size='44' font-weight='700' fill='%231a9797'%3EADVANCED VIRTUAL%3C/text%3E%3Ctext x='32' y='124' font-family='Arial,sans-serif' font-size='44' font-weight='700' fill='%230f172a'%3ESOLUTIONS%3C/text%3E%3C/svg%3E";
 
 function dateKey(value = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
@@ -69,20 +67,20 @@ function excelFormula(formula: string) {
   return `x:fmla="${formula}"`;
 }
 
-async function getInvoiceLogoDataUri() {
+async function getInvoiceLogoDataUri(): Promise<string | undefined> {
   try {
     const response = await fetch("/avs-invoice-logo.jpg");
-    if (!response.ok) return AVS_INVOICE_LOGO_FALLBACK;
+    if (!response.ok) return undefined;
     const blob = await response.blob();
 
-    return await new Promise<string>((resolve) => {
+    return await new Promise<string | undefined>((resolve) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || AVS_INVOICE_LOGO_FALLBACK));
-      reader.onerror = () => resolve(AVS_INVOICE_LOGO_FALLBACK);
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+      reader.onerror = () => resolve(undefined);
       reader.readAsDataURL(blob);
     });
   } catch {
-    return AVS_INVOICE_LOGO_FALLBACK;
+    return undefined;
   }
 }
 
@@ -344,7 +342,7 @@ function buildInvoicePdfData(
   report: ExecutionReport,
   rows: ExecutionReport["rows"],
   billedTo: User,
-  logoSrc: string
+  logoSrc?: string
 ): InvoiceData {
   const invoiceNumber = `AVS-${toExcelDate(report.endDate).replace(/-/g, "")}-${String(rows.length).padStart(4, "0")}`;
   const recipient = billedTo.organizationName || billedTo.name;

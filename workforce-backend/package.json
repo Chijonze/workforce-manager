@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "ts-node-dev --respawn --transpile-only --project tsconfig.json src/server.ts",
+    "create:admin": "ts-node --project tsconfig.json src/scripts/create-admin.ts",
     "build": "tsc",
     "start": "node dist/server.js"
   },
