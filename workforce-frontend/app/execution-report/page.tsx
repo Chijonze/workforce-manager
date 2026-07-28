@@ -239,7 +239,7 @@ async function buildNativeInvoiceWorkbook(
       bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
       const logoId = workbook.addImage({ base64: window.btoa(binary), extension: "jpeg" });
       worksheet.getCell("A1").value = "";
-      worksheet.addImage(logoId, { tl: { col: 1.7, row: 0.18 }, ext: { width: 290, height: 108 } });
+      worksheet.addImage(logoId, { tl: { col: 1.7, row: 0.05 }, ext: { width: 290, height: 108 } });
     }
   } catch {}
 

@@ -8,11 +8,11 @@ const paleGrey = "#F5F7F8";
 
 const styles = StyleSheet.create({
   page: { padding: 36, fontSize: 9, fontFamily: "Helvetica", color: navy },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 3, borderBottomColor: teal, paddingBottom: 14, marginBottom: 18 },
+  header: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", borderBottomWidth: 3, borderBottomColor: teal, paddingBottom: 14, marginBottom: 18 },
   logo: { width: 185, height: 55, objectFit: "contain" },
   logoFallback: { fontSize: 18, fontFamily: "Helvetica-Bold", color: teal },
-  invoiceTitle: { fontSize: 24, fontFamily: "Helvetica-Bold", color: navy, textTransform: "uppercase", textAlign: "right" },
-  invoiceMeta: { marginTop: 4, color: "#52666d", textAlign: "right" },
+  invoiceTitle: { fontSize: 24, fontFamily: "Helvetica-Bold", color: navy, textTransform: "uppercase" },
+  invoiceMeta: { marginTop: 4, color: "#52666d" },
   parties: { flexDirection: "row", gap: 14, marginBottom: 16 },
   party: { flexGrow: 1, flexBasis: 0, padding: 10, backgroundColor: paleGrey, borderLeftWidth: 3, borderLeftColor: teal },
   partyLabel: { marginBottom: 5, fontSize: 8, fontFamily: "Helvetica-Bold", color: teal },
@@ -50,12 +50,12 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
     <Document title={`Invoice ${data.invoiceNumber}`} author="Advanced Virtual Solutions Ltd">
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          {data.logoSrc ? <Image src={data.logoSrc} style={styles.logo} /> : <Text style={styles.logoFallback}>{data.logoText}</Text>}
           <View>
             <Text style={styles.invoiceTitle}>Invoice</Text>
             <Text style={styles.invoiceMeta}>Invoice #: {data.invoiceNumber}</Text>
             <Text style={styles.invoiceMeta}>Date: {data.invoiceDate}</Text>
           </View>
+          {data.logoSrc ? <Image src={data.logoSrc} style={styles.logo} /> : <Text style={styles.logoFallback}>{data.logoText}</Text>}
         </View>
 
         <View style={styles.parties}>
