@@ -72,7 +72,7 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
         <View style={styles.totalRow}><Text style={styles.totalLabel}>TOTAL DUE</Text><Text style={styles.totalValue}>{money(total)}</Text></View>
 
         <View style={styles.lower}>
-          <View style={styles.payment}><Text style={styles.sectionTitle}>PAYMENT DETAILS</Text><Text style={styles.paymentBody}>Advanced Virtual Solutions Ltd{`\n`}Account no: 82440452{`\n`}Sort code: 60-84-64{`\n`}IBAN: GB22 TRWI 6084 6482 4404 52{`\n`}Swift/BIC: TRWIGB2LXXX{`\n`}Wise Payments Limited</Text></View>
+          <View style={styles.payment}><Text style={styles.sectionTitle}>PAYMENT DETAILS</Text><Text style={styles.paymentBody}>Advanced Virtual Solutions Ltd{`\n`}Account no: 82440452{`\n`}60-84-64{`\n`}GB22 TRWI 6084 6482 4404 52{`\n`}Swift/BIC: TRWIGB2LXXX{`\n`}Wise Payments Limited, Worship Square, 65 Clifton Street London, EC2A 4JE, United Kingdom</Text></View>
           <View style={styles.summary}><Text style={styles.sectionTitle}>INVOICE SUMMARY</Text><View style={styles.paymentBody}><View style={styles.summaryRow}><Text>Billing period</Text><Text>{data.billingPeriod}</Text></View><View style={styles.summaryRow}><Text>Total hours</Text><Text>{totalHours.toFixed(2)}</Text></View><View style={styles.summaryRow}><Text>Tax</Text><Text>£0.00</Text></View><View style={[styles.summaryRow, styles.due]}><Text>Total due</Text><Text>{money(total)}</Text></View></View></View>
         </View>
         <View style={styles.footer}><Text style={{ fontFamily: "Helvetica-Bold", marginBottom: 3 }}>TERMS AND CONDITIONS</Text><Text>{data.terms}</Text></View>

@@ -6,6 +6,8 @@
 !workforce-frontend/.env.example
 !avs-frontend/.env.example
 !.env.production.example
+LIVEKIT_CHATWOOT_SETUP.md
+VPS_Docker_Runbook.md
 
 node_modules/
 dist/
