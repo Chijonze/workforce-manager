@@ -65,11 +65,6 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail
 docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=100 chatwoot-worker
 ```
 
-Evolution API logs:
-
-```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=100 evolution-api
-```
 
 Follow live logs:
 
@@ -153,8 +148,6 @@ https://api.advancedvirtualsolutions.com
 https://chat.advancedvirtualsolutions.com
 ```
 
-Evolution API is bound locally on the VPS:
-
 ```text
 127.0.0.1:8080
 ```
@@ -234,4 +227,3 @@ If Chatwoot has database errors:
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm chatwoot bundle exec rails db:chatwoot_prepare
 docker compose --env-file .env.production -f docker-compose.prod.yml restart chatwoot chatwoot-worker
 ```
-

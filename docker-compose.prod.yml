@@ -94,10 +94,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-chatwoot}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      EVOLUTION_POSTGRES_DB: ${EVOLUTION_POSTGRES_DB:-evolution}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./deploy/postgres/init-evolution-db.sh:/docker-entrypoint-initdb.d/10-init-evolution-db.sh:ro
     networks:
       - data
 

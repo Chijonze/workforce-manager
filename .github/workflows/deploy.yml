@@ -80,7 +80,7 @@ jobs:
               printf "%s" "$VPS_ENV_FILE" > .env.production
             fi
             test -f .env.production
-            docker compose --env-file .env.production -f docker-compose.prod.yml pull postgres redis mongo caddy evolution-api evolution-manager
+            docker compose --env-file .env.production -f docker-compose.prod.yml pull postgres redis mongo caddy
             docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
             docker compose --env-file .env.production -f docker-compose.prod.yml exec -T workforce-backend node -e "const mongoose=require('mongoose'); const { connectDB }=require('./dist/config/db'); const { runExecutionMaintenance }=require('./dist/modules/execution/execution.service'); connectDB().then(()=>runExecutionMaintenance(new Date())).then((result)=>console.log(JSON.stringify(result))).finally(()=>mongoose.disconnect());"
             docker compose --env-file .env.production -f docker-compose.prod.yml run --rm chatwoot bundle exec rails db:chatwoot_prepare
