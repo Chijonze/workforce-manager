@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = {
 let mainWindow;
 let socket = null;
 let monitorId = "";
+let authToken = "";
 let reconnectTimer = null;
 let heartbeatTimer = null;
 let captureTimer = null;
@@ -107,13 +108,13 @@ function closeSocket() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer || !monitorId) return;
+  if (reconnectTimer || !monitorId || !authToken) return;
 
   setStatus("Waiting", "Retrying connection...");
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connect(monitorId);
+    connect(monitorId, authToken);
   }, 3000);
 }
 
@@ -186,20 +187,22 @@ function startHeartbeat(activeSocket) {
   }, 30000);
 }
 
-function connect(id) {
+function connect(id, nextAuthToken) {
   monitorId = id.trim();
+  authToken = nextAuthToken.trim();
 
-  if (!monitorId) {
-    setStatus("Disconnected", "Monitor ID is required");
+  if (!monitorId || !authToken) {
+    setStatus("Disconnected", "Your Workforce user ID and access token are required");
     return;
   }
 
+  // Do not persist bearer tokens in the Electron user-data directory.
   saveState({ monitorId, employeeId: monitorId });
   closeSocket();
   const socketUrl = buildSocketUrl(monitorId);
   setStatus("Connecting", `Connecting to ${socketUrl.replace(/([?&](?:token|key)=)[^&]+/g, "$1***")}`);
 
-  const activeSocket = new WebSocket(socketUrl, {
+  const activeSocket = new WebSocket(socketUrl, ["monitor-v1", authToken], {
     perMessageDeflate: false,
     handshakeTimeout: 10000,
   });
@@ -285,6 +288,7 @@ function createWindow() {
 app.whenReady().then(() => {
   ipcMain.handle("monitor:get-state", () => ({
     monitorId: loadState().monitorId || loadState().email || loadState().employeeId || "",
+    authToken: "",
     email: loadState().email || loadState().employeeId || "",
     employeeId: loadState().employeeId || "",
     serverUrl: getConfig().serverUrl,
@@ -292,17 +296,15 @@ app.whenReady().then(() => {
     detail: currentStatus.detail,
   }));
 
-  ipcMain.handle("monitor:connect", (_event, id) => {
-    connect(String(id || ""));
+  ipcMain.handle("monitor:connect", (_event, id, token) => {
+    connect(String(id || ""), String(token || ""));
     return { ok: true };
   });
 
   createWindow();
 
   const savedMonitorId = String(loadState().monitorId || loadState().email || loadState().employeeId || "").trim();
-  if (savedMonitorId) {
-    connect(savedMonitorId);
-  }
+  if (savedMonitorId) setStatus("Disconnected", "Enter your current Workforce access token to connect.");
 });
 
 app.on("before-quit", () => {

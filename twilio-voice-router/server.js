@@ -14,8 +14,64 @@ const app = express();
 const port = Number(process.env.PORT || 4800);
 const publicBaseUrl = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+app.use(express.json({ limit: '32kb' }));
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
+function fixedWindowRateLimit(limit, windowMs) {
+  const requests = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = req.ip || 'unknown';
+    const entry = requests.get(key);
+    const active = !entry || entry.resetAt <= now ? { count: 0, resetAt: now + windowMs } : entry;
+    active.count += 1;
+    requests.set(key, active);
+    if (active.count > limit) {
+      res.setHeader('Retry-After', String(Math.ceil((active.resetAt - now) / 1000)));
+      return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    }
+    next();
+  };
+}
+
+const tokenRateLimit = fixedWindowRateLimit(20, 15 * 60 * 1000);
+
+function hasValidTokenApiKey(req) {
+  const authorization = String(req.get('authorization') || '');
+  const supplied = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  const keys = [process.env.TWILIO_TOKEN_API_KEY, process.env.CHATWOOT_BOT_ACCESS_TOKEN].filter(Boolean);
+  return Boolean(supplied) && keys.some((key) => {
+    const expected = Buffer.from(key);
+    const candidate = Buffer.from(supplied);
+    return expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate);
+  });
+}
+
+function requireTokenApiAuth(req, res, next) {
+  if (!hasValidTokenApiKey(req)) return res.status(401).json({ error: 'Chatwoot API authentication is required' });
+  next();
+}
+
+function twilioWebhookUrl(req) {
+  return publicBaseUrl ? `${publicBaseUrl}${req.originalUrl}` : `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+}
+
+function validateTwilioWebhook(req, res, next) {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const signature = req.get('x-twilio-signature');
+  if (!authToken || !signature || !twilio.validateRequest(authToken, signature, twilioWebhookUrl(req), req.body || {})) {
+    return res.status(403).json({ error: 'Invalid Twilio webhook signature' });
+  }
+  next();
+}
 
 const pool = new Pool({
   host: process.env.POSTGRES_HOST || 'postgres',
@@ -101,6 +157,33 @@ async function findOpenConversationForAgent(agentId) {
   return rows[0] || null;
 }
 
+async function findAuthorizedAgent(agentId) {
+  const accountId = Number(process.env.CHATWOOT_ACCOUNT_ID);
+  if (!Number.isInteger(accountId) || accountId < 1) {
+    const error = new Error('CHATWOOT_ACCOUNT_ID is required for voice token authorization');
+    error.status = 503;
+    throw error;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT au.user_id
+       FROM account_users au
+      WHERE au.account_id = $1 AND au.user_id = $2
+      LIMIT 1`,
+    [accountId, agentId]
+  );
+  return rows[0] || null;
+}
+
+function requireMatchingAgent(req, res, next) {
+  const requestedAgentId = String(req.params.agentId || '');
+  const authenticatedAgentId = String(req.get('x-chatwoot-agent-id') || '');
+  if (!authenticatedAgentId || authenticatedAgentId !== requestedAgentId) {
+    return res.status(403).json({ error: 'Authenticated agent does not match the requested voice identity' });
+  }
+  next();
+}
+
 async function postPrivateNote(conversationId, content) {
   const accountId = process.env.CHATWOOT_ACCOUNT_ID;
   const token = process.env.CHATWOOT_BOT_ACCESS_TOKEN;
@@ -149,8 +232,11 @@ app.get('/assets/twilio-voice.min.js', (req, res) => {
   return res.redirect('https://sdk.twilio.com/js/voice/releases/2.11.1/twilio.min.js');
 });
 
-app.get('/api/token/agent/:agentId', (req, res, next) => {
+app.get('/api/token/agent/:agentId', tokenRateLimit, requireTokenApiAuth, requireMatchingAgent, async (req, res, next) => {
   try {
+    if (!(await findAuthorizedAgent(req.params.agentId))) {
+      return res.status(404).json({ error: 'Chatwoot agent was not found in this account' });
+    }
     const identity = normalizeIdentity(`agent-${req.params.agentId}`, 'agent');
     res.json({ identity, token: tokenFor(identity) });
   } catch (error) {
@@ -158,8 +244,11 @@ app.get('/api/token/agent/:agentId', (req, res, next) => {
   }
 });
 
-app.get('/api/token/customer/:agentId', async (req, res, next) => {
+app.get('/api/token/customer/:agentId', tokenRateLimit, requireTokenApiAuth, requireMatchingAgent, async (req, res, next) => {
   try {
+    if (!(await findAuthorizedAgent(req.params.agentId))) {
+      return res.status(404).json({ error: 'Chatwoot agent was not found in this account' });
+    }
     const customerId = normalizeIdentity(req.query.customer_id || `customer-${crypto.randomUUID()}`, 'customer');
     const conversation =
       (await findConversation(req.query.conversation_id)) ||
@@ -179,7 +268,7 @@ app.get('/api/token/customer/:agentId', async (req, res, next) => {
   }
 });
 
-app.post('/webhooks/twilio/voice/outbound', (req, res) => {
+app.post('/webhooks/twilio/voice/outbound', validateTwilioWebhook, (req, res) => {
   const twiml = new VoiceResponse();
   const target = normalizeIdentity(req.body.To || req.query.To, 'agent');
   const conversationId = req.body.ConversationId || req.query.ConversationId || '';
@@ -201,7 +290,7 @@ app.post('/webhooks/twilio/voice/outbound', (req, res) => {
   res.type('text/xml').send(twiml.toString());
 });
 
-app.post('/webhooks/twilio/voice/status', async (req, res) => {
+app.post('/webhooks/twilio/voice/status', validateTwilioWebhook, async (req, res) => {
   const conversationId = req.body.ConversationId || req.query.ConversationId;
   const status = req.body.CallStatus || req.body.DialCallStatus || 'updated';
   const callSid = req.body.CallSid || req.body.ParentCallSid || 'unknown';
@@ -223,7 +312,7 @@ app.get('/call', (_req, res) => {
   res.status(400).type('html').send('<h1>Missing agent id</h1><p>Use /call/&lt;chatwoot-agent-id&gt;.</p>');
 });
 
-app.post('/inbound-voice', (req, res) => {
+app.post('/inbound-voice', validateTwilioWebhook, (req, res) => {
   const twiml = new VoiceResponse();
   twiml.say('This workforce voice router accepts browser click to call sessions. Please use the Chatwoot call link.');
   res.type('text/xml').send(twiml.toString());
@@ -231,7 +320,8 @@ app.post('/inbound-voice', (req, res) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(error.status || 500).json({ error: error.message || 'Internal server error' });
+  const status = error.status || 500;
+  res.status(status).json({ error: status < 500 ? error.message : 'Internal server error' });
 });
 
 app.listen(port, () => {
