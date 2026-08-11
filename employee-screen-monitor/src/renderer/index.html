@@ -21,6 +21,9 @@
           <label for="monitor-id">Monitor ID</label>
           <input id="monitor-id" name="monitor-id" autocomplete="off" required />
 
+          <label for="auth-token">Workforce access token</label>
+          <input id="auth-token" name="auth-token" type="password" autocomplete="off" required />
+
           <div class="status-row">
             <span id="status-dot" class="status-dot"></span>
             <strong id="status-label">Disconnected</strong>
@@ -28,7 +31,7 @@
 
           <p id="detail" class="detail"></p>
 
-          <p class="hint">Enter an ID once. The app connects automatically and appears in the monitoring section.</p>
+          <p class="hint">Use your Workforce user ID and a current access token. The app connects automatically and appears in the monitoring section.</p>
         </form>
       </section>
     </main>

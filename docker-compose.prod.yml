@@ -10,8 +10,6 @@ services:
       - twilio-voice-router
       - livekit
       - livekit-token-server
-      - evolution-api
-      - evolution-manager
     ports:
       - "80:80"
       - "443:443"
@@ -22,8 +20,6 @@ services:
       API_DOMAIN: ${API_DOMAIN:-api.advancedvirtualsolutions.com}
       CHATWOOT_DOMAIN: ${CHATWOOT_DOMAIN:-chat.advancedvirtualsolutions.com}
       LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN:-livekit.advancedvirtualsolutions.com}
-      EVOLUTION_MANAGER_DOMAIN: ${EVOLUTION_MANAGER_DOMAIN:-evolution.advancedvirtualsolutions.com}
-      EVOLUTION_PUBLIC_API_DOMAIN: ${EVOLUTION_PUBLIC_API_DOMAIN:-evolution-api.advancedvirtualsolutions.com}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -70,7 +66,6 @@ services:
       MFA_ENCRYPTION_SECRET: ${MFA_ENCRYPTION_SECRET}
       MFA_REQUIRED: ${MFA_REQUIRED:-true}
       MFA_ISSUER: ${MFA_ISSUER:-ShiftSync}
-      SCREEN_MONITOR_ADMIN_KEY: ${SCREEN_MONITOR_ADMIN_KEY}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       TELEGRAM_ALERT_TIMEZONE: ${TELEGRAM_ALERT_TIMEZONE:-Africa/Lagos}
@@ -184,6 +179,8 @@ services:
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_API_KEY_SID: ${TWILIO_API_KEY_SID:-}
       TWILIO_API_KEY_SECRET: ${TWILIO_API_KEY_SECRET:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_TOKEN_API_KEY: ${TWILIO_TOKEN_API_KEY:-}
       TWILIO_TWIML_APP_SID: ${TWILIO_TWIML_APP_SID:-}
       TWILIO_CALLER_ID: ${TWILIO_CALLER_ID:-}
     expose:
@@ -240,53 +237,6 @@ services:
     networks:
       - web
 
-  evolution-api:
-    image: evoapicloud/evolution-api:${EVOLUTION_IMAGE_TAG:-v2.3.0}
-    restart: unless-stopped
-    depends_on:
-      - postgres
-      - redis
-    ports:
-      - "${EVOLUTION_BIND_ADDRESS:-127.0.0.1}:${EVOLUTION_PORT:-8080}:8080"
-    environment:
-      SERVER_URL: ${EVOLUTION_SERVER_URL:-https://evolution-api.advancedvirtualsolutions.com}
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
-      DATABASE_ENABLED: "true"
-      DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${EVOLUTION_POSTGRES_DB:-evolution}
-      DATABASE_CONNECTION_CLIENT_NAME: evolution_api
-      DATABASE_SAVE_DATA_INSTANCE: "true"
-      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
-      DATABASE_SAVE_MESSAGE_UPDATE: "true"
-      DATABASE_SAVE_DATA_CONTACTS: "true"
-      DATABASE_SAVE_DATA_CHATS: "true"
-      CACHE_REDIS_ENABLED: "true"
-      CACHE_REDIS_URI: redis://:${REDIS_PASSWORD}@redis:6379/1
-      CACHE_REDIS_PREFIX_KEY: evolution_api
-      CACHE_LOCAL_ENABLED: "false"
-      CHATWOOT_ENABLED: ${EVOLUTION_CHATWOOT_ENABLED:-true}
-      CHATWOOT_MESSAGE_READ: ${EVOLUTION_CHATWOOT_MESSAGE_READ:-true}
-      CHATWOOT_MESSAGE_DELETE: ${EVOLUTION_CHATWOOT_MESSAGE_DELETE:-true}
-      CHATWOOT_IMPORT_DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-chatwoot}?sslmode=disable
-      CHATWOOT_IMPORT_PLACEHOLDER_MEDIA_MESSAGE: ${EVOLUTION_CHATWOOT_IMPORT_PLACEHOLDER_MEDIA_MESSAGE:-true}
-    volumes:
-      - evolution_instances:/evolution/instances
-    networks:
-      - web
-      - data
-
-  evolution-manager:
-    image: evoapicloud/evolution-manager:${EVOLUTION_MANAGER_IMAGE_TAG:-latest}
-    restart: unless-stopped
-    depends_on:
-      - evolution-api
-    expose:
-      - "80"
-    volumes:
-      - ./deploy/evolution-manager/nginx.conf:/etc/nginx/conf.d/nginx.conf:ro
-    networks:
-      - web
-
 networks:
   web:
   data:
@@ -298,4 +248,3 @@ volumes:
   postgres_data:
   redis_data:
   chatwoot_storage:
-  evolution_instances:

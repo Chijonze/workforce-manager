@@ -74,13 +74,3 @@ www.{$DOMAIN} {
 	encode zstd gzip
 	reverse_proxy livekit:7880
 }
-
-{$EVOLUTION_MANAGER_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy evolution-manager:80
-}
-
-{$EVOLUTION_PUBLIC_API_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy evolution-api:8080
-}
