@@ -1,6 +1,5 @@
 const form = document.getElementById("connect-form");
 const monitorIdInput = document.getElementById("monitor-id");
-const authTokenInput = document.getElementById("auth-token");
 const statusDot = document.getElementById("status-dot");
 const statusLabel = document.getElementById("status-label");
 const detail = document.getElementById("detail");
@@ -18,7 +17,6 @@ window.monitorClient.onStatus(({ status, detail: message }) => {
 
 window.monitorClient.getState().then((state) => {
   monitorIdInput.value = state.monitorId || state.email || state.employeeId || "";
-  authTokenInput.value = state.authToken || "";
   if (state.status) {
     setStatus(state.status, state.detail || "");
   } else if (state.serverUrl) {
@@ -28,15 +26,14 @@ window.monitorClient.getState().then((state) => {
 
 function connectSavedMonitorId() {
   const monitorId = monitorIdInput.value.trim();
-  const authToken = authTokenInput.value.trim();
 
-  if (!monitorId || !authToken) {
-    setStatus("Disconnected", "Enter your Workforce user ID and access token.");
+  if (!monitorId) {
+    setStatus("Disconnected", "Enter an ID to enable automatic monitoring.");
     return;
   }
 
   setStatus("Connecting");
-  void window.monitorClient.connect(monitorId, authToken);
+  void window.monitorClient.connect(monitorId);
 }
 
 form.addEventListener("submit", (event) => {
@@ -49,10 +46,5 @@ monitorIdInput.addEventListener("input", () => {
     clearTimeout(saveTimer);
   }
 
-  saveTimer = setTimeout(connectSavedMonitorId, 600);
-});
-
-authTokenInput.addEventListener("input", () => {
-  if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(connectSavedMonitorId, 600);
 });

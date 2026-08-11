@@ -498,8 +498,9 @@ export default function Home() {
     const url = new URL(getScreenMonitorWsUrl());
     url.searchParams.set("type", "admin");
     url.searchParams.set("id", `presence-${user._id}`);
+    url.searchParams.set("token", token);
 
-    const socket = new WebSocket(url.toString(), ["monitor-v1", token]);
+    const socket = new WebSocket(url.toString());
     monitorPresenceSocketRef.current = socket;
 
     socket.onmessage = (event) => {
@@ -1392,8 +1393,9 @@ export default function Home() {
     const url = new URL(getScreenMonitorWsUrl());
     url.searchParams.set("type", "admin");
     url.searchParams.set("id", selectedMonitorId);
+    url.searchParams.set("token", token);
 
-    const socket = new WebSocket(url.toString(), ["monitor-v1", token]);
+    const socket = new WebSocket(url.toString());
     monitorSocketRef.current = socket;
     socket.binaryType = "blob";
 

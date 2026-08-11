@@ -23,12 +23,6 @@ Edit `screen-monitor.config.json` before building:
 
 You can also override it at runtime with `WF_SCREEN_MONITOR_WS_URL`.
 
-The employee must sign in to Workforce Manager, copy their user ID and current
-access token, and enter both in the desktop app. The relay accepts only an
-authenticated agent whose token subject matches the Monitor ID; managers can
-view only their assigned agents. The app never writes the access token to disk,
-so it must be entered after each restart.
-
 ## Build A Windows Executable
 
 ```powershell
