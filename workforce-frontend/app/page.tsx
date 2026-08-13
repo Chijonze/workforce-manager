@@ -52,6 +52,9 @@ import type {
 } from "@/types/workforce";
 
 type AuthMode = "login" | "register";
+const STRONG_PASSWORD_PATTERN = "(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{12,}";
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
+const STRONG_PASSWORD_HINT = "Use at least 12 characters, including uppercase, lowercase, a number, and a symbol.";
 type BreakForm = {
   label: string;
   type: "break" | "lunch";
@@ -701,6 +704,11 @@ export default function Home() {
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (authMode === "register" && !STRONG_PASSWORD_REGEX.test(authForm.password)) {
+      notify("error", STRONG_PASSWORD_HINT);
+      return;
+    }
 
     const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
     const payload =
@@ -1716,6 +1724,10 @@ export default function Home() {
                   onChange={(event) =>
                     setAuthForm((current) => ({ ...current, password: event.target.value }))
                   }
+                  minLength={authMode === "register" ? 12 : undefined}
+                  pattern={authMode === "register" ? STRONG_PASSWORD_PATTERN : undefined}
+                  title={authMode === "register" ? STRONG_PASSWORD_HINT : undefined}
+                  aria-describedby={authMode === "register" ? "password-requirements" : undefined}
                   required
                 />
                 <button
@@ -1727,6 +1739,11 @@ export default function Home() {
                   {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
+              {authMode === "register" && (
+                <p id="password-requirements" className="muted-text">
+                  {STRONG_PASSWORD_HINT}
+                </p>
+              )}
             </div>
 
             <button className="button full" disabled={loading} type="submit">
