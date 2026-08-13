@@ -25,6 +25,8 @@ export function VideoCallButton({ children = "Video call", iconSize = 18, asChil
   const [chooserOpen, setChooserOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState("Ready");
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [room, setRoom] = useState<Room | null>(null);
   const localVideoRef = useRef<HTMLDivElement>(null);
   const remoteVideoRef = useRef<HTMLDivElement>(null);
@@ -35,7 +37,21 @@ export function VideoCallButton({ children = "Video call", iconSize = 18, asChil
     };
   }, [room]);
 
+  function getContactEmail() {
+    const contactEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      setEmailError("Enter a valid email so our agent can follow up.");
+      return null;
+    }
+
+    setEmailError("");
+    return contactEmail;
+  }
+
   async function startCall() {
+    const contactEmail = getContactEmail();
+    if (!contactEmail) return;
+
     setChooserOpen(false);
     setOpen(true);
     setStatus("Requesting camera and microphone...");
@@ -51,6 +67,7 @@ export function VideoCallButton({ children = "Video call", iconSize = 18, asChil
           identity,
           role: "customer",
           displayName: "Website visitor",
+          email: contactEmail,
           pageUrl: window.location.href,
         }),
       });
@@ -94,6 +111,9 @@ export function VideoCallButton({ children = "Video call", iconSize = 18, asChil
   }
 
   async function requestVoiceCall() {
+    const contactEmail = getContactEmail();
+    if (!contactEmail) return;
+
     setChooserOpen(false);
     setOpen(true);
     setStatus("Requesting microphone...");
@@ -108,6 +128,7 @@ export function VideoCallButton({ children = "Video call", iconSize = 18, asChil
           role: "customer",
           mode: "voice",
           displayName: "Website voice caller",
+          email: contactEmail,
           pageUrl: window.location.href,
         }),
       });
@@ -167,7 +188,7 @@ export function VideoCallButton({ children = "Video call", iconSize = 18, asChil
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-slate-950">Choose call type</p>
-                <p className="text-xs text-slate-500">Connect with an AVS agent through Chatwoot.</p>
+                <p className="text-xs text-slate-500">Add your email so our agent can follow up after the call.</p>
               </div>
               <button
                 type="button"
@@ -178,6 +199,21 @@ export function VideoCallButton({ children = "Video call", iconSize = 18, asChil
                 <X size={18} />
               </button>
             </div>
+            <label className="mb-3 block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">Email address</span>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  if (emailError) setEmailError("");
+                }}
+                placeholder="you@example.com"
+                className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-950 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              />
+              {emailError ? <span className="mt-1 block text-xs font-semibold text-red-600">{emailError}</span> : null}
+            </label>
             <div className="grid gap-2">
               <button
                 type="button"
