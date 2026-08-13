@@ -1,5 +1,8 @@
 export type InvoiceLineItem = {
   date: string;
+  week: number;
+  weekRange: string;
+  dayLabel: string;
   description: string;
   hours: number;
   rate: number;

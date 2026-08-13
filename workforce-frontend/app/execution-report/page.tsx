@@ -56,6 +56,19 @@ function formatBillingPeriod(start: string, end: string) {
   return `${formatter.format(new Date(start))} - ${formatter.format(new Date(end))}`;
 }
 
+function formatInvoiceWeekRange(start: string, end: string) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    timeZone: BUSINESS_TIME_ZONE,
+  });
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (start === end) return formatter.format(startDate);
+  return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
+}
+
 function formatWeekday(value: string) {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: BUSINESS_TIME_ZONE,
@@ -349,6 +362,23 @@ function buildInvoicePdfData(
   const recipientDetails = [billedTo.organizationAddress, billedTo.companyNumber ? `Company No: ${billedTo.companyNumber}` : ""]
     .filter(Boolean)
     .join("\n");
+  const periodStart = new Date(toExcelDate(report.startDate)).getTime();
+  const sortedRows = [...rows].sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.user.name.localeCompare(right.user.name));
+  const weekRanges = new Map<number, { start: string; end: string }>();
+
+  sortedRows.forEach((row) => {
+    const rowDate = toExcelDate(row.date);
+    const week = Math.floor((new Date(rowDate).getTime() - periodStart) / 604800000) + 1;
+    const current = weekRanges.get(week);
+
+    if (!current) {
+      weekRanges.set(week, { start: rowDate, end: rowDate });
+      return;
+    }
+
+    if (rowDate < current.start) current.start = rowDate;
+    if (rowDate > current.end) current.end = rowDate;
+  });
 
   return {
     logoText: "AVS",
@@ -360,10 +390,16 @@ function buildInvoicePdfData(
     fromAddress: "31 Northfield Road\nLondon, N16 5RL\nCompany No: 17232919",
     toName: recipient,
     toAddress: recipientDetails || "Address not provided",
-    items: [...rows]
-      .sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.user.name.localeCompare(right.user.name))
+    items: sortedRows
       .map((row) => ({
+        week: Math.floor((new Date(toExcelDate(row.date)).getTime() - periodStart) / 604800000) + 1,
+        weekRange: (() => {
+          const week = Math.floor((new Date(toExcelDate(row.date)).getTime() - periodStart) / 604800000) + 1;
+          const range = weekRanges.get(week);
+          return range ? formatInvoiceWeekRange(range.start, range.end) : formatInvoiceDate(row.date);
+        })(),
         date: formatInvoiceDate(row.date),
+        dayLabel: formatWeekday(row.date),
         description: `${formatWeekday(row.date)} - ${row.user.name}`,
         hours: invoiceHours(row.performance.workedMinutes, row.performance.invoiceWorkedMinutes),
         rate: DEFAULT_HOURLY_RATE,
