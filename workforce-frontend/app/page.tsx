@@ -352,10 +352,12 @@ export default function Home() {
   const [users, setUsers] = useState<User[]>([]);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [authForm, setAuthForm] = useState({
     name: "",
     email: "",
     password: "",
+    confirmPassword: "",
     role: "agent" as Extract<Role, "agent" | "supervisor">,
     organizationName: "",
     organizationAddress: "",
@@ -682,7 +684,11 @@ export default function Home() {
 
     setChatRecipients(recipientList);
     setChatConversations(conversationList);
-    setChatRecipientId((current) => current || recipientList[0]?._id || "");
+    setChatRecipientId((current) =>
+      recipientList.some((recipient) => recipient._id === current)
+        ? current
+        : recipientList[0]?._id || ""
+    );
 
     const activeConversationId =
       conversationId && conversationList.some((conversation) => conversation._id === conversationId)
@@ -707,6 +713,11 @@ export default function Home() {
 
     if (authMode === "register" && !STRONG_PASSWORD_REGEX.test(authForm.password)) {
       notify("error", STRONG_PASSWORD_HINT);
+      return;
+    }
+
+    if (authMode === "register" && authForm.password !== authForm.confirmPassword) {
+      notify("error", "Passwords do not match");
       return;
     }
 
@@ -1745,6 +1756,34 @@ export default function Home() {
                 </p>
               )}
             </div>
+
+            {authMode === "register" && (
+              <div className="field">
+                <label htmlFor="confirm-password">Confirm password</label>
+                <div className="password-field">
+                  <input
+                    id="confirm-password"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={authForm.confirmPassword}
+                    onChange={(event) =>
+                      setAuthForm((current) => ({ ...current, confirmPassword: event.target.value }))
+                    }
+                    minLength={12}
+                    pattern={STRONG_PASSWORD_PATTERN}
+                    title="Repeat your password exactly"
+                    required
+                  />
+                  <button
+                    aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                    className="password-toggle"
+                    type="button"
+                    onClick={() => setShowConfirmPassword((current) => !current)}
+                  >
+                    {showConfirmPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button className="button full" disabled={loading} type="submit">
               <LogIn size={17} />
@@ -3109,7 +3148,7 @@ function ChatPanel({
           <div>
             <h2>Team Chat</h2>
             <p className="panel-subtitle">
-              Message anyone on the workforce dashboard
+              Message assigned agents and hiring managers
             </p>
           </div>
         </div>

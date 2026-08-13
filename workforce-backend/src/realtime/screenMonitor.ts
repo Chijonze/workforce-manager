@@ -11,6 +11,7 @@ type ScreenClient = {
   socket: WebSocket;
   isAlive: boolean;
   watchingId?: string;
+  allowedEmployeeIds?: Set<string> | null;
 };
 
 type PresenceMessage = {
@@ -25,20 +26,37 @@ function safeJson(value: unknown) {
   return JSON.stringify(value);
 }
 
+function normalizeMonitorId(id: string) {
+  return id.trim().toLowerCase();
+}
+
 function sendJson(socket: WebSocket, value: unknown) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(safeJson(value));
   }
 }
 
-function broadcastPresence() {
+function getVisibleEmployeeIds(admin: ScreenClient) {
+  const employeeIds = [...employees.keys()];
+  const allowed = admin.allowedEmployeeIds;
+
+  return (
+    allowed ? employeeIds.filter((employeeId) => allowed.has(normalizeMonitorId(employeeId))) : employeeIds
+  ).sort((a, b) => a.localeCompare(b));
+}
+
+function sendPresence(admin: ScreenClient) {
   const message: PresenceMessage = {
     type: "presence",
-    employees: [...employees.keys()].sort((a, b) => a.localeCompare(b)),
+    employees: getVisibleEmployeeIds(admin),
   };
 
+  sendJson(admin.socket, message);
+}
+
+function broadcastPresence() {
   for (const admin of admins) {
-    sendJson(admin.socket, message);
+    sendPresence(admin);
   }
 }
 
@@ -64,8 +82,8 @@ function closeClient(client: ScreenClient) {
   admins.delete(client);
 }
 
-async function isMonitorToken(token: string | null) {
-  if (!token) return false;
+async function getMonitorAuth(token: string | null) {
+  if (!token) return null;
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as {
@@ -73,13 +91,26 @@ async function isMonitorToken(token: string | null) {
       mfaVerified?: boolean;
     };
 
-    const user = await User.findById(decoded.userId).select("role").lean();
-    if (!user || (user.role !== "admin" && user.role !== "supervisor")) return false;
-    if (user.role !== "supervisor" && decoded.mfaVerified === false) return false;
+    const user = await User.findById(decoded.userId)
+      .select("role assignedAgentIds")
+      .populate("assignedAgentIds", "email")
+      .lean();
+    if (!user || (user.role !== "admin" && user.role !== "supervisor")) return null;
+    if (user.role !== "supervisor" && decoded.mfaVerified === false) return null;
 
-    return true;
+    if (user.role === "admin") {
+      return { role: user.role, allowedEmployeeIds: null };
+    }
+
+    const allowedEmployeeIds = new Set(
+      ((user.assignedAgentIds || []) as any[])
+        .map((agent) => normalizeMonitorId(String(agent?.email || "")))
+        .filter(Boolean)
+    );
+
+    return { role: user.role, allowedEmployeeIds };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -146,12 +177,16 @@ export function attachScreenMonitorServer(server: http.Server) {
       const token = url.searchParams.get("token");
       const adminKey = process.env.SCREEN_MONITOR_ADMIN_KEY;
       const authorizedByKey = Boolean(adminKey && url.searchParams.get("key") === adminKey);
-      const authorizedByJwt = await isMonitorToken(token);
+      const monitorAuth = await getMonitorAuth(token);
 
-      if (!authorizedByJwt && !authorizedByKey) {
+      if (!monitorAuth && !authorizedByKey) {
         socket.destroy();
         return;
       }
+
+      (request as any).monitorAllowedEmployeeIds = authorizedByKey
+        ? null
+        : monitorAuth?.allowedEmployeeIds;
     }
 
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -161,6 +196,8 @@ export function attachScreenMonitorServer(server: http.Server) {
         socket: ws,
         isAlive: true,
         watchingId: type === "admin" ? id : undefined,
+        allowedEmployeeIds:
+          type === "admin" ? (request as any).monitorAllowedEmployeeIds : undefined,
       };
 
       wss.emit("connection", ws, request, client);
@@ -204,6 +241,18 @@ export function attachScreenMonitorServer(server: http.Server) {
         const targetId = String(message?.id || client.watchingId || client.id);
 
         if (message?.action === "START_STREAM") {
+          if (
+            client.allowedEmployeeIds &&
+            !client.allowedEmployeeIds.has(normalizeMonitorId(targetId))
+          ) {
+            sendJson(socket, {
+              type: "stream",
+              event: "employee_unavailable",
+              id: targetId,
+            });
+            return;
+          }
+
           const employee = employees.get(targetId);
           if (!employee) {
             sendJson(socket, {
@@ -236,10 +285,7 @@ export function attachScreenMonitorServer(server: http.Server) {
     }
 
     admins.add(client);
-    sendJson(socket, {
-      type: "presence",
-      employees: [...employees.keys()].sort((a, b) => a.localeCompare(b)),
-    });
+    sendPresence(client);
   });
 
   return wss;

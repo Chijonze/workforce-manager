@@ -8,6 +8,29 @@ const userProjection = "_id name email role accountStatus assignedAgentIds";
 const normalizeParticipants = (userId: string, recipientId: string) =>
   [userId, recipientId].sort((a, b) => a.localeCompare(b));
 
+const getAssignedSupervisorIdsForAgent = async (agentId: string) => {
+  const supervisors = await User.find({
+    role: "supervisor",
+    assignedAgentIds: new mongoose.Types.ObjectId(agentId),
+  }).select("_id");
+
+  return supervisors.map((supervisor) => supervisor._id.toString());
+};
+
+const isAssignedAgentSupervisorPair = async (userA: any, userB: any) => {
+  const agent = userA.role === "agent" ? userA : userB.role === "agent" ? userB : null;
+  const supervisor =
+    userA.role === "supervisor" ? userA : userB.role === "supervisor" ? userB : null;
+
+  if (!agent || !supervisor) return false;
+
+  const assignedAgentIds = (supervisor.assignedAgentIds || []).map(String);
+  if (assignedAgentIds.includes(agent._id.toString())) return true;
+
+  const storedSupervisor = await User.findById(supervisor._id).select("assignedAgentIds");
+  return (storedSupervisor?.assignedAgentIds || []).map(String).includes(agent._id.toString());
+};
+
 const serializeConversation = (conversation: any, currentUserId: string) => {
   const unreadCount = Number(conversation.unreadCount || 0);
   const participants = conversation.participants || [];
@@ -42,12 +65,17 @@ const ensureChatAllowed = async (currentUser: any, recipientId: string) => {
     throw new Error("Recipient not found");
   }
 
-  if (currentUser.role === "supervisor" && recipient.role !== "admin") {
-    const supervisor = await User.findById(currentUser.userId).select("assignedAgentIds");
-    const allowed = (supervisor?.assignedAgentIds || []).map(String);
-    if (recipient.role !== "agent" || !allowed.includes(recipientId)) {
-      throw new Error("You can only chat assigned agents and admins");
-    }
+  if (currentUser.role === "admin") {
+    return recipient;
+  }
+
+  const currentUserRecord = await User.findById(currentUser.userId).select(userProjection);
+  if (!currentUserRecord) {
+    throw new Error("User not found");
+  }
+
+  if (!(await isAssignedAgentSupervisorPair(currentUserRecord, recipient))) {
+    throw new Error("Chat is only available between assigned agents and hiring managers");
   }
 
   return recipient;
@@ -63,10 +91,16 @@ export const getChatRecipients = async (currentUser: any) => {
     const supervisor = await User.findById(currentUser.userId).select("assignedAgentIds");
     query.$and = [
       {
-        $or: [
-          { role: "admin" },
-          { role: "agent", _id: { $in: supervisor?.assignedAgentIds || [] } },
-        ],
+        role: "agent",
+        _id: { $in: supervisor?.assignedAgentIds || [] },
+      },
+    ];
+  } else if (currentUser.role === "agent") {
+    const supervisorIds = await getAssignedSupervisorIdsForAgent(currentUser.userId);
+    query.$and = [
+      {
+        role: "supervisor",
+        _id: { $in: supervisorIds },
       },
     ];
   }
@@ -74,17 +108,22 @@ export const getChatRecipients = async (currentUser: any) => {
   return User.find(query).select(userProjection).sort({ role: 1, name: 1 });
 };
 
-const filterSupervisorConversations = async (currentUser: any, conversations: any[]) => {
-  if (currentUser.role !== "supervisor") return conversations;
+const filterAssignedConversations = async (currentUser: any, conversations: any[]) => {
+  if (currentUser.role === "admin") return conversations;
 
-  const supervisor = await User.findById(currentUser.userId).select("assignedAgentIds");
-  const allowed = new Set((supervisor?.assignedAgentIds || []).map(String));
-  return conversations.filter((conversation) => {
-    const other = (conversation.participants || []).find(
-      (participant: any) => participant._id.toString() !== currentUser.userId
-    );
-    return other?.role === "admin" || (other?.role === "agent" && allowed.has(other._id.toString()));
-  });
+  const currentUserRecord = await User.findById(currentUser.userId).select(userProjection);
+  if (!currentUserRecord) return [];
+
+  const checks = await Promise.all(
+    conversations.map(async (conversation) => {
+      const other = (conversation.participants || []).find(
+        (participant: any) => participant._id.toString() !== currentUser.userId
+      );
+      return other ? isAssignedAgentSupervisorPair(currentUserRecord, other) : false;
+    })
+  );
+
+  return conversations.filter((_conversation, index) => checks[index]);
 };
 
 export const listConversations = async (currentUser: any) => {
@@ -95,7 +134,7 @@ export const listConversations = async (currentUser: any) => {
     .sort({ lastMessageAt: -1, updatedAt: -1 })
     .lean();
 
-  const allowedConversations = await filterSupervisorConversations(currentUser, conversations);
+  const allowedConversations = await filterAssignedConversations(currentUser, conversations);
 
   const unreadCounts = await ChatMessage.aggregate([
     {
@@ -153,6 +192,13 @@ export const listMessages = async (currentUser: any, conversationId: string) => 
   });
 
   if (!conversation) {
+    throw new Error("Conversation not found");
+  }
+
+  const populatedConversation = await conversation.populate("participants", userProjection);
+  const allowed = await filterAssignedConversations(currentUser, [populatedConversation.toObject()]);
+
+  if (!allowed.length) {
     throw new Error("Conversation not found");
   }
 
