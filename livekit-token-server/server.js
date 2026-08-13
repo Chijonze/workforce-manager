@@ -32,20 +32,49 @@ function cleanEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
 }
 
-async function postChatwootInteraction({ mode, roomName, identity, displayName, email, pageUrl }) {
-  if (!CHATWOOT_API_URL || !CHATWOOT_ACCOUNT_ID || !CHATWOOT_API_INBOX_ID || !CHATWOOT_BOT_ACCESS_TOKEN) {
-    return null;
+function getContactId(contact) {
+  return contact?.payload?.contact?.id || contact?.payload?.id || contact?.id;
+}
+
+function getContactPayload(contact) {
+  return contact?.payload?.contact || contact?.payload || contact || {};
+}
+
+function getInboxSourceId(contact, inboxId) {
+  const payload = getContactPayload(contact);
+  const contactInboxes = Array.isArray(payload?.contact_inboxes) ? payload.contact_inboxes : [];
+  const contactInbox = contactInboxes.find((item) => Number(item?.inbox?.id) === Number(inboxId));
+  return contactInbox?.source_id || payload?.source_id || payload?.identifier || "";
+}
+
+async function findChatwootContactByEmail({ headers, email }) {
+  const response = await fetch(
+    `${CHATWOOT_API_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(email)}`,
+    { headers },
+  );
+  const json = await response.json().catch(() => ({}));
+  const contacts = Array.isArray(json?.payload) ? json.payload : [];
+  return contacts.find((contact) => String(contact?.email || "").toLowerCase() === email) || null;
+}
+
+async function ensureChatwootContact({ headers, sourceId, displayName, email }) {
+  const inboxId = Number(CHATWOOT_API_INBOX_ID);
+  const existingContact = await findChatwootContactByEmail({ headers, email });
+  const existingContactId = getContactId(existingContact);
+  const existingSourceId = getInboxSourceId(existingContact, inboxId);
+
+  if (existingContactId && existingSourceId) {
+    return {
+      contactId: existingContactId,
+      sourceId: existingSourceId,
+      reused: true,
+    };
   }
 
-  const sourceId = identity;
-  const headers = {
-    "api_access_token": CHATWOOT_BOT_ACCESS_TOKEN,
-    "content-type": "application/json",
-  };
-
   const contactPayload = {
-    inbox_id: Number(CHATWOOT_API_INBOX_ID),
+    inbox_id: inboxId,
     name: displayName || "Website video caller",
+    identifier: sourceId,
     source_id: sourceId,
     email,
   };
@@ -55,7 +84,52 @@ async function postChatwootInteraction({ mode, roomName, identity, displayName, 
     { method: "POST", headers, body: JSON.stringify(contactPayload) },
   );
   const contactJson = await contactRes.json().catch(() => ({}));
-  const contactId = contactJson?.payload?.contact?.id || contactJson?.payload?.id || contactJson?.id;
+  const createdContactId = getContactId(contactJson);
+
+  if (contactRes.ok && createdContactId) {
+    return {
+      contactId: createdContactId,
+      sourceId: getInboxSourceId(contactJson, inboxId) || sourceId,
+      reused: false,
+    };
+  }
+
+  const fallbackContact = await findChatwootContactByEmail({ headers, email });
+  const fallbackContactId = getContactId(fallbackContact);
+  const fallbackSourceId = getInboxSourceId(fallbackContact, inboxId);
+
+  if (fallbackContactId && fallbackSourceId) {
+    return {
+      contactId: fallbackContactId,
+      sourceId: fallbackSourceId,
+      reused: true,
+    };
+  }
+
+  console.warn("Unable to create or reuse Chatwoot contact", {
+    email,
+    status: contactRes.status,
+    response: contactJson,
+  });
+  throw new Error("Unable to create or reuse Chatwoot contact for website call");
+}
+
+async function postChatwootInteraction({ mode, roomName, identity, displayName, email, pageUrl }) {
+  if (!CHATWOOT_API_URL || !CHATWOOT_ACCOUNT_ID || !CHATWOOT_API_INBOX_ID || !CHATWOOT_BOT_ACCESS_TOKEN) {
+    return null;
+  }
+
+  const callSourceId = identity;
+  const headers = {
+    "api_access_token": CHATWOOT_BOT_ACCESS_TOKEN,
+    "content-type": "application/json",
+  };
+  const { contactId, sourceId, reused } = await ensureChatwootContact({
+    headers,
+    sourceId: callSourceId,
+    displayName,
+    email,
+  });
 
   const conversationPayload = {
     source_id: sourceId,
@@ -72,27 +146,36 @@ async function postChatwootInteraction({ mode, roomName, identity, displayName, 
   const conversationJson = await conversationRes.json().catch(() => ({}));
   const conversationId = conversationJson?.id;
 
-  if (conversationId) {
-    const joinUrl = `${LIVEKIT_AGENT_VIDEO_BASE_URL || "https://advancedvirtualsolutions.com/live-video"}?room=${encodeURIComponent(roomName || "")}&role=agent&mode=${mode}`;
-    const content = mode === "video"
-      ? `Video call request\nClient email: ${email}\nJoin link: ${joinUrl}`
-      : `Voice call request\nClient email: ${email}\nJoin link: ${joinUrl}`;
-
-    await fetch(
-      `${CHATWOOT_API_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          content,
-          message_type: "incoming",
-          private: false,
-        }),
-      },
-    );
+  if (!conversationRes.ok || !conversationId) {
+    console.warn("Unable to create Chatwoot call conversation", {
+      email,
+      contactId,
+      sourceId,
+      status: conversationRes.status,
+      response: conversationJson,
+    });
+    throw new Error("Unable to create Chatwoot conversation for website call");
   }
 
-  return { contactId, conversationId };
+  const joinUrl = `${LIVEKIT_AGENT_VIDEO_BASE_URL || "https://advancedvirtualsolutions.com/live-video"}?room=${encodeURIComponent(roomName || "")}&role=agent&mode=${mode}`;
+  const content = mode === "video"
+    ? `Video call request\nClient email: ${email}\nJoin link: ${joinUrl}`
+    : `Voice call request\nClient email: ${email}\nJoin link: ${joinUrl}`;
+
+  await fetch(
+    `${CHATWOOT_API_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        content,
+        message_type: "incoming",
+        private: false,
+      }),
+    },
+  );
+
+  return { contactId, conversationId, reusedContact: reused };
 }
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
