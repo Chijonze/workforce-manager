@@ -15,6 +15,7 @@ type ScreenClient = {
   assignedEmployees?: MonitorEmployee[];
   watchingId?: string;
   allowedEmployeeIds?: Set<string> | null;
+  userId?: string;
 };
 
 type MonitorEmployee = {
@@ -105,6 +106,13 @@ function getAgentMonitorIds(agent: any) {
   ];
 }
 
+function monitorIdMatchesAgent(monitorId: string, agent: any) {
+  const aliases = getMonitorAliases(monitorId, true);
+  const agentMonitorIds = new Set(getAgentMonitorIds(agent));
+
+  return aliases.some((alias) => agentMonitorIds.has(alias));
+}
+
 function sendJson(socket: WebSocket, value: unknown) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(safeJson(value));
@@ -132,6 +140,34 @@ function findEmployeeByMonitorId(id: string) {
   );
 }
 
+function findEmployeeForAgent(agent: any) {
+  const agentId = String(agent?._id || "");
+
+  return [...employees.values()].find(
+    (employee) => employee.userId === agentId || monitorIdMatchesAgent(employee.id, agent)
+  );
+}
+
+async function findAssignedAgentForTarget(admin: ScreenClient, targetId: string) {
+  if (admin.authRole !== "supervisor" || !admin.authUserId) return null;
+
+  const user = await User.findById(admin.authUserId)
+    .select("assignedAgentIds")
+    .populate("assignedAgentIds", "_id name email")
+    .lean();
+
+  const targetAliases = getMonitorAliases(targetId, true);
+
+  return ((user?.assignedAgentIds || []) as any[]).find((agent) => {
+    const agentId = String(agent?._id || "");
+
+    return (
+      agentId === targetId ||
+      targetAliases.some((alias) => getAgentMonitorIds(agent).includes(alias))
+    );
+  }) || null;
+}
+
 function findActiveMonitorId(monitorIds: string[]) {
   return monitorIds
     .map((id) => findEmployeeByMonitorId(id)?.id)
@@ -150,7 +186,7 @@ async function refreshAllowedEmployeeIds(admin: ScreenClient) {
     const id = String(agent?._id || "");
     const email = String(agent?.email || "");
     const monitorIds = getAgentMonitorIds(agent);
-    const activeMonitorId = findActiveMonitorId(monitorIds);
+    const activeMonitorId = findEmployeeForAgent(agent)?.id || findActiveMonitorId(monitorIds);
 
     return {
       id,
@@ -252,7 +288,6 @@ async function getMonitorAuth(token: string | null) {
         getAgentMonitorIds(agent)
       )
     );
-
     return { role: user.role, userId: String(decoded.userId), allowedEmployeeIds };
   } catch {
     return null;
@@ -267,7 +302,17 @@ function sendToWatchingAdmins(employeeId: string, frame: Buffer) {
   }
 }
 
-function registerEmployee(client: ScreenClient) {
+async function resolveEmployeeUserId(monitorId: string) {
+  const agents = await User.find({ role: "agent" }).select("_id name email").lean();
+  const agent = agents.find((candidate) => monitorIdMatchesAgent(monitorId, candidate));
+
+  return agent ? String(agent._id) : undefined;
+}
+
+async function registerEmployee(client: ScreenClient) {
+  client.userId = await resolveEmployeeUserId(client.id);
+  if (client.socket.readyState !== WebSocket.OPEN) return;
+
   const existing = employees.get(client.id);
 
   if (existing && existing !== client) {
@@ -376,7 +421,7 @@ export function attachScreenMonitorServer(server: http.Server) {
         try {
           const message = JSON.parse(data.toString());
           if (message?.type === "status" && message?.event === "online") {
-            registerEmployee(client);
+            void registerEmployee(client);
           }
         } catch {
           sendJson(socket, { type: "error", message: "Invalid employee message" });
@@ -397,8 +442,14 @@ export function attachScreenMonitorServer(server: http.Server) {
         if (message?.action === "START_STREAM") {
           await refreshAllowedEmployeeIds(client);
 
+          const assignedAgent = await findAssignedAgentForTarget(client, targetId);
+          const employee = assignedAgent
+            ? findEmployeeForAgent(assignedAgent)
+            : findEmployeeByMonitorId(targetId);
+
           if (
             client.allowedEmployeeIds &&
+            !assignedAgent &&
             !getMonitorAliases(targetId, true).some((alias) =>
               Boolean(client.allowedEmployeeIds?.has(alias))
             )
@@ -411,7 +462,6 @@ export function attachScreenMonitorServer(server: http.Server) {
             return;
           }
 
-          const employee = findEmployeeByMonitorId(targetId);
           if (!employee) {
             sendJson(socket, {
               type: "stream",
@@ -421,9 +471,9 @@ export function attachScreenMonitorServer(server: http.Server) {
             return;
           }
 
-          client.watchingId = targetId;
+          client.watchingId = employee.id;
           sendJson(employee.socket, { action: "START_STREAM" });
-          sendJson(socket, { type: "stream", event: "started", id: targetId });
+          sendJson(socket, { type: "stream", event: "started", id: employee.id });
           return;
         }
 
