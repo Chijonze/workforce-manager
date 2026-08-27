@@ -537,6 +537,25 @@ export default function Home() {
   }, [canMonitorWorkforce, token, user?._id]);
 
   useEffect(() => {
+    if (!token || !isSupervisor) return;
+
+    const timer = window.setInterval(() => {
+      void apiRequest<AdminOverview>(`/api/execution/admin/overview?date=${overviewDate}`, {
+        token,
+      })
+        .then(setAdminOverview)
+        .catch(() => undefined);
+
+      const presenceSocket = monitorPresenceSocketRef.current;
+      if (presenceSocket?.readyState === WebSocket.OPEN) {
+        presenceSocket.send(JSON.stringify({ action: "GET_PRESENCE" }));
+      }
+    }, 15000);
+
+    return () => window.clearInterval(timer);
+  }, [isSupervisor, overviewDate, token]);
+
+  useEffect(() => {
     return () => {
       stopScreenMonitor();
       revokeMonitorObjectUrl();
