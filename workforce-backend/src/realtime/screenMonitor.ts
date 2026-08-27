@@ -42,6 +42,15 @@ function normalizeMonitorId(id: string) {
   return id.trim().toLowerCase();
 }
 
+function getAgentMonitorIds(agent: any) {
+  const id = String(agent?._id || "");
+  const name = String(agent?.name || "");
+  const email = String(agent?.email || "");
+  const emailLocalPart = email.includes("@") ? email.split("@")[0] : "";
+
+  return [id, email, emailLocalPart, name].map(normalizeMonitorId).filter(Boolean);
+}
+
 function sendJson(socket: WebSocket, value: unknown) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(safeJson(value));
@@ -82,7 +91,7 @@ async function refreshAllowedEmployeeIds(admin: ScreenClient) {
   const assignedAgents = ((user?.assignedAgentIds || []) as any[]).map((agent) => {
     const id = String(agent?._id || "");
     const email = String(agent?.email || "");
-    const monitorIds = [id, email].map(normalizeMonitorId).filter(Boolean);
+    const monitorIds = getAgentMonitorIds(agent);
     const activeMonitorId = findActiveMonitorId(monitorIds);
 
     return {
@@ -180,9 +189,7 @@ async function getMonitorAuth(token: string | null) {
 
     const allowedEmployeeIds = new Set(
       ((user.assignedAgentIds || []) as any[]).flatMap((agent) =>
-        [agent?._id, agent?.email]
-          .map((value) => normalizeMonitorId(String(value || "")))
-          .filter(Boolean)
+        getAgentMonitorIds(agent)
       )
     );
 
