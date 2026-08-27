@@ -191,4 +191,13 @@ export type ChatMessage = {
 export type ScreenMonitorPresence = {
   type: "presence";
   employees: string[];
+  assignedEmployees?: ScreenMonitorEmployee[];
+};
+
+export type ScreenMonitorEmployee = {
+  id: string;
+  name: string;
+  email: string;
+  isOnline: boolean;
+  activeMonitorId?: string;
 };

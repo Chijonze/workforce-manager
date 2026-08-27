@@ -44,6 +44,7 @@ import type {
   DailyPerformance,
   LeaveRequest,
   Schedule,
+  ScreenMonitorEmployee,
   ScreenMonitorPresence,
   ShiftEvent,
   ShiftTemplate,
@@ -99,6 +100,32 @@ function escapeExcelCell(value: string | number | undefined | null) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function getMonitorEmployees(message: ScreenMonitorPresence): ScreenMonitorEmployee[] {
+  if (message.assignedEmployees?.length) return message.assignedEmployees;
+
+  return message.employees.map((employeeId) => ({
+    id: employeeId,
+    name: employeeId,
+    email: employeeId,
+    isOnline: true,
+    activeMonitorId: employeeId,
+  }));
+}
+
+function getMonitorOptionValue(employee: ScreenMonitorEmployee) {
+  return employee.activeMonitorId || employee.email || employee.id;
+}
+
+function selectAvailableMonitorId(current: string, employees: ScreenMonitorEmployee[]) {
+  if (employees.some((employee) => getMonitorOptionValue(employee) === current)) {
+    return current;
+  }
+
+  const firstOnline = employees.find((employee) => employee.isOnline && employee.activeMonitorId);
+
+  return firstOnline?.activeMonitorId || (employees[0] ? getMonitorOptionValue(employees[0]) : "");
 }
 
 type MfaSetup = {
@@ -401,7 +428,7 @@ export default function Home() {
   const [chatRecipientId, setChatRecipientId] = useState("");
   const [chatDraft, setChatDraft] = useState("");
   const [selectedActivity, setSelectedActivity] = useState<ActivityState>("AVAILABLE");
-  const [onlineMonitorIds, setOnlineMonitorIds] = useState<string[]>([]);
+  const [screenMonitorEmployees, setScreenMonitorEmployees] = useState<ScreenMonitorEmployee[]>([]);
   const [selectedMonitorId, setSelectedMonitorId] = useState("");
   const [monitorStatus, setMonitorStatus] = useState("Disconnected");
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -495,7 +522,7 @@ export default function Home() {
     if (!token || !canMonitorWorkforce || !user?._id) {
       monitorPresenceSocketRef.current?.close();
       monitorPresenceSocketRef.current = null;
-      setOnlineMonitorIds([]);
+      setScreenMonitorEmployees([]);
       setSelectedMonitorId("");
       return;
     }
@@ -513,10 +540,9 @@ export default function Home() {
         const message = JSON.parse(String(event.data)) as ScreenMonitorPresence;
         if (message.type !== "presence") return;
 
-        setOnlineMonitorIds(message.employees);
-        setSelectedMonitorId((current) =>
-          current && message.employees.includes(current) ? current : message.employees[0] || ""
-        );
+        const monitorEmployees = getMonitorEmployees(message);
+        setScreenMonitorEmployees(monitorEmployees);
+        setSelectedMonitorId((current) => selectAvailableMonitorId(current, monitorEmployees));
       } catch {
         // Presence messages are JSON only; binary frames use the dedicated stream socket.
       }
@@ -1354,7 +1380,7 @@ export default function Home() {
     setSelectedConversationId(null);
     setChatMessages([]);
     setChatDraft("");
-    setOnlineMonitorIds([]);
+    setScreenMonitorEmployees([]);
     setSelectedMonitorId("");
     setToasts([]);
   }
@@ -1456,8 +1482,9 @@ export default function Home() {
         };
 
         if (message.type === "presence") {
-          setOnlineMonitorIds(message.employees);
-          setSelectedMonitorId((current) => current || message.employees[0] || "");
+          const monitorEmployees = getMonitorEmployees(message);
+          setScreenMonitorEmployees(monitorEmployees);
+          setSelectedMonitorId((current) => selectAvailableMonitorId(current, monitorEmployees));
           return;
         }
 
@@ -1950,7 +1977,7 @@ export default function Home() {
             </section>
             <ScreenMonitorPanel
               canvasRef={monitorCanvasRef}
-              employees={onlineMonitorIds}
+              employees={screenMonitorEmployees}
               isMonitoring={isMonitoring}
               selectedEmployeeId={selectedMonitorId}
               status={monitorStatus}
@@ -2040,7 +2067,7 @@ export default function Home() {
         {isAdmin && (
           <ScreenMonitorPanel
             canvasRef={monitorCanvasRef}
-            employees={onlineMonitorIds}
+            employees={screenMonitorEmployees}
             isMonitoring={isMonitoring}
             selectedEmployeeId={selectedMonitorId}
             status={monitorStatus}
@@ -2551,7 +2578,7 @@ function ScreenMonitorPanel({
   status,
 }: {
   canvasRef: RefObject<HTMLCanvasElement>;
-  employees: string[];
+  employees: ScreenMonitorEmployee[];
   isMonitoring: boolean;
   selectedEmployeeId: string;
   status: string;
@@ -2559,7 +2586,10 @@ function ScreenMonitorPanel({
   onStart: () => void;
   onStop: () => void;
 }) {
-  const canMonitor = Boolean(selectedEmployeeId && employees.includes(selectedEmployeeId));
+  const selectedEmployee = employees.find(
+    (employee) => getMonitorOptionValue(employee) === selectedEmployeeId
+  );
+  const canMonitor = Boolean(selectedEmployee?.isOnline && selectedEmployee.activeMonitorId);
   const sectionRef = useRef<HTMLElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -2612,7 +2642,7 @@ function ScreenMonitorPanel({
           <Monitor size={20} />
           <div>
             <h2>Screen Monitor</h2>
-            <p className="panel-subtitle">On-demand live view for online desktop emails</p>
+            <p className="panel-subtitle">On-demand live view for assigned agents</p>
           </div>
         </div>
         <div className="screen-monitor-header-actions">
@@ -2634,7 +2664,7 @@ function ScreenMonitorPanel({
       <div className="screen-monitor-grid">
         <div className="screen-monitor-controls">
           <div className="field">
-            <label htmlFor="screen-monitor-employee">Online email</label>
+            <label htmlFor="screen-monitor-employee">Assigned agent</label>
             <select
               id="screen-monitor-employee"
               value={selectedEmployeeId}
@@ -2642,13 +2672,17 @@ function ScreenMonitorPanel({
               disabled={isMonitoring || employees.length === 0}
             >
               {employees.length ? (
-                employees.map((employeeId) => (
-                  <option key={employeeId} value={employeeId}>
-                    {employeeId}
+                employees.map((employee) => (
+                  <option
+                    key={employee.id || employee.email}
+                    value={getMonitorOptionValue(employee)}
+                    disabled={!employee.isOnline}
+                  >
+                    {employee.name} ({employee.email || employee.id}) - {employee.isOnline ? "Online" : "Offline"}
                   </option>
                 ))
               ) : (
-                <option value="">No emails online</option>
+                <option value="">No assigned agents</option>
               )}
             </select>
           </div>

@@ -12,13 +12,23 @@ type ScreenClient = {
   isAlive: boolean;
   authUserId?: string;
   authRole?: "admin" | "supervisor";
+  assignedEmployees?: MonitorEmployee[];
   watchingId?: string;
   allowedEmployeeIds?: Set<string> | null;
+};
+
+type MonitorEmployee = {
+  id: string;
+  name: string;
+  email: string;
+  isOnline: boolean;
+  activeMonitorId?: string;
 };
 
 type PresenceMessage = {
   type: "presence";
   employees: string[];
+  assignedEmployees?: MonitorEmployee[];
 };
 
 const employees = new Map<string, ScreenClient>();
@@ -47,21 +57,48 @@ function getVisibleEmployeeIds(admin: ScreenClient) {
   ).sort((a, b) => a.localeCompare(b));
 }
 
+function findEmployeeByMonitorId(id: string) {
+  const normalizedId = normalizeMonitorId(id);
+
+  return [...employees.values()].find(
+    (employee) => normalizeMonitorId(employee.id) === normalizedId
+  );
+}
+
+function findActiveMonitorId(monitorIds: string[]) {
+  return monitorIds
+    .map((id) => findEmployeeByMonitorId(id)?.id)
+    .find(Boolean);
+}
+
 async function refreshAllowedEmployeeIds(admin: ScreenClient) {
   if (admin.type !== "admin" || admin.authRole !== "supervisor" || !admin.authUserId) return;
 
   const user = await User.findById(admin.authUserId)
     .select("assignedAgentIds")
-    .populate("assignedAgentIds", "_id email")
+    .populate("assignedAgentIds", "_id name email")
     .lean();
 
-  admin.allowedEmployeeIds = new Set(
-    ((user?.assignedAgentIds || []) as any[]).flatMap((agent) =>
-      [agent?._id, agent?.email]
-        .map((value) => normalizeMonitorId(String(value || "")))
-        .filter(Boolean)
-    )
-  );
+  const assignedAgents = ((user?.assignedAgentIds || []) as any[]).map((agent) => {
+    const id = String(agent?._id || "");
+    const email = String(agent?.email || "");
+    const monitorIds = [id, email].map(normalizeMonitorId).filter(Boolean);
+    const activeMonitorId = findActiveMonitorId(monitorIds);
+
+    return {
+      id,
+      name: String(agent?.name || email || id),
+      email,
+      isOnline: Boolean(activeMonitorId),
+      activeMonitorId,
+      monitorIds,
+    };
+  });
+
+  admin.allowedEmployeeIds = new Set(assignedAgents.flatMap((agent) => agent.monitorIds));
+  admin.assignedEmployees = assignedAgents
+    .map(({ monitorIds: _monitorIds, ...agent }) => agent)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   if (
     admin.watchingId &&
@@ -87,6 +124,7 @@ async function sendPresence(admin: ScreenClient) {
   const message: PresenceMessage = {
     type: "presence",
     employees: getVisibleEmployeeIds(admin),
+    assignedEmployees: admin.assignedEmployees,
   };
 
   sendJson(admin.socket, message);
@@ -131,7 +169,7 @@ async function getMonitorAuth(token: string | null) {
 
     const user = await User.findById(decoded.userId)
       .select("role assignedAgentIds")
-      .populate("assignedAgentIds", "_id email")
+      .populate("assignedAgentIds", "_id name email")
       .lean();
     if (!user || (user.role !== "admin" && user.role !== "supervisor")) return null;
     if (user.role !== "supervisor" && decoded.mfaVerified === false) return null;
@@ -304,7 +342,7 @@ export function attachScreenMonitorServer(server: http.Server) {
             return;
           }
 
-          const employee = employees.get(targetId);
+          const employee = findEmployeeByMonitorId(targetId);
           if (!employee) {
             sendJson(socket, {
               type: "stream",
