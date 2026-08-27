@@ -42,13 +42,21 @@ function normalizeMonitorId(id: string) {
   return id.trim().toLowerCase();
 }
 
+function normalizeMonitorKey(id: string) {
+  return normalizeMonitorId(id).replace(/[^a-z0-9]/g, "");
+}
+
+function getMonitorAliases(id: string) {
+  return [...new Set([normalizeMonitorId(id), normalizeMonitorKey(id)].filter(Boolean))];
+}
+
 function getAgentMonitorIds(agent: any) {
   const id = String(agent?._id || "");
   const name = String(agent?.name || "");
   const email = String(agent?.email || "");
   const emailLocalPart = email.includes("@") ? email.split("@")[0] : "";
 
-  return [id, email, emailLocalPart, name].map(normalizeMonitorId).filter(Boolean);
+  return [id, email, emailLocalPart, name].flatMap(getMonitorAliases);
 }
 
 function sendJson(socket: WebSocket, value: unknown) {
@@ -62,15 +70,19 @@ function getVisibleEmployeeIds(admin: ScreenClient) {
   const allowed = admin.allowedEmployeeIds;
 
   return (
-    allowed ? employeeIds.filter((employeeId) => allowed.has(normalizeMonitorId(employeeId))) : employeeIds
+    allowed
+      ? employeeIds.filter((employeeId) =>
+          getMonitorAliases(employeeId).some((alias) => allowed.has(alias))
+        )
+      : employeeIds
   ).sort((a, b) => a.localeCompare(b));
 }
 
 function findEmployeeByMonitorId(id: string) {
-  const normalizedId = normalizeMonitorId(id);
+  const aliases = getMonitorAliases(id);
 
   return [...employees.values()].find(
-    (employee) => normalizeMonitorId(employee.id) === normalizedId
+    (employee) => getMonitorAliases(employee.id).some((alias) => aliases.includes(alias))
   );
 }
 
@@ -111,7 +123,7 @@ async function refreshAllowedEmployeeIds(admin: ScreenClient) {
 
   if (
     admin.watchingId &&
-    !admin.allowedEmployeeIds.has(normalizeMonitorId(admin.watchingId))
+    !getMonitorAliases(admin.watchingId).some((alias) => admin.allowedEmployeeIds?.has(alias))
   ) {
     const revokedId = admin.watchingId;
     admin.watchingId = undefined;
@@ -339,7 +351,7 @@ export function attachScreenMonitorServer(server: http.Server) {
 
           if (
             client.allowedEmployeeIds &&
-            !client.allowedEmployeeIds.has(normalizeMonitorId(targetId))
+            !getMonitorAliases(targetId).some((alias) => client.allowedEmployeeIds?.has(alias))
           ) {
             sendJson(socket, {
               type: "stream",
