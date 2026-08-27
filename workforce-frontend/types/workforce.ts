@@ -7,6 +7,7 @@ export type User = {
   organizationName?: string;
   organizationAddress?: string;
   companyNumber?: string;
+  monitorId?: string;
   role: Role;
   accountStatus?: "pending" | "approved";
   mfaEnabled?: boolean;

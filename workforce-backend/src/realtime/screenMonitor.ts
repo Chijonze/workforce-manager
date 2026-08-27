@@ -96,10 +96,12 @@ function getAgentMonitorIds(agent: any) {
   const id = String(agent?._id || "");
   const name = String(agent?.name || "");
   const email = String(agent?.email || "");
+  const monitorId = String(agent?.monitorId || "");
   const emailLocalPart = email.includes("@") ? email.split("@")[0] : "";
 
   return [
     ...getMonitorAliases(id),
+    ...getMonitorAliases(monitorId, true),
     ...getMonitorAliases(email, true),
     ...getMonitorAliases(emailLocalPart, true),
     ...getMonitorAliases(name, true),
@@ -153,7 +155,7 @@ async function findAssignedAgentForTarget(admin: ScreenClient, targetId: string)
 
   const user = await User.findById(admin.authUserId)
     .select("assignedAgentIds")
-    .populate("assignedAgentIds", "_id name email")
+    .populate("assignedAgentIds", "_id name email monitorId")
     .lean();
 
   const targetAliases = getMonitorAliases(targetId, true);
@@ -274,7 +276,7 @@ async function getMonitorAuth(token: string | null) {
 
     const user = await User.findById(decoded.userId)
       .select("role assignedAgentIds")
-      .populate("assignedAgentIds", "_id name email")
+      .populate("assignedAgentIds", "_id name email monitorId")
       .lean();
     if (!user || (user.role !== "admin" && user.role !== "supervisor")) return null;
     if (user.role !== "supervisor" && decoded.mfaVerified === false) return null;
@@ -303,7 +305,7 @@ function sendToWatchingAdmins(employeeId: string, frame: Buffer) {
 }
 
 async function resolveEmployeeUserId(monitorId: string) {
-  const agents = await User.find({ role: "agent" }).select("_id name email").lean();
+  const agents = await User.find({ role: "agent" }).select("_id name email monitorId").lean();
   const agent = agents.find((candidate) => monitorIdMatchesAgent(monitorId, candidate));
 
   return agent ? String(agent._id) : undefined;

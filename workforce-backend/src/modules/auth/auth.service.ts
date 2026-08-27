@@ -144,7 +144,7 @@ export const logoutUser = async (userId: string) => {
 };
 
 export const getUsers = async () => {
-  return await User.find().select("_id name email organizationName organizationAddress companyNumber role accountStatus mfaEnabled assignedAgentIds createdAt").sort({
+  return await User.find().select("_id name email organizationName organizationAddress companyNumber monitorId role accountStatus mfaEnabled assignedAgentIds createdAt").sort({
     name: 1,
   });
 };
@@ -197,6 +197,23 @@ export const updateAssignedAgents = async (supervisorId: string, agentIds: strin
   await supervisor.save();
 
   return sanitizeUser(supervisor);
+};
+
+export const updateUserMonitorId = async (userId: string, monitorId?: string) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    throw new Error("Invalid user");
+  }
+
+  const user = await User.findById(userId).select("_id role monitorId");
+  if (!user || user.role !== "agent") {
+    throw new Error("Agent not found");
+  }
+
+  const normalizedMonitorId = String(monitorId || "").trim();
+  user.monitorId = normalizedMonitorId || undefined;
+  await user.save();
+
+  return sanitizeUser(user);
 };
 
 export const approveUserAccount = async (targetUserId: string) => {

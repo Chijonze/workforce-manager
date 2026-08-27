@@ -13,6 +13,7 @@ import {
   verifyMfa,
   verifyReturn,
   updateProfile,
+  updateMonitorId,
 } from "./auth.controller";
 import { protect, requireAdmin, requireNonSupervisor } from "../../middleware/auth.middleware";
 
@@ -30,6 +31,7 @@ router.post("/mfa/verify-return", protect, requireNonSupervisor, verifyReturn);
 router.get("/users", protect, requireAdmin, listUsers);
 router.put("/users/:userId/approve", protect, requireAdmin, approveUser);
 router.put("/users/:userId/assigned-agents", protect, requireAdmin, assignAgents);
+router.put("/users/:userId/monitor-id", protect, requireAdmin, updateMonitorId);
 router.delete("/users/:userId", protect, requireAdmin, deleteUser);
 
 // 🧪 TEST PROTECTED ROUTE

@@ -13,6 +13,7 @@ import {
   approveUserAccount,
   updateAssignedAgents,
   updateHiringManagerProfile,
+  updateUserMonitorId,
 } from "./auth.service";
 import { notifyTelegramLogin } from "../../utils/telegramNotifier";
 
@@ -168,6 +169,16 @@ export const approveUser = async (req: Request, res: Response) => {
 export const assignAgents = async (req: Request, res: Response) => {
   try {
     const user = await updateAssignedAgents(String(req.params.userId), req.body.agentIds || []);
+
+    res.status(200).json(user);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const updateMonitorId = async (req: Request, res: Response) => {
+  try {
+    const user = await updateUserMonitorId(String(req.params.userId), req.body.monitorId);
 
     res.status(200).json(user);
   } catch (error: any) {
