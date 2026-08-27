@@ -2464,7 +2464,6 @@ export default function Home() {
               loading={loading}
               users={users}
               onAssignAgents={assignAgentsToManager}
-              onUpdateAgentMonitorId={updateAgentMonitorId}
             />
             <UserAccountsPanel
               currentUserId={user._id}
@@ -2472,6 +2471,7 @@ export default function Home() {
               users={users}
               onApproveUser={approveUserAccount}
               onDeleteUser={deleteUserAccount}
+              onUpdateAgentMonitorId={updateAgentMonitorId}
             />
           </>
         )}
@@ -3334,22 +3334,18 @@ function ChatPanel({
 function HiringManagerAgentAllocationPanel({
   loading,
   onAssignAgents,
-  onUpdateAgentMonitorId,
   users,
 }: {
   loading: boolean;
   users: User[];
   onAssignAgents: (user: User, agentIds: string[]) => void;
-  onUpdateAgentMonitorId: (user: User, monitorId: string) => void;
 }) {
   const managers = useMemo(() => users.filter((member) => member.role === "supervisor"), [users]);
   const agents = useMemo(() => users.filter((member) => member.role === "agent"), [users]);
   const [managerId, setManagerId] = useState("");
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
-  const [monitorIds, setMonitorIds] = useState<Record<string, string>>({});
   const manager = managers.find((item) => item._id === managerId) || null;
   const assignedKey = (manager?.assignedAgentIds || []).map(String).join("|");
-  const monitorKey = agents.map((agent) => `${agent._id}:${agent.monitorId || ""}`).join("|");
 
   useEffect(() => {
     setManagerId((current) =>
@@ -3360,12 +3356,6 @@ function HiringManagerAgentAllocationPanel({
   useEffect(() => {
     setSelectedAgentIds((manager?.assignedAgentIds || []).map(String));
   }, [manager?._id, assignedKey]);
-
-  useEffect(() => {
-    setMonitorIds(
-      Object.fromEntries(agents.map((agent) => [agent._id, agent.monitorId || ""]))
-    );
-  }, [monitorKey]);
 
   function toggleAgent(agentId: string, checked: boolean) {
     setSelectedAgentIds((current) =>
@@ -3421,46 +3411,18 @@ function HiringManagerAgentAllocationPanel({
         <div className="agent-allocation-list">
           {agents.length ? (
             agents.map((agent) => (
-              <div className="agent-check agent-check-with-monitor" key={agent._id}>
-                <label className="agent-assignment-toggle">
-                  <input
-                    type="checkbox"
-                    checked={selectedAgentIds.includes(agent._id)}
-                    disabled={loading || !manager}
-                    onChange={(event) => toggleAgent(agent._id, event.target.checked)}
-                  />
-                  <span>
-                    <strong>{agent.name}</strong>
-                    <small>{agent.email}</small>
-                  </span>
-                </label>
-                <div className="monitor-id-field">
-                  <label htmlFor={`monitor-id-${agent._id}`}>Screen Monitor ID</label>
-                  <div>
-                    <input
-                      id={`monitor-id-${agent._id}`}
-                      placeholder="agent-id"
-                      value={monitorIds[agent._id] || ""}
-                      onChange={(event) =>
-                        setMonitorIds((current) => ({
-                          ...current,
-                          [agent._id]: event.target.value,
-                        }))
-                      }
-                    />
-                    <button
-                      aria-label={`Save screen monitor ID for ${agent.name}`}
-                      className="icon-button secondary"
-                      disabled={loading || (monitorIds[agent._id] || "") === (agent.monitorId || "")}
-                      title="Save monitor ID"
-                      type="button"
-                      onClick={() => onUpdateAgentMonitorId(agent, monitorIds[agent._id] || "")}
-                    >
-                      <CheckCircle2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <label className="agent-check" key={agent._id}>
+                <input
+                  type="checkbox"
+                  checked={selectedAgentIds.includes(agent._id)}
+                  disabled={loading || !manager}
+                  onChange={(event) => toggleAgent(agent._id, event.target.checked)}
+                />
+                <span>
+                  <strong>{agent.name}</strong>
+                  <small>{agent.email}</small>
+                </span>
+              </label>
             ))
           ) : (
             <p className="muted">No agents available to assign.</p>
@@ -3476,6 +3438,7 @@ function UserAccountsPanel({
   loading,
   onApproveUser,
   onDeleteUser,
+  onUpdateAgentMonitorId,
   users,
 }: {
   currentUserId: string;
@@ -3483,7 +3446,23 @@ function UserAccountsPanel({
   onApproveUser: (user: User) => void;
   users: User[];
   onDeleteUser: (user: User) => void;
+  onUpdateAgentMonitorId: (user: User, monitorId: string) => void;
 }) {
+  const agentMonitorKey = users
+    .filter((member) => member.role === "agent")
+    .map((member) => `${member._id}:${member.monitorId || ""}`)
+    .join("|");
+  const [monitorIds, setMonitorIds] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setMonitorIds(
+      Object.fromEntries(
+        users
+          .filter((member) => member.role === "agent")
+          .map((member) => [member._id, member.monitorId || ""])
+      )
+    );
+  }, [agentMonitorKey]);
 
   return (
     <section className="panel user-accounts-panel">
@@ -3506,6 +3485,7 @@ function UserAccountsPanel({
               <th>Role</th>
               <th>Status</th>
               <th>MFA</th>
+              <th>Screen Monitor ID</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -3530,6 +3510,35 @@ function UserAccountsPanel({
                     </span>
                   </td>
                   <td>{member.mfaEnabled ? "Enabled" : "Not enabled"}</td>
+                  <td>
+                    {member.role === "agent" ? (
+                      <div className="account-monitor-id-field">
+                        <input
+                          aria-label={`Screen monitor ID for ${member.name}`}
+                          placeholder="agent-id"
+                          value={monitorIds[member._id] || ""}
+                          onChange={(event) =>
+                            setMonitorIds((current) => ({
+                              ...current,
+                              [member._id]: event.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          aria-label={`Save screen monitor ID for ${member.name}`}
+                          className="icon-button secondary"
+                          disabled={loading || (monitorIds[member._id] || "") === (member.monitorId || "")}
+                          title="Save monitor ID"
+                          type="button"
+                          onClick={() => onUpdateAgentMonitorId(member, monitorIds[member._id] || "")}
+                        >
+                          <CheckCircle2 size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="muted">-</span>
+                    )}
+                  </td>
                   <td>
                     <div className="review-actions account-actions">
                       {canApprove && (
