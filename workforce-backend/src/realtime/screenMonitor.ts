@@ -46,8 +46,49 @@ function normalizeMonitorKey(id: string) {
   return normalizeMonitorId(id).replace(/[^a-z0-9]/g, "");
 }
 
-function getMonitorAliases(id: string) {
-  return [...new Set([normalizeMonitorId(id), normalizeMonitorKey(id)].filter(Boolean))];
+const numberWordAliases: Record<string, string> = {
+  zero: "0",
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+  ten: "10",
+};
+
+function replaceNumberWords(id: string) {
+  return normalizeMonitorId(id).replace(
+    /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten)\b/g,
+    (word) => numberWordAliases[word] || word
+  );
+}
+
+function normalizeNumberPadding(id: string) {
+  return id.replace(/\d+/g, (digits) => String(Number(digits)));
+}
+
+function getMonitorAliases(id: string, includeAgentNumberAlias = false): string[] {
+  const normalized = normalizeMonitorId(id);
+  const numberWordsReplaced = replaceNumberWords(id);
+  const compact = normalizeMonitorKey(numberWordsReplaced);
+  const compactWithoutNumberPadding = normalizeNumberPadding(compact);
+  const trailingNumber = includeAgentNumberAlias
+    ? compactWithoutNumberPadding.match(/(\d+)$/)?.[1]
+    : "";
+
+  return [...new Set([
+    normalized,
+    numberWordsReplaced,
+    normalizeMonitorKey(normalized),
+    compact,
+    compactWithoutNumberPadding,
+    trailingNumber,
+    trailingNumber ? `agent${trailingNumber}` : "",
+  ].filter((alias): alias is string => Boolean(alias)))];
 }
 
 function getAgentMonitorIds(agent: any) {
@@ -56,7 +97,12 @@ function getAgentMonitorIds(agent: any) {
   const email = String(agent?.email || "");
   const emailLocalPart = email.includes("@") ? email.split("@")[0] : "";
 
-  return [id, email, emailLocalPart, name].flatMap(getMonitorAliases);
+  return [
+    ...getMonitorAliases(id),
+    ...getMonitorAliases(email, true),
+    ...getMonitorAliases(emailLocalPart, true),
+    ...getMonitorAliases(name, true),
+  ];
 }
 
 function sendJson(socket: WebSocket, value: unknown) {
@@ -72,17 +118,17 @@ function getVisibleEmployeeIds(admin: ScreenClient) {
   return (
     allowed
       ? employeeIds.filter((employeeId) =>
-          getMonitorAliases(employeeId).some((alias) => allowed.has(alias))
+          getMonitorAliases(employeeId, true).some((alias) => allowed.has(alias))
         )
       : employeeIds
   ).sort((a, b) => a.localeCompare(b));
 }
 
 function findEmployeeByMonitorId(id: string) {
-  const aliases = getMonitorAliases(id);
+  const aliases = getMonitorAliases(id, true);
 
   return [...employees.values()].find(
-    (employee) => getMonitorAliases(employee.id).some((alias) => aliases.includes(alias))
+    (employee) => getMonitorAliases(employee.id, true).some((alias) => aliases.includes(alias))
   );
 }
 
@@ -123,7 +169,9 @@ async function refreshAllowedEmployeeIds(admin: ScreenClient) {
 
   if (
     admin.watchingId &&
-    !getMonitorAliases(admin.watchingId).some((alias) => admin.allowedEmployeeIds?.has(alias))
+    !getMonitorAliases(admin.watchingId, true).some((alias) =>
+      Boolean(admin.allowedEmployeeIds?.has(alias))
+    )
   ) {
     const revokedId = admin.watchingId;
     admin.watchingId = undefined;
@@ -351,7 +399,9 @@ export function attachScreenMonitorServer(server: http.Server) {
 
           if (
             client.allowedEmployeeIds &&
-            !getMonitorAliases(targetId).some((alias) => client.allowedEmployeeIds?.has(alias))
+            !getMonitorAliases(targetId, true).some((alias) =>
+              Boolean(client.allowedEmployeeIds?.has(alias))
+            )
           ) {
             sendJson(socket, {
               type: "stream",
