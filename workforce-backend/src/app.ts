@@ -7,6 +7,7 @@ import { router as leaveRoutes } from "./modules/leave/leave.routes";
 import { router as shiftTemplateRoutes } from "./modules/scheduling/shiftTemplate/shiftTemplate.routes";
 import { router as scheduleRoutes } from "./modules/scheduling/schedule/schedule.routes";
 import { router as chatRoutes } from "./modules/chat/chat.routes";
+import { router as monitoringRoutes } from "./modules/monitoring/monitoring.routes";
 import { apiSecurityHeaders, createRateLimit } from "./middleware/security.middleware";
 
 const app = express();
@@ -48,6 +49,7 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/execution", executionRoutes);
 app.use("/api/leave", leaveRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/monitoring", monitoringRoutes);
 app.use("/api/scheduling/templates", shiftTemplateRoutes);
 app.use("/api/scheduling/schedule", scheduleRoutes);
 

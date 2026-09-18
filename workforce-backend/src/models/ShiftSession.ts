@@ -7,6 +7,8 @@ export interface IShiftSession extends Document {
 
   shiftTemplateId?: mongoose.Types.ObjectId;
 
+  scheduleType?: "time_managed" | "fluid";
+
   clockInTime: Date;
 
   clockOutTime?: Date;
@@ -71,6 +73,12 @@ const shiftSessionSchema = new Schema<IShiftSession>(
     shiftTemplateId: {
       type: Schema.Types.ObjectId,
       ref: "ShiftTemplate",
+    },
+
+    scheduleType: {
+      type: String,
+      enum: ["time_managed", "fluid"],
+      default: "time_managed",
     },
 
     clockInTime: {

@@ -14,9 +14,12 @@ export type User = {
   assignedAgentIds?: string[];
 };
 
+export type ScheduleType = "time_managed" | "fluid";
+
 export type ShiftTemplate = {
   _id: string;
   name: string;
+  scheduleType?: ScheduleType;
   startTime: string;
   endTime: string;
   breaks: {
@@ -26,6 +29,8 @@ export type ShiftTemplate = {
     startTime?: string;
     endTime?: string;
     durationMinutes: number;
+    startAt?: string;
+    endAt?: string;
   }[];
   activities?: {
     label: string;
@@ -33,6 +38,8 @@ export type ShiftTemplate = {
     startTime?: string;
     endTime?: string;
     durationMinutes: number;
+    startAt?: string;
+    endAt?: string;
   }[];
   isActive: boolean;
 };
@@ -42,6 +49,10 @@ export type Schedule = {
   userId: string;
   shiftTemplateId: ShiftTemplate | string;
   workDate: string;
+  scheduleType?: ScheduleType;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
+  scheduledMinutes?: number;
 };
 
 export type ShiftSession = {
@@ -49,6 +60,7 @@ export type ShiftSession = {
   userId: string;
   scheduleId?: string;
   shiftTemplateId?: string;
+  scheduleType?: ScheduleType;
   clockInTime: string;
   clockOutTime?: string;
   scheduledStartTime?: string;
@@ -201,4 +213,89 @@ export type ScreenMonitorEmployee = {
   email: string;
   isOnline: boolean;
   activeMonitorId?: string;
+};
+
+
+export type MouseSample = {
+  at: string;
+  movements: number;
+  distancePx: number;
+  clicks: number;
+  scrolls: number;
+};
+
+export type MouseTotals = {
+  movements: number;
+  distancePx: number;
+  clicks: number;
+  scrolls: number;
+  sampleCount: number;
+};
+
+export type MonitoringCapture = {
+  _id: string;
+  seq: number;
+  capturedAt: string;
+  sizeBytes: number;
+  width: number;
+  height: number;
+};
+
+export type MonitoringDetail = {
+  monitoring: {
+    _id: string;
+    userId: string;
+    shiftSessionId: string;
+    scheduleType: ScheduleType;
+    status: "active" | "completed" | "expired";
+    startedAt: string;
+    endedAt?: string | null;
+    capturePlan: number;
+    captures: MonitoringCapture[];
+    mouseTotals: MouseTotals;
+    mouseSamples: MouseSample[];
+  };
+  shift: {
+    _id: string;
+    userId: string;
+    clockInTime: string;
+    clockOutTime?: string | null;
+    scheduledStartTime?: string | null;
+    scheduledEndTime?: string | null;
+    status: string;
+    scheduleType?: ScheduleType;
+    totalWorkedMinutes: number;
+    totalBreakMinutes: number;
+    attendanceStatus?: string;
+  } | null;
+};
+
+export type MonitoringSummary = {
+  _id: string;
+  userId: string;
+  shiftSessionId: string;
+  scheduleType: ScheduleType;
+  status: "active" | "completed" | "expired";
+  startedAt: string;
+  endedAt?: string | null;
+  capturePlan: number;
+  captureCount: number;
+  mouseTotals: MouseTotals;
+  captures: { seq: number; capturedAt: string }[];
+  shift?: {
+    clockInTime: string;
+    clockOutTime?: string | null;
+    status: string;
+    attendanceStatus?: string;
+    scheduleType?: ScheduleType;
+    totalWorkedMinutes: number;
+    totalBreakMinutes: number;
+  } | null;
+};
+
+export type MonitoringSessionStart = {
+  monitoringSessionId: string;
+  capturePlan: number;
+  captures: number;
+  startedAt: string;
 };

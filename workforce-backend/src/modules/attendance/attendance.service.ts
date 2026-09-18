@@ -16,6 +16,11 @@ import {
   determineAttendanceStatus,
 } from "../../utils/attendanceCompliance";
 import { persistShiftKpi } from "../execution/execution.service";
+import {
+  ensureMonitoringSession,
+  endMonitoringSession,
+} from "../monitoring/monitoring.service";
+import type { ScheduleType } from "../../models/shiftTemplate.model";
 
 // Debug logging to verify models are loaded
 console.log("ShiftSession model loaded:", !!ShiftSession);
@@ -140,27 +145,34 @@ const schedule = await Schedule.findOne({
   }
 
   // BUILD REAL DATETIME WINDOWS
-  const {
-    start: scheduledStartTime,
-    end: scheduledEndTime,
-  } = combineDateAndTimeRange(
-    schedule.workDate,
-    template.startTime,
-    template.endTime
-  );
+  const scheduleType: ScheduleType =
+    (template as any).scheduleType === "fluid" ? "fluid" : "time_managed";
 
-  if (now < scheduledStartTime || now > scheduledEndTime) {
-    throw new Error("Shift can only be started during its scheduled window");
+  // Fluid shifts are deliberately not clock-bound: workers check in when they
+  // are available and KPI runs from that moment to end of shift. Only
+  // time-managed shifts enforce a scheduled window and punctuality.
+  let scheduledStartTime: Date | undefined;
+  let scheduledEndTime: Date | undefined;
+  let lateMinutes = 0;
+  let attendanceStatus: ReturnType<typeof determineAttendanceStatus> = "on_time";
+
+  if (scheduleType === "time_managed") {
+    const window = combineDateAndTimeRange(
+      schedule.workDate,
+      template.startTime,
+      template.endTime
+    );
+
+    scheduledStartTime = window.start;
+    scheduledEndTime = window.end;
+
+    if (now < scheduledStartTime || now > scheduledEndTime) {
+      throw new Error("Shift can only be started during its scheduled window");
+    }
+
+    lateMinutes = calculateLateMinutes(now, scheduledStartTime);
+    attendanceStatus = determineAttendanceStatus(lateMinutes);
   }
-
-  // LATE CALCULATION
-  const lateMinutes = calculateLateMinutes(
-    now,
-    scheduledStartTime
-  );
-
-  const attendanceStatus =
-    determineAttendanceStatus(lateMinutes);
 
   // CREATE SHIFT SESSION
   const session = await ShiftSession.create({
@@ -168,6 +180,8 @@ const schedule = await Schedule.findOne({
 
     scheduleId: schedule._id,
     shiftTemplateId: template._id,
+
+    scheduleType,
 
     clockInTime: now,
 
@@ -193,8 +207,14 @@ const schedule = await Schedule.findOne({
     timestamp: now,
 
     metadata: {
-      scheduled: true,
+      scheduled: scheduleType === "time_managed",
     },
+  });
+
+  // Activity monitoring rides along with the shift; a monitoring failure must
+  // never block a worker from starting their shift.
+  await ensureMonitoringSession(userId, String(session._id), scheduleType).catch((error) => {
+    console.error("Monitoring session setup failed", error);
   });
 
   return session;
@@ -360,7 +380,14 @@ if (
     timestamp: closingTime,
   });
 
-  return persistShiftKpi(shiftId, userId, closingTime);
+  const result = await persistShiftKpi(shiftId, userId, closingTime);
+
+  // Screenshots and mouse tracking stop the moment the shift ends.
+  await endMonitoringSession(String(shiftObjectId), "completed").catch((error) => {
+    console.error("Monitoring session close failed", error);
+  });
+
+  return result;
 };
 
 export const createEvent = async (

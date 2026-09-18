@@ -6,6 +6,7 @@ import User from "../../models/User";
 import { calculateOvertimeMinutes } from "../../utils/attendanceCompliance";
 import { combineDateAndTimeRange } from "../../utils/scheduleTime";
 import { hasApprovedLeave } from "../leave/leave.service";
+import { endMonitoringSession } from "../monitoring/monitoring.service";
 import { getUtcDayRange } from "../scheduling/enforcement/enforcement.utils";
 
 type TimelineEvent = {
@@ -201,14 +202,105 @@ const getDynamicBreakAllowances = (template: any): DynamicAllowance[] => {
     .filter((item: DynamicAllowance) => item.durationMinutes > 0);
 };
 
-const calculateActivityAdherenceScore = async (
-  session: any,
+const isFluidTemplate = (template: any) =>
+  Boolean(template && (template.scheduleType === "fluid" || !template.startTime || !template.endTime));
+
+// Fluid adherence is break discipline only: every activity a worker selects is
+// work time except breaks, so the score measures how well actual break time
+// stayed within the flexible allowances configured on the template.
+const calculateFluidAdherenceScore = (
+  template: any,
   events: TimelineEvent[],
   closingTime: Date
 ) => {
-  const template = session.shiftTemplateId
-    ? await ShiftTemplate.findById(session.shiftTemplateId)
-    : null;
+  const allowances = getDynamicBreakAllowances(template);
+
+  if (!allowances.length) return 100;
+
+  const actualIntervals = getActivityIntervals(events, closingTime).filter(
+    (interval) => interval.type === "BREAK" || interval.type === "LUNCH"
+  );
+  const actualByType = new Map<string, number>();
+
+  for (const interval of actualIntervals) {
+    actualByType.set(
+      interval.type,
+      (actualByType.get(interval.type) || 0) + minutesBetween(interval.start, interval.end)
+    );
+  }
+
+  const totalAllowance = allowances.reduce((sum, allowance) => sum + allowance.durationMinutes, 0);
+  const matchedMinutes = allowances.reduce(
+    (sum, allowance) => sum + Math.min(allowance.durationMinutes, actualByType.get(allowance.type) || 0),
+    0
+  );
+  const actualTotal = Array.from(actualByType.values()).reduce((sum, value) => sum + value, 0);
+  const overBreakMinutes = Math.max(0, actualTotal - totalAllowance);
+  const denominator = totalAllowance + overBreakMinutes;
+
+  return denominator ? clampPercent((matchedMinutes / denominator) * 100) : 100;
+};
+
+// Fluid KPI runs from the first "Available" to "End shift". Work time is
+// everything except breaks; the score is driven by focus (share of the session
+// spent working) and break discipline.
+const calculateFluidScore = (
+  session: any,
+  template: any,
+  events: TimelineEvent[],
+  now = new Date()
+) => {
+  const scoreWindow = scoreWindowForSession(session, session.clockOutTime || now);
+  const boundedEvents = eventsWithinScoreWindow(events, scoreWindow.start, scoreWindow.end);
+  const totals = calculateShiftTotals(boundedEvents, scoreWindow.end);
+  const workedMinutes = totals.totalWorkedMinutes;
+  const breakMinutes = totals.totalBreakMinutes;
+  const sessionMinutes = workedMinutes + breakMinutes;
+  const focusScore = sessionMinutes
+    ? clampPercent((workedMinutes / sessionMinutes) * 100)
+    : 0;
+  const adherenceScore = calculateFluidAdherenceScore(template, boundedEvents, scoreWindow.end);
+
+  if (session.attendanceStatus === "absent") {
+    return {
+      overall: 0,
+      workScore: 0,
+      punctualityScore: 0,
+      breakScore: 0,
+      activityAdherenceScore: 0,
+      overtimePenalty: 0,
+      scheduledMinutes: 0,
+      workedMinutes: 0,
+      breakMinutes: 0,
+      evaluatedAt: scoreWindow.end,
+    };
+  }
+
+  return {
+    overall: clampPercent(focusScore * 0.6 + adherenceScore * 0.4),
+    workScore: focusScore,
+    punctualityScore: 100,
+    breakScore: adherenceScore,
+    activityAdherenceScore: adherenceScore,
+    overtimePenalty: 0,
+    scheduledMinutes: 0,
+    workedMinutes,
+    breakMinutes,
+    evaluatedAt: scoreWindow.end,
+  };
+};
+
+const calculateActivityAdherenceScore = async (
+  session: any,
+  events: TimelineEvent[],
+  closingTime: Date,
+  preloadedTemplate?: any
+) => {
+  const template = preloadedTemplate
+    ? preloadedTemplate
+    : session.shiftTemplateId
+      ? await ShiftTemplate.findById(session.shiftTemplateId)
+      : null;
 
   if (!template) return 100;
 
@@ -343,6 +435,16 @@ const calculateScore = async (
   events: TimelineEvent[],
   now = new Date()
 ) => {
+  const template = session.shiftTemplateId
+    ? await ShiftTemplate.findById(session.shiftTemplateId)
+    : null;
+
+  // Fluid shifts follow their own scoring model: there is no fixed schedule to
+  // be punctual for and no scheduled-minute completion target.
+  if (isFluidTemplate(template) || session.scheduleType === "fluid") {
+    return calculateFluidScore(session, template, events, now);
+  }
+
   const scheduledMinutes = scheduledMinutesForSession(session);
   const scoreWindow = scoreWindowForSession(session, session.clockOutTime || now);
   const boundedEvents = eventsWithinScoreWindow(events, scoreWindow.start, scoreWindow.end);
@@ -352,7 +454,8 @@ const calculateScore = async (
   const activityAdherenceScore = await calculateActivityAdherenceScore(
     session,
     boundedEvents,
-    scoreWindow.end
+    scoreWindow.end,
+    template
   );
 
   const workScore = scheduledMinutes
@@ -490,6 +593,11 @@ export const autoCloseExpiredShifts = async (now = new Date()) => {
       closingTime
     );
 
+    // Detached shifts must release their monitoring sessions too.
+    await endMonitoringSession(shift._id.toString(), "expired").catch((error) => {
+      console.error("Monitoring auto-close failed", error);
+    });
+
     autoClosed += 1;
   }
 
@@ -519,6 +627,12 @@ export const runExecutionMaintenance = async (now = new Date()) => {
 
     const template: any = schedule.shiftTemplateId;
     if (!template) continue;
+
+    // Fluid shifts have no expected clock window, so they can never be
+    // "missed" by the clock — a worker simply checks in when available.
+    if ((template as any).scheduleType === "fluid" || !template.startTime || !template.endTime) {
+      continue;
+    }
 
     const {
       start: scheduledStartTime,
@@ -641,7 +755,10 @@ export const getDailyPerformance = async (
 
   if (!session) {
     const template: any = schedule?.shiftTemplateId;
-    const scheduleWindow = template
+    const hasClockWindow = Boolean(
+      template && template.scheduleType !== "fluid" && template.startTime && template.endTime
+    );
+    const scheduleWindow = template && hasClockWindow
       ? combineDateAndTimeRange(schedule!.workDate, template.startTime, template.endTime)
       : undefined;
     const scheduledStartTime = scheduleWindow?.start;
@@ -650,7 +767,7 @@ export const getDailyPerformance = async (
 
     return {
       date: start,
-      scheduled: true,
+      scheduled: Boolean(schedule),
       status: missed ? "missed" : "scheduled",
       // A scheduled shift is not evidence of completed work. Scores must only
       // reflect server-recorded shift activity, never the absence of a session.
@@ -658,6 +775,7 @@ export const getDailyPerformance = async (
       kpiScore: 0,
       adherenceScore: 0,
       workedMinutes: 0,
+      // Fluid shifts are unscheduled by definition; there is no target minute count.
       scheduledMinutes: minutesBetween(scheduledStartTime, scheduledEndTime),
       breakMinutes: 0,
       lateMinutes: 0,

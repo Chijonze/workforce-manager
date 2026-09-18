@@ -1,4 +1,8 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+export function getApiUrl() {
+  return API_URL;
+}
 const SCREEN_MONITOR_WS_URL = process.env.NEXT_PUBLIC_SCREEN_MONITOR_WS_URL;
 const BUSINESS_TIME_ZONE = "Europe/London";
 

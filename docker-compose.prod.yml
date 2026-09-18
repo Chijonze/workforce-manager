@@ -70,6 +70,9 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       TELEGRAM_ALERT_TIMEZONE: ${TELEGRAM_ALERT_TIMEZONE:-Africa/Lagos}
+      MONITORING_UPLOADS_DIR: /app/uploads/monitoring
+    volumes:
+      - monitoring_uploads:/app/uploads/monitoring
     expose:
       - "5000"
     networks:
@@ -244,6 +247,7 @@ volumes:
   caddy_data:
   caddy_config:
   mongo_data:
+  monitoring_uploads:
   postgres_data:
   redis_data:
   chatwoot_storage:
