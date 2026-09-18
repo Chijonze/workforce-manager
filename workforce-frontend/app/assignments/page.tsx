@@ -141,7 +141,7 @@ export default function AssignmentsPage() {
   });
 
   return (
-    <main className="app-shell">
+    <main className="app-shell standalone-page">
       <section className="panel">
         <div className="panel-header">
           <div className="panel-title">
@@ -163,66 +163,68 @@ export default function AssignmentsPage() {
           </div>
         </div>
 
-        <div className="metrics compact">
-          <div className="metric">
-            <span>Visible assignments</span>
-            <strong>{filteredSchedules.length}</strong>
+        <div className="assignments-header-grid">
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="assignment-user">Team member</label>
+              <select id="assignment-user" value={userId} onChange={(event) => setUserId(event.target.value)}>
+                <option value="">All users</option>
+                {users.map((member) => (
+                  <option key={member._id} value={member._id}>
+                    {member.name} ({member.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="assignment-start">From date</label>
+              <input
+                id="assignment-start"
+                type="date"
+                value={dateRange.start}
+                onChange={(event) =>
+                  setDateRange((current) => ({
+                    start: event.target.value,
+                    end: current.end < event.target.value ? event.target.value : current.end,
+                  }))
+                }
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="assignment-end">To date</label>
+              <input
+                id="assignment-end"
+                type="date"
+                value={dateRange.end}
+                onChange={(event) =>
+                  setDateRange((current) => ({ ...current, end: event.target.value }))
+                }
+              />
+            </div>
+            <button className="button secondary" type="button" onClick={() => applyMonth(currentMonth)}>
+              <Filter size={17} />
+              Current month
+            </button>
           </div>
-          <div className="metric">
-            <span>Assignment dates</span>
-            <strong>{assignmentDates.size}</strong>
-          </div>
-          <div className="metric">
-            <span>Team member</span>
-            <strong>{selectedUser?.name || "All"}</strong>
-          </div>
-          <div className="metric">
-            <span>Period</span>
-            <strong>{formatDate(dateRange.start)} - {formatDate(dateRange.end)}</strong>
-          </div>
-        </div>
 
-        <div className="form-grid">
-          <div className="field">
-            <label htmlFor="assignment-user">Team member</label>
-            <select id="assignment-user" value={userId} onChange={(event) => setUserId(event.target.value)}>
-              <option value="">All users</option>
-              {users.map((member) => (
-                <option key={member._id} value={member._id}>
-                  {member.name} ({member.email})
-                </option>
-              ))}
-            </select>
+          <div className="metrics compact">
+            <div className="metric">
+              <span>Visible assignments</span>
+              <strong>{filteredSchedules.length}</strong>
+            </div>
+            <div className="metric">
+              <span>Assignment dates</span>
+              <strong>{assignmentDates.size}</strong>
+            </div>
+            <div className="metric">
+              <span>Team member</span>
+              <strong>{selectedUser?.name || "All"}</strong>
+            </div>
+            <div className="metric">
+              <span>Period</span>
+              <strong>{formatDate(dateRange.start)} - {formatDate(dateRange.end)}</strong>
+            </div>
           </div>
-          <div className="field">
-            <label htmlFor="assignment-start">From date</label>
-            <input
-              id="assignment-start"
-              type="date"
-              value={dateRange.start}
-              onChange={(event) =>
-                setDateRange((current) => ({
-                  start: event.target.value,
-                  end: current.end < event.target.value ? event.target.value : current.end,
-                }))
-              }
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="assignment-end">To date</label>
-            <input
-              id="assignment-end"
-              type="date"
-              value={dateRange.end}
-              onChange={(event) =>
-                setDateRange((current) => ({ ...current, end: event.target.value }))
-              }
-            />
-          </div>
-          <button className="button secondary" type="button" onClick={() => applyMonth(currentMonth)}>
-            <Filter size={17} />
-            Current month
-          </button>
         </div>
       </section>
 
@@ -232,7 +234,7 @@ export default function AssignmentsPage() {
         </section>
       )}
 
-      <div className="dashboard-grid">
+      <div className="assignments-grid">
         <section className="panel calendar-panel">
           <div className="panel-header">
             <div className="panel-title">
@@ -272,11 +274,12 @@ export default function AssignmentsPage() {
                 <button
                   className={`calendar-day ${daySchedules.length ? "scheduled" : ""}`}
                   key={key}
+                  title={daySchedules.length ? `${daySchedules.length} assigned` : undefined}
                   type="button"
                   onClick={() => setDateRange({ start: key, end: key })}
                 >
                   <strong>{Number(key.slice(-2))}</strong>
-                  <span>{daySchedules.length ? `${daySchedules.length} assigned` : ""}</span>
+                  {daySchedules.length > 0 && <span className="day-count">{daySchedules.length}</span>}
                 </button>
               );
             })}
@@ -314,7 +317,9 @@ export default function AssignmentsPage() {
                     </span>
                     <span className="muted">
                       {template
-                        ? `${template.startTime} to ${template.endTime}`
+                        ? template.scheduleType === "fluid" || !template.startTime || !template.endTime
+                          ? "Fluid shift · no fixed hours"
+                          : `${template.startTime} to ${template.endTime}`
                         : "Template unavailable or archived"}
                     </span>
                   </article>

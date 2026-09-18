@@ -2188,3 +2188,115 @@ select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   Standalone admin pages (assignments, execution report)
+   These pages render without the sidebar shell, so they must opt out of the
+   app-shell grid that reserves the sidebar column.
+   ========================================================================== */
+
+.app-shell.standalone-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 20px;
+  width: min(1520px, 100%);
+  margin: 0 auto;
+  padding: 28px clamp(22px, 4vw, 56px) 56px;
+}
+
+/* Assignments page: narrow calendar column, wide assigned-dates list ------ */
+
+.assignments-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.assignments-grid .calendar-day {
+  min-height: 56px;
+  padding: 6px 7px;
+}
+
+.assignments-grid .calendar-day span {
+  font-size: 10px;
+}
+
+.assignments-grid .calendar-weekdays {
+  margin-bottom: 5px;
+  font-size: 11px;
+}
+
+.assignments-header-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  gap: 16px;
+  align-items: start;
+}
+
+.assignments-header-grid .metrics.compact {
+  gap: 10px;
+}
+
+.assignments-header-grid .metric {
+  min-height: 0;
+  padding: 11px 13px;
+}
+
+.assignments-header-grid .metric strong {
+  margin-top: 6px;
+  font-size: 17px;
+}
+
+.assignments-header-grid .form-grid {
+  margin-top: 14px;
+}
+
+@media (max-width: 1180px) {
+  .assignments-grid,
+  .assignments-header-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Execution report page --------------------------------------------------- */
+
+.execution-report-filters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.execution-report-filters .button {
+  justify-self: start;
+}
+
+.execution-report-page .report-metrics .metric strong {
+  font-size: 19px;
+}
+
+.execution-report-page .data-table {
+  min-width: 960px;
+}
+
+@media (max-width: 1240px) {
+  .execution-report-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Assignments calendar: compact count pill inside day cells */
+.assignments-grid .calendar-day .day-count {
+  justify-self: start;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #99f6e4;
+  color: #0f5f56;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}

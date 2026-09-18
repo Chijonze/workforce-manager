@@ -517,7 +517,7 @@ export default function ExecutionReportPage() {
     }
   }
 
-  return <main className="app-shell execution-report-page">
+  return <main className="app-shell standalone-page execution-report-page">
     <section className="panel">
       <div className="panel-header">
         <div className="panel-title"><ShieldCheck size={20} /><div><h1>Execution Reports</h1><p className="panel-subtitle">Flexible historical adherence and workforce execution reporting</p></div></div>

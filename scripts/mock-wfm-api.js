@@ -253,6 +253,33 @@ const server = http.createServer((req, res) => {
     return json(res, 200, [...agentSchedules, { ...agentSchedules[0], _id: "s999", userId: AGENT2._id, shiftTemplateId: SHORT_TEMPLATE }]);
   }
   if (path === "/api/execution/admin/overview") return json(res, 200, overview);
+  if (path.startsWith("/api/execution/admin/report")) {
+    const start = url.searchParams.get("startDate") || dayKey(0);
+    const end = url.searchParams.get("endDate") || dayKey(0);
+    const rows = [];
+    for (let offset = 0; offset < 7; offset += 1) {
+      for (const agent of [AGENT, AGENT2]) {
+        rows.push({
+          date: `${dayKey(-offset)}T00:00:00.000Z`,
+          user: agent,
+          performance: {
+            ...dailyPerformance,
+            overallScore: 60 + ((offset * 13 + agent._id.length * 7) % 35),
+            adherenceScore: 55 + ((offset * 9 + agent._id.length * 5) % 40),
+            workedMinutes: 420 - offset * 35,
+            scheduledMinutes: 480,
+            breakMinutes: 45 - offset * 3,
+          },
+        });
+      }
+    }
+    return json(res, 200, {
+      startDate: `${start}T00:00:00.000Z`,
+      endDate: `${end}T00:00:00.000Z`,
+      totals: { records: rows.length, users: 2, scheduledMinutes: rows.length * 480, workedMinutes: rows.length * 380, breakMinutes: rows.length * 40, lateMinutes: 12, overtimeMinutes: 30, averageAdherence: 78, averagePerformance: 81 },
+      rows,
+    });
+  }
   if (path === "/api/leave") return json(res, 200, [
     { _id: "l1", userId: AGENT._id, leaveType: "annual", startDate: `${dayKey(10)}T00:00:00.000Z`, endDate: `${dayKey(12)}T00:00:00.000Z`, reason: "Family trip", status: "pending" },
     { _id: "l2", userId: AGENT2._id, leaveType: "sick", startDate: `${dayKey(-2)}T00:00:00.000Z`, endDate: `${dayKey(-1)}T00:00:00.000Z`, reason: "Flu", status: "approved" },
