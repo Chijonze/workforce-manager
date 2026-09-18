@@ -74,3 +74,20 @@ The workflow runs on GitHub's hosted macOS runner and uploads the generated DMG/
 ## VPS Notes
 
 The desktop client sends JPEG frames only while streaming is active. Closing the admin viewer sends `STOP_STREAM`, clears the capture timer, and returns the employee app to idle.
+
+## Shift activity monitoring (v1.1+)
+
+Besides on-demand live streaming, current builds also handle **desktop-wide
+activity monitoring** for the signed-in worker's active shift:
+
+- While a worker with an active shift is connected, the server sends
+  `START_MONITORING` (and later `STOP_MONITORING` when the shift ends). The
+  agent then reports aggregated mouse movement (position sampled every second,
+  one small batch per minute) and takes that shift's remaining 7-10 randomized
+  screenshots via `desktopCapturer` — no new permission prompts beyond the
+  standard Screen Recording permission.
+- Everything rides the existing WebSocket connection with no new login.
+- Older builds without this feature keep working exactly as before: they simply
+  ignore the `START_MONITORING`/`STOP_MONITORING` commands, and the dashboard
+  falls back to browser-scoped tracking.
+

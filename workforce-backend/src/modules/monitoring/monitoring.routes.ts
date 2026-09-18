@@ -18,6 +18,7 @@ router.post(
   controller.postCapture
 );
 router.post("/session/start", agentWrite, controller.startMonitoringSession);
+router.get("/session/:shiftId/state", agentWrite, controller.getMonitoringSessionState);
 router.post("/session/:shiftId/mouse", agentWrite, controller.postMouseSamples);
 router.post("/session/:shiftId/end", agentWrite, controller.endMonitoringSession);
 

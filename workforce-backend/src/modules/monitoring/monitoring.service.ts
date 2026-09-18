@@ -8,6 +8,7 @@ import MonitoringSession, {
   MIN_CAPTURE_PLAN,
 } from "../../models/MonitoringSession";
 import User from "../../models/User";
+import { notifyMonitoringAgent } from "./monitoringAgentBus";
 
 const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
 const MAX_SAMPLE_VALUES = {
@@ -126,7 +127,8 @@ export const addCapture = async (
   shiftId: string,
   image: Buffer,
   width = 0,
-  height = 0
+  height = 0,
+  source: "browser" | "desktop" = "browser"
 ) => {
   await assertShiftIsOwnedAndActive(userId, shiftId);
 
@@ -177,6 +179,7 @@ export const addCapture = async (
             sizeBytes: image.length,
             width: clampInt(width, 100_000),
             height: clampInt(height, 100_000),
+            source,
           },
         },
       },
@@ -202,11 +205,76 @@ export const addCapture = async (
 
 export const endMonitoringSession = async (shiftId: string, status: "completed" | "expired" = "completed") => {
   // Idempotent: safe to call from both manual end-shift and auto-close paths.
-  return MonitoringSession.findOneAndUpdate(
+  const previous = await MonitoringSession.findOneAndUpdate(
     { shiftSessionId: shiftId, status: "active" },
     { $set: { status, endedAt: new Date() } },
     { new: false }
   );
+
+  if (previous) {
+    // Tell a connected desktop agent to stop tracking this shift.
+    notifyMonitoringAgent(previous.userId, {
+      action: "STOP_MONITORING",
+      shiftId: String(shiftId),
+    });
+  }
+
+  return previous;
+};
+
+// Desktop agent presence -----------------------------------------------------
+
+export const markDesktopAgentActive = async (userId: string, active: boolean) => {
+  const update = active
+    ? { $set: { desktopAgentActive: true, desktopAgentAt: new Date() } }
+    : { $set: { desktopAgentActive: false } };
+
+  await MonitoringSession.findOneAndUpdate(
+    { userId: String(userId), status: "active" },
+    update
+  );
+};
+
+// Everything a connected desktop agent needs to take over the remaining
+// capture plan and desktop-wide mouse tracking for an active shift.
+export const getDesktopMonitoringHandoff = async (userId: string) => {
+  const session = await MonitoringSession.findOne({
+    userId: String(userId),
+    status: "active",
+  });
+
+  if (!session) return null;
+
+  const shift = await ShiftSession.findById(session.shiftSessionId).select(
+    "status scheduledEndTime"
+  );
+
+  if (!shift || shift.status !== "active") return null;
+
+  return {
+    shiftId: String(session.shiftSessionId),
+    capturePlan: session.capturePlan,
+    capturesTaken: session.captures.length,
+    scheduledEndTime: shift.scheduledEndTime ? new Date(shift.scheduledEndTime).toISOString() : null,
+  };
+};
+
+// Lightweight state probe for the browser page: lets it detect that a desktop
+// agent has taken over (or left) and resume browser-side tracking accordingly.
+export const getMonitoringSessionState = async (userId: string, shiftId: string) => {
+  const session = await MonitoringSession.findOne({
+    shiftSessionId: shiftId,
+    userId: String(userId),
+  });
+
+  if (!session) return null;
+
+  return {
+    status: session.status,
+    desktopAgentActive: Boolean(session.desktopAgentActive),
+    captureCount: session.captures.length,
+    capturePlan: session.capturePlan,
+  };
 };
 
 async function assertMonitoringAccess(requester: Requester, session: any) {
@@ -252,6 +320,7 @@ export const getShiftMonitoring = async (shiftId: string, requester: Requester) 
         sizeBytes: capture.sizeBytes,
         width: capture.width,
         height: capture.height,
+        source: capture.source || "browser",
       })),
       mouseTotals: session.mouseTotals,
       // Downsample to at most 240 points for charting so responses stay small.

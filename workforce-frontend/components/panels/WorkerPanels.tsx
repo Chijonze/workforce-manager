@@ -244,11 +244,13 @@ export function LiveExecutionPanel({
             <MousePointer2 size={15} />
             <strong>Activity monitoring</strong>
             <span className={`pill ${monitoring?.running ? "success-pill" : "muted-pill"}`}>
-              {monitoring?.running ? "Recording" : "Paused"}
+              {monitoring?.running ? (monitoring.viaDesktopAgent ? "Recording · desktop agent" : "Recording") : "Paused"}
             </span>
           </div>
           <span className="muted">
-            Mouse activity is tracked until you end your shift.
+            {monitoring?.viaDesktopAgent
+              ? "Your desktop agent tracks activity across the whole computer until you end your shift."
+              : "Mouse activity is tracked until you end your shift."}
             {monitoring?.capturesEnabled
               ? ` Automatic screenshots: ${monitoring.capturesTaken}${monitoring.capturePlan ? ` of ${monitoring.capturePlan}` : ""} taken.`
               : monitoring?.captureNotice

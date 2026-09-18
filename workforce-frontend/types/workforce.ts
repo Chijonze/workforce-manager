@@ -239,6 +239,7 @@ export type MonitoringCapture = {
   sizeBytes: number;
   width: number;
   height: number;
+  source?: "browser" | "desktop";
 };
 
 export type MonitoringDetail = {

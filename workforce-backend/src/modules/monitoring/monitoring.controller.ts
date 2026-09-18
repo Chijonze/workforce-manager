@@ -55,7 +55,35 @@ export const postMouseSamples = async (req: AuthedRequest, res: Response) => {
       return res.status(404).json({ message: "Monitoring session not found or already ended" });
     }
 
-    res.json({ ok: true, sampleCount: updated.mouseTotals?.sampleCount ?? 0 });
+    res.json({
+      ok: true,
+      sampleCount: updated.mouseTotals?.sampleCount ?? 0,
+      desktopAgentActive: Boolean(updated.desktopAgentActive),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "An unknown error occurred";
+    res.status(400).json({ message });
+  }
+};
+
+export const getMonitoringSessionState = async (req: AuthedRequest, res: Response) => {
+  try {
+    const shiftId = String(req.params.shiftId || "");
+
+    if (!isObjectId(shiftId)) {
+      return res.status(400).json({ message: "Invalid shift ID format" });
+    }
+
+    const state = await monitoringService.getMonitoringSessionState(
+      requesterOf(req).userId,
+      shiftId
+    );
+
+    if (!state) {
+      return res.status(404).json({ message: "Monitoring session not found" });
+    }
+
+    res.json(state);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "An unknown error occurred";
     res.status(400).json({ message });

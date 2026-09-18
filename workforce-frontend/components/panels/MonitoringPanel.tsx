@@ -308,6 +308,9 @@ export default function MonitoringPanel({ agents, token }: { agents: User[]; tok
                     )}
                     <figcaption>
                       #{capture.seq} · {formatDateTime(capture.capturedAt)}
+                      {capture.source === "desktop" && (
+                        <span className="pill accent-pill capture-source-pill">Desktop</span>
+                      )}
                     </figcaption>
                   </figure>
                 ))}

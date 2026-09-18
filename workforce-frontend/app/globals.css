@@ -2333,3 +2333,9 @@ select:focus {
   border-radius: 7px;
   align-self: center;
 }
+
+.capture-source-pill {
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-size: 10px;
+}

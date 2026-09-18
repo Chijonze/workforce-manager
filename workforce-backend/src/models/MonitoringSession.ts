@@ -15,6 +15,7 @@ export interface IMonitoringCapture {
   sizeBytes: number;
   width: number;
   height: number;
+  source?: "browser" | "desktop";
 }
 
 export interface IMonitoringSession extends Document {
@@ -27,6 +28,8 @@ export interface IMonitoringSession extends Document {
   capturePlan: number;
   captures: IMonitoringCapture[];
   mouseSamples: IMouseSample[];
+  desktopAgentActive?: boolean;
+  desktopAgentAt?: Date;
   mouseTotals: {
     movements: number;
     distancePx: number;
@@ -64,6 +67,7 @@ const captureSchema = new Schema<IMonitoringCapture>(
     sizeBytes: { type: Number, default: 0 },
     width: { type: Number, default: 0 },
     height: { type: Number, default: 0 },
+    source: { type: String, enum: ["browser", "desktop"], default: "browser" },
   },
   { _id: true }
 );

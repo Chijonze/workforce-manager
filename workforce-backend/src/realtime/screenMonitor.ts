@@ -2,6 +2,13 @@ import http from "http";
 import jwt from "jsonwebtoken";
 import { WebSocket, WebSocketServer } from "ws";
 import User from "../models/User";
+import {
+  addCapture,
+  addMouseSamples,
+  getDesktopMonitoringHandoff,
+  markDesktopAgentActive,
+} from "../modules/monitoring/monitoring.service";
+import { registerAgentNotifier } from "../modules/monitoring/monitoringAgentBus";
 
 type ClientType = "employee" | "admin";
 
@@ -16,6 +23,7 @@ type ScreenClient = {
   watchingId?: string;
   allowedEmployeeIds?: Set<string> | null;
   userId?: string;
+  monitoringCaptureMeta?: { shiftId: string; width: number; height: number };
 };
 
 type MonitorEmployee = {
@@ -247,6 +255,12 @@ function closeClient(client: ScreenClient) {
   if (client.type === "employee") {
     employees.delete(client.id);
 
+    if (client.userId) {
+      // The desktop agent went away; the browser page resumes its own
+      // dashboard-scoped tracking for the rest of the shift.
+      void markDesktopAgentActive(client.userId, false).catch(() => undefined);
+    }
+
     for (const admin of admins) {
       if (admin.watchingId === client.id) {
         admin.watchingId = undefined;
@@ -323,12 +337,39 @@ async function registerEmployee(client: ScreenClient) {
 
   employees.set(client.id, client);
   broadcastPresence();
+
+  // Desktop-wide activity monitoring handoff: if this worker has an active
+  // monitored shift, the freshly connected agent takes over the remaining
+  // capture plan and desktop mouse tracking. Unknown to old agent builds,
+  // which simply ignore the message.
+  if (client.userId) {
+    try {
+      const handoff = await getDesktopMonitoringHandoff(client.userId);
+
+      if (handoff) {
+        await markDesktopAgentActive(client.userId, true);
+        sendJson(client.socket, { action: "START_MONITORING", ...handoff });
+      }
+    } catch {
+      // Monitoring handoff must never disturb live streaming.
+    }
+  }
 }
 
 export function attachScreenMonitorServer(server: http.Server) {
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: 2 * 1024 * 1024,
+  });
+
+  // Shift-lifecycle code (end shift, auto-close) reaches the desktop agent
+  // through this notifier so it never needs to import the realtime layer.
+  registerAgentNotifier((userId, payload) => {
+    for (const employee of employees.values()) {
+      if (employee.userId === userId) {
+        sendJson(employee.socket, payload);
+      }
+    }
   });
 
   const heartbeat = setInterval(() => {
@@ -416,6 +457,24 @@ export function attachScreenMonitorServer(server: http.Server) {
     socket.on("message", async (data, isBinary) => {
       if (client.type === "employee") {
         if (isBinary && Buffer.isBuffer(data)) {
+          // A pending monitoring-capture meta claims the next binary frame as
+          // a monitoring screenshot; otherwise binary frames are the live
+          // stream relay for watching admins.
+          const meta = client.monitoringCaptureMeta;
+
+          if (meta && client.userId) {
+            client.monitoringCaptureMeta = undefined;
+
+            try {
+              await addCapture(client.userId, meta.shiftId, data, meta.width, meta.height, "desktop");
+            } catch {
+              // Cap or ownership violations are dropped; the agent keeps its
+              // local schedule but the server stays the source of truth.
+            }
+
+            return;
+          }
+
           sendToWatchingAdmins(client.id, data);
           return;
         }
@@ -424,6 +483,25 @@ export function attachScreenMonitorServer(server: http.Server) {
           const message = JSON.parse(data.toString());
           if (message?.type === "status" && message?.event === "online") {
             void registerEmployee(client);
+            return;
+          }
+
+          if (client.userId && message?.type === "monitoring-mouse") {
+            try {
+              await addMouseSamples(client.userId, String(message.shiftId || ""), message.samples);
+            } catch {
+              // Inactive or unknown shifts are dropped silently.
+            }
+            return;
+          }
+
+          if (client.userId && message?.type === "monitoring-capture-meta") {
+            client.monitoringCaptureMeta = {
+              shiftId: String(message.shiftId || ""),
+              width: Math.max(0, Math.round(Number(message.width) || 0)),
+              height: Math.max(0, Math.round(Number(message.height) || 0)),
+            };
+            return;
           }
         } catch {
           sendJson(socket, { type: "error", message: "Invalid employee message" });
