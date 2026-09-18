@@ -145,7 +145,7 @@ export default function AssignmentsPage() {
       <section className="panel">
         <div className="panel-header">
           <div className="panel-title">
-            <CalendarDays size={20} />
+            <img alt="" className="panel-title-logo" src="/shiftsync-icon.png" />
             <div>
               <h1>Assigned Work Dates</h1>
               <p className="panel-subtitle">Calendar and period view for schedule assignments</p>

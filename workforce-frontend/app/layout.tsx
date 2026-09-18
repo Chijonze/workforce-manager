@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Workforce Manager",
-  description: "Workforce execution dashboard",
+  title: "ShiftSync — Workforce Management",
+  description: "ShiftSync workforce execution dashboard",
 };
 
 export default function RootLayout({

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Activity,
   BarChart3,
   CalendarDays,
   CalendarRange,
@@ -159,13 +158,11 @@ export function DashboardShell({ user, activeSection, onNavigate, onRefresh, onL
     <main className="app-shell">
       <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark">
-            <Activity size={20} />
-          </div>
-          <div>
-            <h1>ShiftSync</h1>
-            <p>Workforce Manager</p>
-          </div>
+          <img
+            alt="ShiftSync — Workforce Management"
+            className="sidebar-logo"
+            src="/shiftsync-logo.png"
+          />
         </div>
 
         <nav className="sidebar-nav" aria-label="Dashboard sections">

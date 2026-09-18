@@ -7,7 +7,6 @@ import {
   KeyRound,
   LogIn,
   LogOut,
-  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { apiRequest, getScreenMonitorWsUrl } from "@/lib/api";
@@ -1244,8 +1243,8 @@ export default function Home() {
           <ToastStack toasts={toasts} />
           <section className="auth-panel">
             <div className="brand">
-              <div className="brand-mark">
-                <ShieldCheck size={22} />
+              <div className="brand-mark brand-mark-img">
+                <img alt="" src="/shiftsync-icon.png" />
               </div>
               <div>
                 <h1>ShiftSync</h1>
@@ -1439,8 +1438,8 @@ export default function Home() {
           <ToastStack toasts={toasts} />
           <section className="auth-panel">
             <div className="brand">
-              <div className="brand-mark">
-                <ShieldCheck size={22} />
+              <div className="brand-mark brand-mark-img">
+                <img alt="" src="/shiftsync-icon.png" />
               </div>
               <div>
                 <h1>ShiftSync</h1>

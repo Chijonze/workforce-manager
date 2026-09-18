@@ -520,7 +520,7 @@ export default function ExecutionReportPage() {
   return <main className="app-shell standalone-page execution-report-page">
     <section className="panel">
       <div className="panel-header">
-        <div className="panel-title"><ShieldCheck size={20} /><div><h1>Execution Reports</h1><p className="panel-subtitle">Flexible historical adherence and workforce execution reporting</p></div></div>
+        <div className="panel-title"><img alt="" className="panel-title-logo" src="/shiftsync-icon.png" /><div><h1>Execution Reports</h1><p className="panel-subtitle">Flexible historical adherence and workforce execution reporting</p></div></div>
         <div className="review-actions"><Link className="button secondary" href="/"><Home size={17} />Dashboard</Link><button className="button secondary" type="button" disabled={loading || !token} onClick={() => loadReport()}><RefreshCw size={17} />Refresh</button><button className="button secondary" type="button" disabled={loading || !token} onClick={() => { setReportDates(today, today); void loadReport(token, today, today); }}>Today</button><button className="button" type="button" disabled={!rows.length || !selectedHiringManager} onClick={() => setDownloadOptionsOpen(true)} title={selectedHiringManager ? "Choose an invoice download format" : "Select a hiring manager to bill before downloading"}><Download size={17} />Download invoice</button></div>
       </div>
       <div className="form-grid execution-report-filters">

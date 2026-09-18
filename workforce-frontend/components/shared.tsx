@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { ShieldCheck } from "lucide-react";
 import type {
   LeaveRequest,
   Schedule,
@@ -187,8 +186,8 @@ export function DesktopOnlyNotice() {
     <main className="desktop-only-notice">
       <section className="auth-panel">
         <div className="brand">
-          <div className="brand-mark">
-            <ShieldCheck size={22} />
+          <div className="brand-mark brand-mark-img">
+            <img alt="" src="/shiftsync-icon.png" />
           </div>
           <div>
             <h1>ShiftSync</h1>
