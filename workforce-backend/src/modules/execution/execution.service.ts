@@ -2,6 +2,7 @@ import Schedule from "../../models/schedule.model";
 import ShiftEvent from "../../models/ShiftEvent";
 import ShiftSession from "../../models/ShiftSession";
 import ShiftTemplate from "../../models/shiftTemplate.model";
+import MonitoringSession from "../../models/MonitoringSession";
 import User from "../../models/User";
 import { calculateOvertimeMinutes } from "../../utils/attendanceCompliance";
 import { combineDateAndTimeRange } from "../../utils/scheduleTime";
@@ -197,54 +198,114 @@ const getDynamicBreakAllowances = (template: any): DynamicAllowance[] => {
     .filter((item: any) => (item.mode || "static") === "dynamic")
     .map((item: any) => ({
       type: item.type === "lunch" ? "LUNCH" : "BREAK",
-      durationMinutes: Math.max(0, Number(item.durationMinutes) || 0),
+      durationMinutes: Math.max(0, Math.round(Number(item.durationMinutes))),
     }))
-    .filter((item: DynamicAllowance) => item.durationMinutes > 0);
+    // Duration must be present; 0 is a real allowance ("work through, no
+    // break") but an absent/legacy value means unconstrained for that type.
+    .filter((item: DynamicAllowance) => Number.isFinite(item.durationMinutes));
 };
 
 const isFluidTemplate = (template: any) =>
   Boolean(template && (template.scheduleType === "fluid" || !template.startTime || !template.endTime));
 
-// Fluid adherence is break discipline only: every activity a worker selects is
-// work time except breaks, so the score measures how well actual break time
-// stayed within the flexible allowances configured on the template.
-const calculateFluidAdherenceScore = (
-  template: any,
-  events: TimelineEvent[],
-  closingTime: Date
-) => {
-  const allowances = getDynamicBreakAllowances(template);
-
-  if (!allowances.length) return 100;
-
-  const actualIntervals = getActivityIntervals(events, closingTime).filter(
-    (interval) => interval.type === "BREAK" || interval.type === "LUNCH"
-  );
-  const actualByType = new Map<string, number>();
-
-  for (const interval of actualIntervals) {
-    actualByType.set(
-      interval.type,
-      (actualByType.get(interval.type) || 0) + minutesBetween(interval.start, interval.end)
-    );
-  }
-
-  const totalAllowance = allowances.reduce((sum, allowance) => sum + allowance.durationMinutes, 0);
-  const matchedMinutes = allowances.reduce(
-    (sum, allowance) => sum + Math.min(allowance.durationMinutes, actualByType.get(allowance.type) || 0),
+// ---------------------------------------------------------------------------
+// Activity conformance score (the "adherence" metric)
+//
+// Modern workforce software (NICE, Verint, Playvox) scores adherence from
+// *unjustified off-productive time*: only minutes actually spent in an
+// activity that the schedule did not grant reduce the score. Two consequences
+// that fix the old zero-score bugs:
+//   - time worked is never a violation, so workers who skip their breaks (or
+//     work through on a 0-minute allowance) are not punished for being
+//     productive;
+//   - unused allowances contribute nothing to the denominator, so a worker
+//     who stays within plan can never be diluted toward zero.
+// ---------------------------------------------------------------------------
+export const computeActivityConformanceScore = (
+  scheduledIntervals: ActivityInterval[],
+  allowances: DynamicAllowance[],
+  actualIntervals: ActivityInterval[]
+): { score: number; actualMinutes: number; matchedMinutes: number } => {
+  const unconstrained = !scheduledIntervals.length && !allowances.length;
+  const actualMinutes = actualIntervals.reduce(
+    (sum, interval) => sum + minutesBetween(interval.start, interval.end),
     0
   );
-  const actualTotal = Array.from(actualByType.values()).reduce((sum, value) => sum + value, 0);
-  const overBreakMinutes = Math.max(0, actualTotal - totalAllowance);
-  const denominator = totalAllowance + overBreakMinutes;
 
-  return denominator ? clampPercent((matchedMinutes / denominator) * 100) : 100;
+  if (unconstrained || !actualMinutes) {
+    return { score: 100, actualMinutes, matchedMinutes: 0 };
+  }
+
+  const staticByType = new Map<ActivityType, ActivityInterval[]>();
+  for (const interval of scheduledIntervals) {
+    const list = staticByType.get(interval.type) || [];
+    list.push(interval);
+    staticByType.set(interval.type, list);
+  }
+
+  // Sort actual intervals chronologically so the per-type allowance pool is
+  // consumed in the order the worker actually took the time.
+  const actualByType = new Map<ActivityType, ActivityInterval[]>();
+  for (const interval of actualIntervals) {
+    const list = actualByType.get(interval.type) || [];
+    list.push(interval);
+    actualByType.set(interval.type, list);
+  }
+
+  const allowanceByType = new Map<ActivityType, number>();
+  for (const allowance of allowances) {
+    allowanceByType.set(allowance.type, allowance.durationMinutes);
+  }
+
+  let matchedMinutes = 0;
+
+  for (const [type, intervals] of actualByType.entries()) {
+    let allowancePool = allowanceByType.get(type) ?? 0;
+    const staticWindows = (staticByType.get(type) || []).sort(
+      (left, right) => left.start.getTime() - right.start.getTime()
+    );
+
+    for (const interval of intervals.sort(
+      (left, right) => left.start.getTime() - right.start.getTime()
+    )) {
+      const intervalMinutes = minutesBetween(interval.start, interval.end);
+      if (!intervalMinutes) continue;
+
+      let intervalMatched = 0;
+      for (const window of staticWindows) {
+        const overlap = getOverlapMinutes(interval, window);
+        intervalMatched += overlap;
+        if (intervalMatched >= intervalMinutes) break;
+      }
+      intervalMatched = Math.min(intervalMinutes, intervalMatched);
+
+      const dynamicUsed = Math.min(allowancePool, intervalMinutes - intervalMatched);
+      allowancePool -= dynamicUsed;
+      intervalMatched += dynamicUsed;
+
+      matchedMinutes += intervalMatched;
+    }
+  }
+
+  return {
+    score: clampPercent((matchedMinutes / actualMinutes) * 100),
+    actualMinutes,
+    matchedMinutes,
+  };
 };
 
 // Fluid KPI runs from the first "Available" to "End shift". Work time is
 // everything except breaks; the score is driven by focus (share of the session
 // spent working) and break discipline.
-const calculateFluidScore = (
+const MIN_MOUSE_SAMPLES_FOR_ENGAGEMENT = 3;
+
+// Fluid KPI: there is no fixed plan to conform to, so the score combines
+//   - break discipline (activity conformance against the flexible allowances),
+//   - engagement: the share of session minutes with recorded input activity
+//     (mouse/keyboard via the monitoring stream). Without enough monitoring
+//     data the fallback is time-based focus where only break time beyond the
+//     allowance counts against the worker - working is never penalised.
+const calculateFluidScore = async (
   session: any,
   template: any,
   events: TimelineEvent[],
@@ -256,10 +317,15 @@ const calculateFluidScore = (
   const workedMinutes = totals.totalWorkedMinutes;
   const breakMinutes = totals.totalBreakMinutes;
   const sessionMinutes = workedMinutes + breakMinutes;
-  const focusScore = sessionMinutes
-    ? clampPercent((workedMinutes / sessionMinutes) * 100)
-    : 0;
-  const adherenceScore = calculateFluidAdherenceScore(template, boundedEvents, scoreWindow.end);
+
+  const breakConformance = computeActivityConformanceScore(
+    [],
+    getDynamicBreakAllowances(template),
+    getActivityIntervals(boundedEvents, scoreWindow.end).filter(
+      (interval) => interval.type === "BREAK" || interval.type === "LUNCH"
+    )
+  );
+  const breakScore = breakConformance.score;
 
   if (session.attendanceStatus === "absent") {
     return {
@@ -276,12 +342,41 @@ const calculateFluidScore = (
     };
   }
 
+  const monitoring = await MonitoringSession.findOne({
+    shiftSessionId: session._id,
+  }).select("mouseTotals.sampleCount");
+  const sampleCount = Math.max(
+    0,
+    Math.round(Number(monitoring?.mouseTotals?.sampleCount) || 0)
+  );
+
+  let engagementScore: number;
+
+  if (sessionMinutes > 0 && sampleCount >= MIN_MOUSE_SAMPLES_FOR_ENGAGEMENT) {
+    // Minutes with recorded input over the whole session; clamped for the
+    // brief window where browser and desktop agent both reported.
+    engagementScore = clampPercent((sampleCount / sessionMinutes) * 100);
+  } else {
+    // Break time granted by the template is expected time off; only the part
+    // beyond the allowance is unproductive.
+    const unproductiveMinutes = Math.max(
+      0,
+      breakMinutes - breakConformance.matchedMinutes
+    );
+    engagementScore =
+      workedMinutes + unproductiveMinutes > 0
+        ? clampPercent(
+            (workedMinutes / (workedMinutes + unproductiveMinutes)) * 100
+          )
+        : 0;
+  }
+
   return {
-    overall: clampPercent(focusScore * 0.6 + adherenceScore * 0.4),
-    workScore: focusScore,
+    overall: clampPercent(engagementScore * 0.5 + breakScore * 0.5),
+    workScore: engagementScore,
     punctualityScore: 100,
-    breakScore: adherenceScore,
-    activityAdherenceScore: adherenceScore,
+    breakScore,
+    activityAdherenceScore: breakScore,
     overtimePenalty: 0,
     scheduledMinutes: 0,
     workedMinutes,
@@ -304,84 +399,16 @@ const calculateActivityAdherenceScore = async (
 
   if (!template) return 100;
 
-  const allScheduledIntervals = getScheduledActivityIntervals(session, template);
-  const dynamicAllowances = getDynamicBreakAllowances(template);
-  const actualIntervals = getActivityIntervals(events, closingTime);
-
-  const scheduledEnd = session.scheduledEndTime
-    ? new Date(session.scheduledEndTime)
-    : closingTime;
-  const isLiveEvaluation = session.status === "active" && closingTime < scheduledEnd;
-  // Future static activities are not missed during an active shift. Evaluate
-  // only the part of the schedule that has elapsed, then use the complete
-  // schedule once the shift is closed.
-  const scheduledIntervals = isLiveEvaluation
-    ? allScheduledIntervals
-        .filter((interval) => interval.start < closingTime)
-        .map((interval) => ({
-          ...interval,
-          end: interval.end < closingTime ? interval.end : closingTime,
-        }))
-        .filter((interval) => interval.end > interval.start)
-    : allScheduledIntervals;
-
-  if (!scheduledIntervals.length && !dynamicAllowances.length) {
-    return actualIntervals.length ? 0 : 100;
-  }
-
-  const scheduledMinutes = scheduledIntervals.reduce(
-    (sum, interval) => sum + minutesBetween(interval.start, interval.end),
-    0
-  );
-  const actualMinutes = actualIntervals.reduce(
-    (sum, interval) => sum + minutesBetween(interval.start, interval.end),
-    0
-  );
-  const matchedScheduledMinutes = scheduledIntervals.reduce((sum, scheduled) => {
-    const overlap = actualIntervals
-      .filter((actual) => actual.type === scheduled.type)
-      .reduce((total, actual) => total + getOverlapMinutes(scheduled, actual), 0);
-
-    return sum + Math.min(minutesBetween(scheduled.start, scheduled.end), overlap);
-  }, 0);
-  const staticMatchedActualMinutes = actualIntervals.reduce((sum, actual) => {
-    const overlap = scheduledIntervals
-      .filter((scheduled) => scheduled.type === actual.type)
-      .reduce((total, scheduled) => total + getOverlapMinutes(actual, scheduled), 0);
-
-    return sum + Math.min(minutesBetween(actual.start, actual.end), overlap);
-  }, 0);
-  const dynamicAllowanceMinutes = isLiveEvaluation
-    ? 0
-    : dynamicAllowances.reduce(
-        (sum, allowance) => sum + allowance.durationMinutes,
-        0
-      );
-  const dynamicMatchedActualMinutes = dynamicAllowances.reduce((sum, allowance) => {
-    const actualDynamicMinutes = actualIntervals
-      .filter((actual) => actual.type === allowance.type)
-      .reduce((total, actual) => {
-        const staticOverlap = scheduledIntervals
-          .filter((scheduled) => scheduled.type === actual.type)
-          .reduce((overlapTotal, scheduled) => overlapTotal + getOverlapMinutes(actual, scheduled), 0);
-
-        return total + Math.max(0, minutesBetween(actual.start, actual.end) - staticOverlap);
-      }, 0);
-
-    return sum + Math.min(allowance.durationMinutes, actualDynamicMinutes);
-  }, 0);
-  const matchedActualMinutes = Math.min(
-    actualMinutes,
-    staticMatchedActualMinutes + dynamicMatchedActualMinutes
-  );
-  const unscheduledMinutes = Math.max(0, actualMinutes - matchedActualMinutes);
-  const expectedMinutes = scheduledMinutes + dynamicAllowanceMinutes;
-  const matchedExpectedMinutes = matchedScheduledMinutes + (
-    isLiveEvaluation ? 0 : dynamicMatchedActualMinutes
-  );
-  const denominator = expectedMinutes + unscheduledMinutes;
-
-  return denominator ? clampPercent((matchedExpectedMinutes / denominator) * 100) : 100;
+  // Conformance semantics: only activity time the schedule did not grant
+  // (outside static windows or beyond dynamic allowances) reduces the score.
+  // Working - including skipping scheduled breaks - is never a violation, and
+  // unused allowances never dilute the denominator, so a conforming worker
+  // cannot be driven toward zero.
+  return computeActivityConformanceScore(
+    getScheduledActivityIntervals(session, template),
+    getDynamicBreakAllowances(template),
+    getActivityIntervals(events, closingTime)
+  ).score;
 };
 
 export const calculateShiftTotals = (
@@ -442,7 +469,7 @@ const calculateScore = async (
   // Fluid shifts follow their own scoring model: there is no fixed schedule to
   // be punctual for and no scheduled-minute completion target.
   if (isFluidTemplate(template) || session.scheduleType === "fluid") {
-    return calculateFluidScore(session, template, events, now);
+    return await calculateFluidScore(session, template, events, now);
   }
 
   const scheduledMinutes = scheduledMinutesForSession(session);
@@ -711,11 +738,14 @@ export const getDailyPerformance = async (
     ],
   }).sort({ createdAt: -1 });
 
+  const scheduleType = (schedule?.shiftTemplateId as any)?.scheduleType;
+
   if (approvedLeave) {
     return {
       date: start,
       scheduled: Boolean(schedule),
       status: "approved_leave",
+      scheduleType,
       overallScore: 100,
       kpiScore: 100,
       adherenceScore: 100,
@@ -769,6 +799,7 @@ export const getDailyPerformance = async (
       date: start,
       scheduled: Boolean(schedule),
       status: missed ? "missed" : "scheduled",
+      scheduleType: (template as any)?.scheduleType,
       // A scheduled shift is not evidence of completed work. Scores must only
       // reflect server-recorded shift activity, never the absence of a session.
       overallScore: 0,
@@ -820,6 +851,7 @@ export const getDailyPerformance = async (
     date: start,
     scheduled: Boolean(schedule),
     status: session.attendanceStatus || session.status,
+    scheduleType: (session as any).scheduleType || scheduleType,
     overallScore: score.overall,
     kpiScore: score.overall,
     adherenceScore: score.activityAdherenceScore,

@@ -41,7 +41,16 @@ const optionalTemplateActivities: TemplateActivityForm[] = [
   { label: "After call work", type: "after_call_work", startTime: "16:00", endTime: "16:15", durationMinutes: 15, enabled: false },
 ];
 
-const dynamicBreakDurations = [5, 10, 15, 20, 25, 30, 35, 40, 45, 60, 75, 90];
+const dynamicBreakDurations = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 60, 75, 90];
+
+const breakDurationLabel = (minutes: number) =>
+  minutes === 0 ? "0 min (no break)" : `${minutes} min`;
+
+// 0 is a real allowance ("work through"); only absent values fall back.
+const safeBreakDuration = (value: unknown, fallback: number) => {
+  const parsed = Math.round(Number(value));
+  return Number.isFinite(parsed) ? Math.min(480, Math.max(0, parsed)) : fallback;
+};
 
 export default function SchedulingSetupPanel({
   leaveRequests,
@@ -167,7 +176,11 @@ export default function SchedulingSetupPanel({
         const updated = { ...item, [key]: value };
 
         if (scheduleType === "fluid" || updated.mode === "dynamic") {
-          return { ...updated, mode: "dynamic", durationMinutes: Number(updated.durationMinutes) || 15 };
+          return {
+            ...updated,
+            mode: "dynamic",
+            durationMinutes: safeBreakDuration(updated.durationMinutes, 15),
+          };
         }
 
         return updated;
@@ -234,11 +247,9 @@ export default function SchedulingSetupPanel({
             mode: isFluid ? "dynamic" : item.mode,
             startTime: !isFluid && item.mode === "static" ? item.startTime : undefined,
             endTime: !isFluid && item.mode === "static" ? item.endTime : undefined,
-            durationMinutes: isFluid
-              ? Number(item.durationMinutes) || 15
-              : item.mode === "dynamic"
-                ? Number(item.durationMinutes) || 15
-                : minutesBetweenTimes(item.startTime, item.endTime),
+            durationMinutes: isFluid || item.mode === "dynamic"
+              ? safeBreakDuration(item.durationMinutes, 15)
+              : minutesBetweenTimes(item.startTime, item.endTime),
           })),
           activities: selectedActivities.map((item) => ({
             label: item.label,
@@ -499,7 +510,7 @@ export default function SchedulingSetupPanel({
                       >
                         {dynamicBreakDurations.map((minutes) => (
                           <option key={minutes} value={minutes}>
-                            {minutes} min
+                            {breakDurationLabel(minutes)}
                           </option>
                         ))}
                       </select>

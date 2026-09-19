@@ -110,6 +110,7 @@ export type DailyPerformance = {
   date: string;
   scheduled: boolean;
   status: string;
+  scheduleType?: ScheduleType;
   overallScore: number;
   kpiScore?: number;
   adherenceScore?: number;

@@ -202,7 +202,12 @@ export default function Home() {
       )
     : undefined;
   const assignedActivityLimit = assignedBreak?.durationMinutes;
-  const maxDuration = assignedActivityLimit || fallbackDurations[currentActivity];
+  // A 0-minute allowance is meaningful ("work through"); only an absent one
+  // falls back to the generic caps.
+  const maxDuration =
+    typeof assignedActivityLimit === "number"
+      ? assignedActivityLimit
+      : fallbackDurations[currentActivity];
   const remainingSeconds = maxDuration ? maxDuration * 60 - elapsedSeconds : null;
   const isOvertimeActivity = remainingSeconds !== null && remainingSeconds < 0;
   const selectedTransitionAllowed = allowedTransitions[currentActivity].includes(selectedActivity);

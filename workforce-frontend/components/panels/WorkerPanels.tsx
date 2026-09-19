@@ -178,13 +178,15 @@ export function LiveExecutionPanel({
           </div>
           <strong>{currentState}</strong>
           <p>
-            {maxDuration
-              ? `${maxDuration} minute allowance`
-              : activeShift
-                ? isFluid
-                  ? "Counts as worked time (breaks excluded)"
-                  : "Tracked as productive availability"
-                : "Select Available to check in"}
+            {maxDuration === 0
+              ? "No break allowance - work through to End shift"
+              : maxDuration
+                ? `${maxDuration} minute allowance`
+                : activeShift
+                  ? isFluid
+                    ? "Counts as worked time (breaks excluded)"
+                    : "Tracked as productive availability"
+                  : "Select Available to check in"}
           </p>
           <div className={`countdown ${isOvertimeActivity ? "danger" : ""}`}>
             <TimerReset size={18} />
@@ -506,7 +508,9 @@ export function ShiftEventsPanel({ events }: { events: ShiftEvent[] }) {
 
 export function PerformancePanel({ performance }: { performance: DailyPerformance }) {
   const score = Math.max(0, Math.min(100, performance.overallScore));
-  const isFluidDay = performance.scheduledMinutes === 0 && performance.workedMinutes > 0;
+  const isFluidDay =
+    performance.scheduleType === "fluid" ||
+    (!performance.scheduleType && performance.scheduledMinutes === 0 && performance.workedMinutes > 0);
 
   return (
     <section className="panel performance-panel">
@@ -558,7 +562,7 @@ export function PerformancePanel({ performance }: { performance: DailyPerformanc
       </div>
 
       <div className="score-bars">
-        <ScoreBar label={isFluidDay ? "Focus (work share)" : "Work completion"} value={performance.breakdown.workScore} />
+        <ScoreBar label={isFluidDay ? "Engagement (activity coverage)" : "Work completion"} value={performance.breakdown.workScore} />
         {!isFluidDay && <ScoreBar label="Punctuality" value={performance.breakdown.punctualityScore} />}
         <ScoreBar
           label="Activity adherence"

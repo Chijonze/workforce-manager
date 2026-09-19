@@ -37,6 +37,14 @@ const clampDuration = (value: unknown, fallback: number): number => {
   return Math.min(MAX_ACTIVITY_MINUTES, Math.max(MIN_ACTIVITY_MINUTES, parsed));
 };
 
+// Breaks may declare a 0-minute allowance so a fluid (or flex) template can
+// signal "work through, no breaks". Absent values still default.
+const clampBreakDuration = (value: unknown, fallback: number): number => {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(MAX_ACTIVITY_MINUTES, Math.max(0, parsed));
+};
+
 const cleanLabel = (value: unknown, fallback: string): string => {
   const text = String(value ?? "").trim().slice(0, 80);
   return text || fallback;
@@ -70,7 +78,7 @@ const validateBreaks = (rawBreaks: unknown, scheduleType: ScheduleType) => {
         mode,
         startTime: undefined,
         endTime: undefined,
-        durationMinutes: clampDuration(raw.durationMinutes, 15),
+        durationMinutes: clampBreakDuration(raw.durationMinutes, 15),
       };
     }
 

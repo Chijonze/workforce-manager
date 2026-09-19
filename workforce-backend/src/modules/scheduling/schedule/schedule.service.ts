@@ -76,8 +76,10 @@ const decorateSchedule = (schedule: any) => {
       decorated.startAt = undefined;
       decorated.endAt = undefined;
       const duration = Math.round(Number(decorated.durationMinutes) || 0);
-      decorated.durationMinutes = duration
-        ? Math.min(480, Math.max(1, duration))
+      // 0 is a valid allowance ("work through, no break"); only absent values
+      // resolve to undefined.
+      decorated.durationMinutes = duration >= 0 && Number.isFinite(Number(decorated.durationMinutes))
+        ? Math.min(480, Math.max(0, duration))
         : undefined;
     }
 
