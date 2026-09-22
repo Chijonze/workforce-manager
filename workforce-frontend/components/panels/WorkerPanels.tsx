@@ -7,6 +7,7 @@ import {
   CalendarDays,
   Clock3,
   History,
+  MonitorUp,
   MousePointer2,
   TimerReset,
 } from "lucide-react";
@@ -114,6 +115,7 @@ export function LiveExecutionPanel({
   activeSchedule,
   onChangeActivity,
   onStartActivity,
+  onRetryCapture,
 }: {
   activeShift: ActiveShiftResponse;
   activityTone: Partial<Record<ActivityState, string>>;
@@ -132,6 +134,7 @@ export function LiveExecutionPanel({
   activeSchedule?: Schedule | null;
   onChangeActivity: (activity: ActivityState) => void;
   onStartActivity: () => void;
+  onRetryCapture?: () => void;
 }) {
   const scheduleType =
     activeShift?.shift.scheduleType || activeSchedule?.scheduleType || "time_managed";
@@ -256,9 +259,14 @@ export function LiveExecutionPanel({
             {monitoring?.capturesEnabled
               ? ` Automatic screenshots: ${monitoring.capturesTaken}${monitoring.capturePlan ? ` of ${monitoring.capturePlan}` : ""} taken.`
               : monitoring?.captureNotice
-                ? ` ${monitoring.captureNotice}; screenshots are unavailable this session.`
+                ? ` ${monitoring.captureNotice}${monitoring.canRetryCapture ? "" : "; screenshots are unavailable this session."}`
                 : " Setting up screenshots…"}
           </span>
+          {monitoring?.canRetryCapture && !monitoring.capturesEnabled && !monitoring.viaDesktopAgent && onRetryCapture && (
+            <button type="button" className="pill accent-pill monitoring-retry" onClick={onRetryCapture}>
+              <MonitorUp size={14} /> Enable screenshots
+            </button>
+          )}
         </div>
       )}
 

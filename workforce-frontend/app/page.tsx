@@ -1117,6 +1117,7 @@ export default function Home() {
         selectedTransitionAllowed={selectedTransitionAllowed}
         onChangeActivity={setSelectedActivity}
         onStartActivity={startSelectedActivity}
+        onRetryCapture={() => monitoringRef.current?.requestCapture()}
       />
     );
 

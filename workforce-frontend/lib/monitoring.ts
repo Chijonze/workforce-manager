@@ -10,11 +10,13 @@ export type MonitoringStats = {
   capturesEnabled: boolean;
   captureNotice: string | null;
   viaDesktopAgent: boolean;
+  canRetryCapture: boolean;
   mouse: { movements: number; distancePx: number; clicks: number; scrolls: number };
 };
 
 export type MonitoringHandle = {
   shiftId: string;
+  requestCapture: () => void;
   stop: () => void;
 };
 
@@ -70,6 +72,8 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
   let capturesEnabled = false;
   let captureNotice: string | null = null;
   let viaDesktopAgent = false;
+  let canRetryCapture = false;
+  let gestureRetryArmed = false;
   let bucket = emptyBucket();
   const totals = { movements: 0, distancePx: 0, clicks: 0, scrolls: 0 };
 
@@ -85,6 +89,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       capturesEnabled,
       captureNotice,
       viaDesktopAgent,
+      canRetryCapture,
       mouse: { ...totals },
     });
   };
@@ -125,9 +130,14 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
 
     viaDesktopAgent = true;
     capturesEnabled = false;
+    canRetryCapture = false;
     captureNotice = "Desktop agent is handling tracking and screenshots";
     clearCaptureTimers();
+    disarmGestureRetry();
     detachMouseListeners();
+    if (video?.srcObject) {
+      (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
+    }
     emit();
   }
 
@@ -145,12 +155,10 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       // The desktop agent is gone: resume browser-scoped tracking with the
       // server's capture counts as the baseline.
       viaDesktopAgent = false;
-      captureNotice = null;
       capturePlan = Number(data?.capturePlan) || capturePlan;
       capturesTaken = Math.max(Number(data?.captureCount) || 0, capturesTaken);
-      capturesEnabled = true;
       attachMouseListeners();
-      armRemainingCaptures();
+      startCaptureService();
       emit();
     } catch {
       // Keep probing; the next tick retries.
@@ -275,9 +283,31 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     emit();
   }
 
+  // Browsers reject getDisplayMedia without a fresh user gesture, and this
+  // session auto-starts on shift load. Retry inside the next click anywhere.
+  function retryCaptureFromGesture() {
+    gestureRetryArmed = false;
+    startCaptureService();
+  }
+
+  function armGestureRetry() {
+    if (gestureRetryArmed || stopped || viaDesktopAgent) return;
+
+    gestureRetryArmed = true;
+    window.addEventListener("pointerdown", retryCaptureFromGesture, { once: true });
+  }
+
+  function disarmGestureRetry() {
+    if (!gestureRetryArmed) return;
+
+    gestureRetryArmed = false;
+    window.removeEventListener("pointerdown", retryCaptureFromGesture);
+  }
+
   function startCaptureService() {
+    if (stopped || viaDesktopAgent || capturesEnabled) return;
+
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      capturesEnabled = false;
       captureNotice = "Screen capture is not supported in this browser";
       emit();
       return;
@@ -286,12 +316,13 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     navigator.mediaDevices
       .getDisplayMedia({ video: { frameRate: 1 }, audio: false })
       .then((stream) => {
-        if (stopped) {
+        if (stopped || viaDesktopAgent) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
 
         capturesEnabled = true;
+        canRetryCapture = false;
         captureNotice = null;
         emit();
 
@@ -304,7 +335,10 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
         canvas = document.createElement("canvas");
 
         stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+          if (stopped || viaDesktopAgent) return;
+
           capturesEnabled = false;
+          canRetryCapture = true;
           captureNotice = "Screen sharing was stopped";
           clearCaptureTimers();
           emit();
@@ -312,9 +346,23 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
 
         armRemainingCaptures();
       })
-      .catch(() => {
+      .catch((error: DOMException) => {
+        if (stopped || viaDesktopAgent) return;
+
         capturesEnabled = false;
-        captureNotice = "Screen capture permission was not granted";
+
+        if (error?.name === "InvalidStateError") {
+          captureNotice = "Click anywhere in the app to enable screen capture";
+          armGestureRetry();
+        } else if (error?.name === "NotAllowedError") {
+          captureNotice = "Screen capture permission was not granted";
+          canRetryCapture = true;
+        } else if (error?.name === "NotFoundError" || error?.name === "NotReadableError") {
+          captureNotice = "No screen source is available for capture";
+        } else {
+          captureNotice = "Screen capture could not be started";
+        }
+
         emit();
       });
   }
@@ -332,23 +380,49 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       capturePlan = Number(data.capturePlan) || 0;
       capturesTaken = Number(data.captures) || 0;
       emit();
-      startCaptureService();
     } catch {
       captureNotice = "Activity monitoring is unavailable for this shift";
       emit();
+      return;
     }
+
+    // When the desktop agent is already connected it owns the shift, so stand
+    // down before asking the worker for screen access. Otherwise track in this
+    // page: attach the mouse listeners and let the browser drive the captures.
+    try {
+      const stateResponse = await fetch(`${getApiUrl()}/api/monitoring/session/${shiftId}/state`, {
+        headers: authHeaders(token),
+      });
+      const state = await stateResponse.json().catch(() => ({}));
+
+      if (stopped) return;
+
+      if (state?.desktopAgentActive) {
+        supersedeByDesktopAgent();
+        return;
+      }
+    } catch {
+      // State probe is best-effort; default to browser-scoped tracking.
+    }
+
+    attachMouseListeners();
+    startCaptureService();
   })();
 
   emit();
 
   return {
     shiftId,
+    requestCapture() {
+      startCaptureService();
+    },
     stop() {
       if (stopped) return;
       stopped = true;
 
       window.clearInterval(flushTimer);
       clearCaptureTimers();
+      disarmGestureRetry();
       detachMouseListeners();
       video?.srcObject &&
         (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());

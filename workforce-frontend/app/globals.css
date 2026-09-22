@@ -2071,6 +2071,13 @@ select:focus {
   font-size: 11px;
 }
 
+.monitoring-retry {
+  justify-self: start;
+  gap: 6px;
+  border: none;
+  cursor: pointer;
+}
+
 /* Activity monitoring panel ----------------------------------------------- */
 
 .monitoring-panel .overview-filters {
