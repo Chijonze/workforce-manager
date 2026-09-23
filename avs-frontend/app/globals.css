@@ -53,14 +53,14 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: #3b82f6;
+  border-color: #3a6cf4;
   background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 4px rgba(58, 108, 244, 0.14);
 }
 
 ::selection {
   color: white;
-  background: #2563eb;
+  background: #3a6cf4;
 }
 
 .section-shell {

@@ -26,24 +26,22 @@ export function PageFrame({
     <>
       <SiteHeader />
       <main>
-        <section className="bg-slate-950 py-20 text-white">
+        <section className="bg-navy py-20 text-white">
           <div className="section-shell max-w-4xl">
-            <span className="text-sm font-bold uppercase tracking-[0.24em] text-cyan-300">{eyebrow}</span>
+            <span className="text-sm font-bold uppercase tracking-[0.24em] text-brand-green">{eyebrow}</span>
             <h1 className="mt-4 font-heading text-5xl font-extrabold tracking-tight text-balance md:text-6xl">
               {title}
             </h1>
             <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">{summary}</p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <ChatButton>Get Started</ChatButton>
-              <CallButton variant="secondary">Call us now</CallButton>
-              <Button
-                asChild
-                className="bg-emerald-600 text-white shadow-[0_18px_40px_rgba(5,150,105,0.28)] hover:bg-emerald-500 focus-visible:outline-emerald-500"
-                variant="secondary"
-              >
-                <Link href={site.whatsapp}>
+              <ChatButton size="lg">Book Free Consultation</ChatButton>
+              <CallButton size="lg" variant="secondary">
+                Talk To Our Team
+              </CallButton>
+              <Button asChild size="lg" variant="green">
+                <Link href={site.whatsapp} target="_blank" rel="noreferrer">
                   <MessageCircle size={17} />
-                  Chat us on WhatsApp
+                  Chat On WhatsApp
                 </Link>
               </Button>
             </div>

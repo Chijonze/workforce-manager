@@ -9,12 +9,15 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        navy: "#0F172A",
+        navy: "#071739",
+        "navy-soft": "#0E2557",
         ink: "#111827",
         cloud: "#F8FAFC",
         brand: {
-          blue: "#3B82F6",
-          cyan: "#06B6D4",
+          blue: "#3A6CF4",
+          "blue-dark": "#2B54C8",
+          green: "#10B981",
+          "green-dark": "#0B8F66",
         },
       },
       fontFamily: {
@@ -22,7 +25,9 @@ const config: Config = {
         body: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       boxShadow: {
-        soft: "0 24px 80px rgba(15, 23, 42, 0.12)",
+        soft: "0 24px 80px rgba(7, 23, 57, 0.12)",
+        card: "0 10px 40px rgba(7, 23, 57, 0.08)",
+        cta: "0 18px 40px rgba(58, 108, 244, 0.32)",
       },
     },
   },
