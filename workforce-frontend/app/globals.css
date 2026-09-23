@@ -967,6 +967,7 @@ button:disabled {
   position: absolute;
   top: 12px;
   right: 12px;
+  z-index: 6;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1374,6 +1375,47 @@ button:disabled {
   }
 }
 
+/* Seamless worker switch overlay -------------------------------------------- */
+
+.screen-frame.switching {
+  border-color: rgba(13, 148, 136, 0.4);
+}
+
+.screen-switch-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  background: rgba(16, 23, 22, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.screen-switch-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(13, 148, 136, 0.28);
+  border-top-color: var(--primary);
+  border-radius: 999px;
+  animation: screen-switch-spin 0.8s linear infinite;
+}
+
+@keyframes screen-switch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.screen-switch-label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  text-align: center;
+}
+
 @media (max-width: 720px) {
   .agent-select-option .agent-presence {
     display: none;
@@ -1395,6 +1437,10 @@ button:disabled {
 
   .screen-frame.live::after {
     animation: none;
+  }
+
+  .screen-switch-spinner {
+    animation-duration: 1.6s;
   }
 }
 

@@ -158,6 +158,7 @@ export default function Home() {
   const [selectedMonitorId, setSelectedMonitorId] = useState("");
   const [monitorStatus, setMonitorStatus] = useState("Disconnected");
   const [isMonitoring, setIsMonitoring] = useState(false);
+  const [isSwitchingStream, setIsSwitchingStream] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<string | null>(toDateKey(new Date()));
   const [leaveForm, setLeaveForm] = useState({
     leaveType: "annual" as LeaveRequest["leaveType"],
@@ -177,6 +178,9 @@ export default function Home() {
   const monitorCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const monitorObjectUrlRef = useRef<string | null>(null);
   const monitoringRef = useRef<MonitoringHandle | null>(null);
+  const switchTargetRef = useRef("");
+  const switchTimeoutRef = useRef<number | null>(null);
+  const awaitingSwitchFrameRef = useRef(false);
 
   const isAdmin = user?.role === "admin";
   const isSupervisor = user?.role === "supervisor";
@@ -936,6 +940,13 @@ export default function Home() {
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
+      // After a switch the server only relays the new worker's frames, so the
+      // first drawn frame is the moment the new stream is truly visible.
+      if (awaitingSwitchFrameRef.current) {
+        clearStreamSwitch();
+        setMonitorStatus("Live");
+      }
+
       if (previousUrl) {
         URL.revokeObjectURL(previousUrl);
       }
@@ -954,6 +965,8 @@ export default function Home() {
   function stopScreenMonitor() {
     const socket = monitorSocketRef.current;
 
+    clearStreamSwitch();
+
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ action: "STOP_STREAM", id: selectedMonitorId }));
       socket.close(1000, "Admin closed stream");
@@ -966,6 +979,63 @@ export default function Home() {
     setMonitorStatus("Disconnected");
     clearMonitorCanvas();
     revokeMonitorObjectUrl();
+  }
+
+  function clearStreamSwitch() {
+    switchTargetRef.current = "";
+    awaitingSwitchFrameRef.current = false;
+
+    if (switchTimeoutRef.current !== null) {
+      window.clearTimeout(switchTimeoutRef.current);
+      switchTimeoutRef.current = null;
+    }
+
+    setIsSwitchingStream(false);
+  }
+
+  // Seamless retarget of the live stream: both verbs ride the socket that is
+  // already open, so the connection and canvas survive the hop.
+  function switchScreenMonitor(targetValue: string) {
+    const socket = monitorSocketRef.current;
+    const target = screenMonitorEmployees.find(
+      (employee) => getMonitorOptionValue(employee) === targetValue
+    );
+
+    if (
+      !socket ||
+      socket.readyState !== WebSocket.OPEN ||
+      !target?.isOnline ||
+      !target.activeMonitorId ||
+      targetValue === selectedMonitorId ||
+      isSwitchingStream
+    ) {
+      setSelectedMonitorId(targetValue);
+      return;
+    }
+
+    switchTargetRef.current = targetValue;
+    setIsSwitchingStream(true);
+    setMonitorStatus("Switching");
+    socket.send(JSON.stringify({ action: "STOP_STREAM", id: selectedMonitorId }));
+    socket.send(JSON.stringify({ action: "START_STREAM", id: targetValue }));
+    setSelectedMonitorId(targetValue);
+
+    // If the new agent never answers, fall back to ending the stream.
+    switchTimeoutRef.current = window.setTimeout(() => {
+      if (!switchTargetRef.current) return;
+
+      notify("error", "Screen switch timed out");
+      stopScreenMonitor();
+    }, 10000);
+  }
+
+  function handleMonitorEmployeeChange(employeeId: string) {
+    if (isMonitoring) {
+      switchScreenMonitor(employeeId);
+      return;
+    }
+
+    setSelectedMonitorId(employeeId);
   }
 
   function startScreenMonitor() {
@@ -996,21 +1066,39 @@ export default function Home() {
       }
 
       try {
-        const message = JSON.parse(String(event.data)) as ScreenMonitorPresence & {
+        const message = JSON.parse(String(event.data)) as {
+          type?: string;
           event?: string;
           message?: string;
+          employees?: string[];
+          assignedEmployees?: ScreenMonitorEmployee[];
         };
 
         if (message.type === "presence") {
-          const monitorEmployees = getMonitorEmployees(message);
+          const monitorEmployees = getMonitorEmployees({
+            type: "presence",
+            employees: message.employees || [],
+            assignedEmployees: message.assignedEmployees,
+          });
           setScreenMonitorEmployees(monitorEmployees);
           setSelectedMonitorId((current) => selectAvailableMonitorId(current, monitorEmployees));
+          return;
+        }
+
+        if (message.type === "stream" && message.event === "started") {
+          // The server has re-targeted the watcher; frames from here on belong
+          // to the new worker. The switch overlay clears on the first frame.
+          if (switchTargetRef.current) {
+            awaitingSwitchFrameRef.current = true;
+          }
+          setMonitorStatus("Live");
           return;
         }
 
         if (message.event === "employee_unavailable" || message.event === "employee_offline") {
           notify("error", "Selected employee is not available for monitoring");
           stopScreenMonitor();
+          return;
         }
 
         if (message.message) {
@@ -1089,9 +1177,10 @@ export default function Home() {
         canvasRef={monitorCanvasRef}
         employees={screenMonitorEmployees}
         isMonitoring={isMonitoring}
+        isSwitching={isSwitchingStream}
         selectedEmployeeId={selectedMonitorId}
         status={monitorStatus}
-        onChangeEmployee={setSelectedMonitorId}
+        onChangeEmployee={handleMonitorEmployeeChange}
         onStart={startScreenMonitor}
         onStop={stopScreenMonitor}
       />

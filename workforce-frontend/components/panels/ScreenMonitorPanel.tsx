@@ -90,6 +90,7 @@ export default function ScreenMonitorPanel({
   canvasRef,
   employees,
   isMonitoring,
+  isSwitching,
   onChangeEmployee,
   onStart,
   onStop,
@@ -99,6 +100,7 @@ export default function ScreenMonitorPanel({
   canvasRef: React.RefObject<HTMLCanvasElement>;
   employees: ScreenMonitorEmployee[];
   isMonitoring: boolean;
+  isSwitching: boolean;
   selectedEmployeeId: string;
   status: string;
   onChangeEmployee: (employeeId: string) => void;
@@ -118,7 +120,7 @@ export default function ScreenMonitorPanel({
 
   const statusSummary = useMemo(() => buildStatusSummary(employees), [employees]);
   const selectedActivity = selectedEmployee?.activity ?? null;
-  const pickerDisabled = isMonitoring || employees.length === 0;
+  const pickerDisabled = isSwitching || employees.length === 0;
 
   useEffect(() => {
     function syncFullscreenState() {
@@ -140,10 +142,11 @@ export default function ScreenMonitorPanel({
     };
   }, []);
 
-  // The picker is only for choosing a new stream target; never mid-stream.
+  // The picker stays usable during a live stream (that is how the viewer
+  // switches workers); only an in-flight switch locks it.
   useEffect(() => {
-    if (isMonitoring) setDropdownOpen(false);
-  }, [isMonitoring]);
+    if (isSwitching) setDropdownOpen(false);
+  }, [isSwitching]);
 
   // Close the picker on any interaction outside of it.
   useEffect(() => {
@@ -258,8 +261,18 @@ export default function ScreenMonitorPanel({
           </div>
         </div>
         <div className="screen-monitor-header-actions">
-          <span className={`pill ${isMonitoring ? "success-pill" : status === "Connecting" ? "warn" : "muted-pill"}`}>
-            {status}
+          <span
+            className={`pill ${
+              isSwitching
+                ? "warn"
+                : isMonitoring
+                  ? "success-pill"
+                  : status === "Connecting"
+                    ? "warn"
+                    : "muted-pill"
+            }`}
+          >
+            {isSwitching ? "Switching" : status}
           </span>
           <button
             aria-label={isFullscreen ? "Exit fullscreen monitor" : "Open fullscreen monitor"}
@@ -399,8 +412,16 @@ export default function ScreenMonitorPanel({
           </div>
         </div>
 
-        <div className={`screen-frame ${isMonitoring ? "live" : ""}`}>
+        <div className={`screen-frame ${isMonitoring ? "live" : ""} ${isSwitching ? "switching" : ""}`}>
           <canvas ref={canvasRef} aria-label="Live agent screen feed" />
+          {isSwitching && (
+            <div className="screen-switch-overlay" role="status">
+              <span aria-hidden="true" className="screen-switch-spinner" />
+              <span className="screen-switch-label">
+                Switching to {selectedEmployee?.name || "agent"}…
+              </span>
+            </div>
+          )}
           {!isMonitoring && <span className="screen-placeholder">No active stream</span>}
           {isMonitoring && (
             <button

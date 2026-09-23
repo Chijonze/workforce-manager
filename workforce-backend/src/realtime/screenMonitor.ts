@@ -170,6 +170,18 @@ function findEmployeeByMonitorId(id: string) {
   );
 }
 
+// The desktop agent implements STOP_STREAM (it stops capturing and sending
+// frames); the server just never forwards it. Telling the previously watched
+// worker to stop keeps switches and stream closes from leaving idle agents
+// burning CPU on frames nobody relays.
+function stopWatchedEmployeeStream(admin: ScreenClient) {
+  const watched = admin.watchingId ? findEmployeeByMonitorId(admin.watchingId) : undefined;
+
+  if (watched) {
+    sendJson(watched.socket, { action: "STOP_STREAM" });
+  }
+}
+
 function findEmployeeForAgent(agent: any) {
   const agentId = String(agent?._id || "");
 
@@ -703,6 +715,11 @@ export function attachScreenMonitorServer(server: http.Server) {
             return;
           }
 
+          if (client.watchingId && client.watchingId !== employee.id) {
+            // Live switch: the previously watched worker stops capturing.
+            stopWatchedEmployeeStream(client);
+          }
+
           client.watchingId = employee.id;
           sendJson(employee.socket, { action: "START_STREAM" });
           sendJson(socket, { type: "stream", event: "started", id: employee.id });
@@ -710,6 +727,7 @@ export function attachScreenMonitorServer(server: http.Server) {
         }
 
         if (message?.action === "STOP_STREAM") {
+          stopWatchedEmployeeStream(client);
           client.watchingId = undefined;
           sendJson(socket, { type: "stream", event: "stopped", id: targetId });
         }
