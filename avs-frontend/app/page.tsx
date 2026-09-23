@@ -60,6 +60,21 @@ export default function HomePage() {
             aria-hidden="true"
             className="pointer-events-none absolute -right-32 top-40 h-[420px] w-[420px] rounded-full bg-brand-green/10 blur-3xl"
           />
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+            <Image
+              src="/images/hero-support-agent.jpg"
+              alt=""
+              fill
+              sizes="100vw"
+              className="scale-[1.08] object-cover opacity-[0.17] blur-[5px]"
+              style={{
+                maskImage:
+                  "radial-gradient(ellipse 95% 90% at 50% 45%, black 42%, transparent 82%)",
+                WebkitMaskImage:
+                  "radial-gradient(ellipse 95% 90% at 50% 45%, black 42%, transparent 82%)",
+              }}
+            />
+          </div>
           <div className="section-shell relative grid items-center gap-14 py-16 lg:min-h-[calc(100vh-120px)] lg:grid-cols-2 lg:py-20">
             <div>
               <span className="inline-flex items-center gap-2 rounded-full border border-brand-blue/20 bg-blue-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-blue-dark">
