@@ -36,14 +36,14 @@ export default function AboutPage() {
       </section>
       <section className="bg-white py-20">
         <div className="section-shell">
-          <h2 className="font-heading text-4xl font-bold text-slate-950">Our process</h2>
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
+          <h2 className="font-heading text-4xl font-bold text-navy">Our process</h2>
+          <div className="mt-8 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
             {processSteps.map((step, index) => (
               <Card key={step.title}>
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 font-bold text-white">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-blue font-bold text-white">
                   {index + 1}
                 </span>
-                <h3 className="mt-5 font-heading text-xl font-bold text-slate-950">{step.title}</h3>
+                <h3 className="mt-5 font-heading text-xl font-bold text-navy">{step.title}</h3>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{step.description}</p>
               </Card>
             ))}

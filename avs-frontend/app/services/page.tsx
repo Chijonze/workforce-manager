@@ -1,245 +1,280 @@
 import Link from "next/link";
-import { Metadata } from "next";
-import { MessageCircle } from "lucide-react";
-import { CallButton } from "@/components/call-button";
+import type { Metadata } from "next";
+import { ArrowRight, CheckCircle2, Clock, CreditCard, ShieldCheck, UsersRound, Wrench } from "lucide-react";
 import { ChatButton } from "@/components/chat-button";
-import { PageFrame } from "@/components/page-frame";
+import { FAQAccordion } from "@/components/faq-accordion";
 import { MotionSection } from "@/components/motion-section";
+import { PageFrame } from "@/components/page-frame";
+import { SectionHeading } from "@/components/section-heading";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { services, assistantProfiles, qualitySignals, site } from "@/lib/site-content";
-import { FAQAccordion } from "@/components/faq-accordion";
+import {
+  assistantProfiles,
+  faqs,
+  industries,
+  processSteps,
+  serviceGuarantees,
+  services,
+  site,
+} from "@/lib/site-content";
 
 export const metadata: Metadata = {
-  title: "Services",
-  description: "Explore comprehensive virtual assistant services for admin, executive support, customer support, social media, CRM, lead generation, and operations.",
+  title: "Virtual Assistant Services",
+  description:
+    "Explore virtual assistant services: administrative support, executive assistance, customer support, marketing, lead generation, website management, content creation, and project coordination.",
 };
+
+const serviceSpecs = [
+  { icon: Clock, label: "Hours", detail: "UK/EU business hours with flexibility for urgent tasks" },
+  { icon: Wrench, label: "Tools", detail: "We work in your stack: Slack, HubSpot, Shopify, Notion, Asana, Trello, Google Workspace, and more" },
+  { icon: UsersRound, label: "Team", detail: "One dedicated assistant, backed by account management and cover support" },
+  { icon: CreditCard, label: "Billing", detail: "Flexible hourly rates with transparent tracking and reporting" },
+];
 
 export default function ServicesPage() {
   return (
     <PageFrame
       eyebrow="Services"
-      title="Comprehensive virtual assistant services tailored to your business."
-      summary="From daily operations to growth initiatives, we provide specialized support across eight key service areas. Each role is handled by trained experts with proven expertise."
+      title="Virtual Assistant Services Built Around Growth"
+      summary="Eight specialised service lines delivered by dedicated, vetted assistants — supported by managed onboarding, SOP-driven execution, and transparent reporting. Mix and match services as your needs change."
     >
-      {/* Service Categories Overview */}
-      <section className="section-shell py-20">
-        <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-2">
-          <div className="space-y-4">
-            <h3 className="font-heading text-2xl font-bold text-slate-950">Operations & Support</h3>
-            <p className="text-slate-600">Keep your business running smoothly with dedicated support for daily operations, administrative tasks, and customer interactions.</p>
-            <ul className="space-y-2 text-sm text-slate-600">
-              <li className="flex items-start gap-2">
-                <span className="text-blue-600">•</span>
-                <span><strong>Administrative Support:</strong> Inbox management, scheduling, documentation, research</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-600">•</span>
-                <span><strong>Customer Support:</strong> Email, chat, and CRM management for faster response times</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-600">•</span>
-                <span><strong>Project Coordination:</strong> Task tracking, status updates, and workflow management</span>
-              </li>
-            </ul>
-          </div>
-          <div className="space-y-4">
-            <h3 className="font-heading text-2xl font-bold text-slate-950">Growth & Content</h3>
-            <p className="text-slate-600">Scale your business with support for marketing, sales, and content initiatives handled by dedicated experts.</p>
-            <ul className="space-y-2 text-sm text-slate-600">
-              <li className="flex items-start gap-2">
-                <span className="text-blue-600">•</span>
-                <span><strong>Lead Generation:</strong> Prospecting, outreach, CRM hygiene, and pipeline management</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-600">•</span>
-                <span><strong>Social Media Management:</strong> Scheduling, engagement, community support</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-600">•</span>
-                <span><strong>Content Creation:</strong> Blog drafts, captions, newsletters, and design support</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      {/* All Services Grid */}
-      <MotionSection className="section-shell py-20 border-t border-slate-200">
-        <div className="mb-12 text-center">
-          <h2 className="font-heading text-3xl font-bold text-slate-950">All Available Services</h2>
-          <p className="mt-3 text-slate-600">Complete list of specialized support we offer</p>
-        </div>
-        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+      {/* Detailed services */}
+      <MotionSection className="section-shell py-20">
+        <SectionHeading
+          eyebrow="What We Do"
+          title="Dedicated Support Across Eight Service Lines"
+          summary="Every service is delivered by your dedicated assistant and backed by our account management team."
+        />
+        <div className="mt-12 grid gap-5 md:grid-cols-2">
           {services.map((service) => {
             const Icon = service.icon;
             return (
-              <Card key={service.title} className="group transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-soft">
-                <Icon className="text-blue-600" size={28} />
-                <h3 className="mt-5 font-heading text-lg font-bold text-slate-950">{service.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-600">{service.description}</p>
+              <Card className="flex h-full flex-col transition hover:border-brand-blue/40 hover:shadow-soft" key={service.title}>
+                <div className="flex items-center gap-4">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-50 text-brand-blue">
+                    <Icon size={22} />
+                  </span>
+                  <div>
+                    <h3 className="font-heading text-xl font-bold text-navy">{service.title}</h3>
+                    <p className="text-sm text-slate-500">{service.description}</p>
+                  </div>
+                </div>
+                <div className="mt-5 rounded-2xl bg-cloud p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">What&apos;s included</p>
+                  <ul className="mt-3 grid gap-2.5">
+                    {service.includes.map((item) => (
+                      <li className="flex items-start gap-2 text-sm leading-6 text-slate-700" key={item}>
+                        <CheckCircle2 className="mt-1 shrink-0 text-brand-green" size={15} />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                  <span className="font-heading text-sm font-bold text-navy">From £4.50/hr</span>
+                  <ChatButton size="sm">Discuss this service</ChatButton>
+                </div>
               </Card>
             );
           })}
         </div>
       </MotionSection>
 
-      {/* VA Profiles */}
-      <section className="section-shell border-t border-slate-200 py-20">
-        <div className="mb-12">
-          <h2 className="font-heading text-3xl font-bold text-slate-950">Virtual Assistant Profiles</h2>
-          <p className="mt-3 text-slate-600">We match you with specialists based on your specific needs and workflow requirements.</p>
+      {/* Guarantees — dark */}
+      <section className="bg-navy py-20 text-white">
+        <div className="section-shell">
+          <SectionHeading
+            dark
+            eyebrow="Every Engagement"
+            title="What You Get With Every Service"
+            summary="Beyond task completion, you receive structured support, oversight, and continuous optimisation."
+          />
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {serviceGuarantees.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur transition hover:-translate-y-1 hover:border-brand-green/40 hover:bg-white/10"
+                  key={item.title}
+                >
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-blue/20 text-brand-green">
+                    <Icon size={20} />
+                  </span>
+                  <h3 className="mt-5 font-heading text-lg font-bold">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.description}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div className="grid gap-6 md:grid-cols-3">
+      </section>
+
+      {/* Assistant profiles */}
+      <MotionSection className="section-shell py-20">
+        <SectionHeading
+          eyebrow="Assistant Profiles"
+          title="Matched to the Work You Need Done"
+          summary="We shortlist specialists based on your workflow, tools, and communication style — then you meet them before anything starts."
+        />
+        <div className="mt-12 grid gap-5 md:grid-cols-3">
           {assistantProfiles.map((profile) => {
             const Icon = profile.icon;
             return (
-              <div key={profile.name} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <Icon className="text-blue-600" size={32} />
-                <h3 className="mt-4 font-heading text-xl font-bold text-slate-950">{profile.name}</h3>
-                <p className="mt-2 text-sm text-slate-600">Focus: {profile.focus}</p>
-              </div>
+              <Card className="text-center transition hover:-translate-y-1 hover:border-brand-blue/40 hover:shadow-soft" key={profile.name}>
+                <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-navy text-white">
+                  <Icon size={24} />
+                </span>
+                <h3 className="mt-5 font-heading text-xl font-bold text-navy">{profile.name}</h3>
+                <p className="mt-2 text-sm text-slate-600">{profile.focus}</p>
+              </Card>
             );
           })}
         </div>
-      </section>
+      </MotionSection>
 
-      {/* Quality Signals */}
-      <section className="section-shell border-t border-slate-200 py-20">
-        <div className="mb-12">
-          <h2 className="font-heading text-3xl font-bold text-slate-950">Why Our Services Stand Out</h2>
-          <p className="mt-3 text-slate-600">Quality and dedicated support across every service we provide.</p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {qualitySignals.map((signal) => {
-            const Icon = signal.icon;
-            return (
-              <div key={signal.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <Icon className="text-blue-600" size={24} />
-                <strong className="mt-4 block font-heading text-base text-slate-950">{signal.label}</strong>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Service Use Cases */}
-      <section className="section-shell border-t border-slate-200 py-20">
-        <div className="mb-12">
-          <h2 className="font-heading text-3xl font-bold text-slate-950">Common Service Combinations</h2>
-          <p className="mt-3 text-slate-600">Most clients use multiple services based on their business needs.</p>
-        </div>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-            <h3 className="font-heading text-lg font-bold text-slate-950">For Founders & Executives</h3>
-            <div className="mt-4 space-y-2 text-sm text-slate-600">
-              <p>• Executive Assistance</p>
-              <p>• Administrative Support</p>
-              <p>• Lead Generation</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-            <h3 className="font-heading text-lg font-bold text-slate-950">For eCommerce & Agencies</h3>
-            <div className="mt-4 space-y-2 text-sm text-slate-600">
-              <p>• Customer Support</p>
-              <p>• Content Creation</p>
-              <p>• Social Media Management</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-            <h3 className="font-heading text-lg font-bold text-slate-950">For Growth Teams</h3>
-            <div className="mt-4 space-y-2 text-sm text-slate-600">
-              <p>• Lead Generation</p>
-              <p>• Project Coordination</p>
-              <p>• Website Management</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Service Benefits */}
-      <section className="section-shell border-t border-slate-200 py-20">
-        <div className="grid gap-10 lg:grid-cols-2">
+      {/* Combinations + specs */}
+      <section className="bg-cloud py-20">
+        <div className="section-shell grid gap-10 lg:grid-cols-[1.2fr_1fr]">
           <div>
-            <h2 className="font-heading text-3xl font-bold text-slate-950">What You Get With Every Service</h2>
-            <p className="mt-4 text-slate-600">Beyond task completion, you receive structured support and ongoing optimization.</p>
-            <div className="mt-8 space-y-4">
-              <div>
-                <h4 className="font-semibold text-slate-950">Dedicated Point of Contact</h4>
-                <p className="mt-1 text-sm text-slate-600">Your VA becomes familiar with your business, processes, and preferences for seamless execution.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold text-slate-950">Clear Communication Protocols</h4>
-                <p className="mt-1 text-sm text-slate-600">We establish agreed channels (Slack, email, Zoom) and frequency to keep everything aligned.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold text-slate-950">Weekly Reporting & Tracking</h4>
-                <p className="mt-1 text-sm text-slate-600">You always know what's being handled and what's completed with transparent task documentation.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold text-slate-950">Continuous Optimization</h4>
-                <p className="mt-1 text-sm text-slate-600">We refine processes based on results and feedback to maximize your team's productivity.</p>
-              </div>
+            <SectionHeading
+              align="left"
+              eyebrow="Popular Combinations"
+              title="How Clients Bundle Services"
+              summary="Most clients combine two or three services under one dedicated assistant."
+            />
+            <div className="mt-8 grid gap-4">
+              {[
+                {
+                  title: "For Founders & Executives",
+                  items: ["Executive Assistance", "Administrative Support", "Lead Generation"],
+                },
+                {
+                  title: "For eCommerce & Agencies",
+                  items: ["Customer Support", "Content Creation", "Marketing Support"],
+                },
+                {
+                  title: "For Growth Teams",
+                  items: ["Lead Generation", "Project Coordination", "Website Management"],
+                },
+              ].map((combo) => (
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" key={combo.title}>
+                  <h3 className="font-heading text-lg font-bold text-navy">{combo.title}</h3>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {combo.items.map((item) => (
+                      <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-brand-blue-dark" key={item}>
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-8">
-            <h3 className="font-heading text-xl font-bold text-slate-950">Service Specifications</h3>
-            <div className="mt-6 space-y-4 text-sm text-slate-600">
-              <div>
-                <span className="font-semibold text-slate-950">Hours:</span> <br />
-                UK/EU business hours with flexibility for urgent tasks
-              </div>
-              <div>
-                <span className="font-semibold text-slate-950">Tools:</span> <br />
-                We work with your existing tools: Slack, HubSpot, Shopify, Notion, Asana, Trello, Google Workspace, and more
-              </div>
-              <div>
-                <span className="font-semibold text-slate-950">Flexibility:</span> <br />
-                Single service or mixed support across multiple categories
-              </div>
-              <div>
-                <span className="font-semibold text-slate-950">Training:</span> <br />
-                5-day typical onboarding with clear handover documentation
-              </div>
-              <div>
-                <span className="font-semibold text-slate-950">Billing:</span> <br />
-                Hourly rates with transparent tracking and reporting
+          <div className="h-fit rounded-3xl border border-slate-200 bg-navy p-8 text-white lg:sticky lg:top-28">
+            <h3 className="font-heading text-xl font-bold">Service Specifications</h3>
+            <div className="mt-6 grid gap-5">
+              {serviceSpecs.map((spec) => {
+                const Icon = spec.icon;
+                return (
+                  <div className="flex gap-3" key={spec.label}>
+                    <Icon className="mt-0.5 shrink-0 text-brand-green" size={18} />
+                    <p className="text-sm leading-6 text-slate-300">
+                      <span className="font-bold text-white">{spec.label}: </span>
+                      {spec.detail}
+                    </p>
+                  </div>
+                );
+              })}
+              <div className="flex gap-3">
+                <ShieldCheck className="mt-0.5 shrink-0 text-brand-green" size={18} />
+                <p className="text-sm leading-6 text-slate-300">
+                  <span className="font-bold text-white">Onboarding: </span>
+                  5-day typical onboarding with clear handover documentation
+                </p>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ About Services */}
-      <section className="section-shell border-t border-slate-200 py-20">
-        <div className="mb-12">
-          <h2 className="font-heading text-3xl font-bold text-slate-950">Service FAQs</h2>
-        </div>
-        <div className="max-w-3xl">
-          <FAQAccordion />
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="section-shell border-t border-slate-200 py-20">
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-blue-50 to-slate-50 p-8 text-center md:p-12">
-          <h2 className="font-heading text-3xl font-bold text-slate-950">Ready to get started?</h2>
-          <p className="mt-3 text-slate-600">Tell us about your business and let's find the right VA support for your needs.</p>
-          <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <ChatButton size="lg">Get Started</ChatButton>
-            <CallButton size="lg" variant="secondary">Call us now</CallButton>
-            <Button
-              asChild
-              className="bg-emerald-600 text-white shadow-[0_18px_40px_rgba(5,150,105,0.28)] hover:bg-emerald-500 focus-visible:outline-emerald-500"
-              size="lg"
-              variant="secondary"
-            >
-              <Link href={site.whatsapp}>
-                <MessageCircle size={18} />
-                Chat us on WhatsApp
-              </Link>
+            <Button asChild className="mt-8 w-full" variant="green">
+              <Link href="/pricing">See Pricing</Link>
             </Button>
           </div>
+        </div>
+      </section>
+
+      {/* Industries */}
+      <MotionSection className="section-shell py-20">
+        <SectionHeading
+          eyebrow="Industries"
+          title="Services That Fit Your Sector"
+          summary="Assistants with sector experience deliver faster from day one."
+        />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {industries.map((industry) => {
+            const Icon = industry.icon;
+            return (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" key={industry.name}>
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-brand-green-dark">
+                  <Icon size={19} />
+                </span>
+                <h3 className="mt-4 font-heading text-base font-bold text-navy">{industry.name}</h3>
+                <p className="mt-1.5 text-sm leading-6 text-slate-600">{industry.description}</p>
+              </div>
+            );
+          })}
+        </div>
+      </MotionSection>
+
+      {/* Onboarding process */}
+      <section className="bg-cloud py-20">
+        <div className="section-shell">
+          <SectionHeading
+            eyebrow="Onboarding"
+            title="From Discovery Call to Delegation in Four Steps"
+          />
+          <ol className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+            {processSteps.map((step, index) => (
+              <li className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm" key={step.title}>
+                <span className="font-heading text-4xl font-extrabold text-brand-blue/20">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <h3 className="mt-3 font-heading text-lg font-bold text-navy">{step.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{step.description}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <MotionSection className="section-shell py-20">
+        <SectionHeading
+          eyebrow="FAQ"
+          title="Service Questions, Answered"
+          summary="The details most clients want before choosing their service mix."
+        />
+        <div className="mx-auto mt-12 max-w-3xl">
+          <FAQAccordion items={faqs} />
+        </div>
+      </MotionSection>
+
+      {/* CTA */}
+      <section className="section-shell pb-20">
+        <div className="rounded-[2rem] bg-navy p-8 text-center text-white md:p-14">
+          <h2 className="mx-auto max-w-2xl font-heading text-3xl font-extrabold text-balance md:text-4xl">
+            Not Sure Which Services You Need?
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-lg leading-8 text-slate-300">
+            Book a free consultation and we&apos;ll map your workload to the right service mix —
+            and to the right assistant.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <ChatButton size="lg">Book Free Consultation</ChatButton>
+            <Button asChild size="lg" variant="secondary">
+              <Link href="/contact">Send Us A Message</Link>
+            </Button>
+          </div>
+          <p className="mt-6 text-sm font-semibold text-slate-400">
+            Prefer instant answers? WhatsApp us at {site.phoneDisplay}
+          </p>
         </div>
       </section>
     </PageFrame>
