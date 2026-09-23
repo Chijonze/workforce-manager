@@ -307,16 +307,19 @@ export default function Home() {
     };
   }, [canMonitorWorkforce, token, user?._id]);
 
-  // Hiring managers keep their team view fresh with a light poll.
+  // Admins and hiring managers keep presence and worker statuses fresh with a
+  // light poll; only hiring managers also refresh the overview table here.
   useEffect(() => {
-    if (!token || !isSupervisor) return;
+    if (!token || !canMonitorWorkforce) return;
 
     const timer = window.setInterval(() => {
-      void apiRequest<AdminOverview>(`/api/execution/admin/overview?date=${overviewDate}`, {
-        token,
-      })
-        .then(setAdminOverview)
-        .catch(() => undefined);
+      if (isSupervisor) {
+        void apiRequest<AdminOverview>(`/api/execution/admin/overview?date=${overviewDate}`, {
+          token,
+        })
+          .then(setAdminOverview)
+          .catch(() => undefined);
+      }
 
       const presenceSocket = monitorPresenceSocketRef.current;
       if (presenceSocket?.readyState === WebSocket.OPEN) {
@@ -325,7 +328,7 @@ export default function Home() {
     }, 15000);
 
     return () => window.clearInterval(timer);
-  }, [isSupervisor, overviewDate, token]);
+  }, [canMonitorWorkforce, isSupervisor, overviewDate, token]);
 
   // Shift monitoring runs for the whole active shift: mouse tracking from
   // Available to End shift plus the randomized screenshot schedule.

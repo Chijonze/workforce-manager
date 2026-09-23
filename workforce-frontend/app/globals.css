@@ -921,9 +921,9 @@ button:disabled {
 .screen-monitor-controls {
   display: grid;
   align-content: start;
-  gap: 12px;
-  padding: 12px;
-  background: var(--panel-2);
+  gap: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #f9fbfc 0%, var(--panel-2) 100%);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
@@ -977,6 +977,425 @@ button:disabled {
   border-radius: 8px;
   font-weight: 800;
   box-shadow: 0 12px 28px rgba(24, 33, 31, 0.22);
+}
+
+/* ==========================================================================
+   Live Screen Monitor: presence dots, status chips, animated agent picker
+   ========================================================================== */
+
+.screen-monitor-panel .panel-title h2 {
+  letter-spacing: -0.2px;
+}
+
+.screen-monitor-panel .panel-subtitle {
+  font-size: 12.5px;
+}
+
+.agent-select-field label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+/* Presence dots ------------------------------------------------------------ */
+
+.presence-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.presence-dot.online {
+  background: var(--success);
+  animation: presence-pulse 2.4s ease-out infinite;
+}
+
+.presence-dot.break {
+  background: var(--accent);
+}
+
+.presence-dot.offline {
+  background: #97a3af;
+}
+
+@keyframes presence-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(21, 128, 61, 0.35);
+  }
+
+  70% {
+    box-shadow: 0 0 0 6px rgba(21, 128, 61, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(21, 128, 61, 0);
+  }
+}
+
+/* Worker activity chips (Available / On break / Ended shift / ...) --------- */
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-chip .chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.status-chip.is-available {
+  color: #0f766e;
+  background: rgba(13, 148, 136, 0.12);
+}
+
+.status-chip.is-break {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.13);
+}
+
+.status-chip.is-meeting {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.status-chip.is-acw {
+  color: #0369a1;
+  background: rgba(2, 132, 199, 0.12);
+}
+
+.status-chip.is-ended {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.12);
+}
+
+.status-chip.is-unclocked {
+  color: var(--muted);
+  background: var(--panel-2);
+}
+
+/* Agent picker (animated replacement for the native select) ---------------- */
+
+.agent-select {
+  position: relative;
+}
+
+.agent-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  color: var(--ink);
+  text-align: left;
+  background: white;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-soft);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.agent-select-trigger:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.agent-select.open .agent-select-trigger,
+.agent-select-trigger:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.14);
+  outline: none;
+}
+
+.agent-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: white;
+  background: linear-gradient(135deg, var(--primary) 0%, #17212b 130%);
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.agent-avatar.small {
+  width: 30px;
+  height: 30px;
+  font-size: 11px;
+}
+
+.agent-select-text {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.agent-select-name {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-select-email {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-select-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.22s ease;
+}
+
+.agent-select.open .agent-select-chevron {
+  transform: rotate(180deg);
+}
+
+.agent-select-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  left: 0;
+  z-index: 60;
+  max-height: 296px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(23, 33, 43, 0.18);
+  transform-origin: top center;
+  animation: agent-select-menu-in 0.18s ease both;
+}
+
+@keyframes agent-select-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.agent-select-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 3px 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.agent-select-option .agent-avatar,
+.agent-select-option .agent-select-text {
+  grid-row: 1 / span 2;
+}
+
+.agent-select-option .agent-presence {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.agent-select-option .status-chip {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  margin-top: 2px;
+}
+
+.agent-select-option:hover,
+.agent-select-option.highlighted {
+  background: rgba(13, 148, 136, 0.08);
+}
+
+.agent-select-option.selected {
+  background: rgba(13, 148, 136, 0.12);
+}
+
+.agent-select-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.agent-select-option.disabled:hover {
+  background: transparent;
+}
+
+.agent-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agent-select-empty {
+  padding: 14px 10px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Selected agent status card ------------------------------------------------ */
+
+.selected-agent-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-soft);
+}
+
+.selected-agent-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.selected-agent-text strong {
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-agent-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Team status summary strip -------------------------------------------------- */
+
+.screen-monitor-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.status-strip-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-strip-chip strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live frame accent ----------------------------------------------------------- */
+
+.screen-frame.live {
+  border-color: rgba(13, 148, 136, 0.55);
+  box-shadow:
+    0 0 0 3px rgba(13, 148, 136, 0.14),
+    0 18px 44px rgba(13, 148, 136, 0.12);
+}
+
+.screen-frame.live::after {
+  content: "LIVE";
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  color: white;
+  background: rgba(220, 38, 38, 0.92);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  box-shadow: 0 8px 20px rgba(220, 38, 38, 0.35);
+  animation: live-badge-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes live-badge-glow {
+  0%,
+  100% {
+    box-shadow: 0 8px 20px rgba(220, 38, 38, 0.35);
+  }
+
+  50% {
+    box-shadow: 0 8px 26px rgba(220, 38, 38, 0.55);
+  }
+}
+
+@media (max-width: 720px) {
+  .agent-select-option .agent-presence {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-select-menu {
+    animation: none;
+  }
+
+  .agent-select-chevron {
+    transition: none;
+  }
+
+  .presence-dot.online {
+    animation: none;
+  }
+
+  .screen-frame.live::after {
+    animation: none;
+  }
 }
 
 .table-wrap {

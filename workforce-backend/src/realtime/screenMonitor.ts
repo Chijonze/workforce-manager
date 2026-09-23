@@ -2,6 +2,9 @@ import http from "http";
 import jwt from "jsonwebtoken";
 import { WebSocket, WebSocketServer } from "ws";
 import User from "../models/User";
+import ShiftEvent from "../models/ShiftEvent";
+import ShiftSession from "../models/ShiftSession";
+import { combineDateAndTime, getBusinessDateKey } from "../utils/scheduleTime";
 import {
   addCapture,
   addMouseSamples,
@@ -26,12 +29,29 @@ type ScreenClient = {
   monitoringCaptureMeta?: { shiftId: string; width: number; height: number };
 };
 
+type EmployeeActivityState =
+  | "available"
+  | "break"
+  | "lunch"
+  | "meeting"
+  | "training"
+  | "after_call_work"
+  | "ended_shift"
+  | "not_clocked_in";
+
+type EmployeeActivity = {
+  state: EmployeeActivityState;
+  label: string;
+  since?: string;
+};
+
 type MonitorEmployee = {
   id: string;
   name: string;
   email: string;
   isOnline: boolean;
   activeMonitorId?: string;
+  activity?: EmployeeActivity | null;
 };
 
 type PresenceMessage = {
@@ -184,36 +204,168 @@ function findActiveMonitorId(monitorIds: string[]) {
     .find(Boolean);
 }
 
-async function refreshAllowedEmployeeIds(admin: ScreenClient) {
-  if (admin.type !== "admin" || admin.authRole !== "supervisor" || !admin.authUserId) return;
+// Worker activity (available / on break / ended shift, ...) is derived from
+// shift sessions and events, not from the desktop-agent socket, so the two
+// truths stay independent: a worker can be online and on break at once.
+const AVAILABLE_ACTIVITY: EmployeeActivity = { state: "available", label: "Available" };
+const NOT_CLOCKED_IN_ACTIVITY: EmployeeActivity = { state: "not_clocked_in", label: "Not clocked in" };
 
-  const user = await User.findById(admin.authUserId)
-    .select("assignedAgentIds")
-    .populate("assignedAgentIds", "_id name email")
+const ACTIVITY_FROM_EVENT: Record<string, EmployeeActivity> = {
+  SHIFT_START: AVAILABLE_ACTIVITY,
+  WORK_START: AVAILABLE_ACTIVITY,
+  BREAK_END: AVAILABLE_ACTIVITY,
+  LUNCH_END: AVAILABLE_ACTIVITY,
+  MEETING_END: AVAILABLE_ACTIVITY,
+  TRAINING_END: AVAILABLE_ACTIVITY,
+  AFTER_CALL_WORK_END: AVAILABLE_ACTIVITY,
+  BREAK_START: { state: "break", label: "On break" },
+  LUNCH_START: { state: "lunch", label: "On lunch" },
+  MEETING_START: { state: "meeting", label: "In a meeting" },
+  TRAINING_START: { state: "training", label: "In training" },
+  AFTER_CALL_WORK_START: { state: "after_call_work", label: "After-call work" },
+  SHIFT_END: { state: "ended_shift", label: "Ended shift" },
+};
+
+const PRESENCE_CACHE_TTL_MS = 10000;
+
+type PresenceCacheEntry<T> = { at: number; value: T };
+
+let agentsCache: PresenceCacheEntry<any[]> | null = null;
+let activityCache: PresenceCacheEntry<Map<string, EmployeeActivity>> | null = null;
+
+function getFreshCache<T>(cache: PresenceCacheEntry<T> | null): T | null {
+  return cache && Date.now() - cache.at < PRESENCE_CACHE_TTL_MS ? cache.value : null;
+}
+
+async function getAgentsSnapshot() {
+  const cached = getFreshCache(agentsCache);
+  if (cached) return cached;
+
+  const agents = await User.find({ role: "agent" })
+    .select("_id name email monitorId")
+    .lean();
+  agentsCache = { at: Date.now(), value: agents };
+  return agents;
+}
+
+async function loadAgentActivity(): Promise<Map<string, EmployeeActivity>> {
+  const agents = await getAgentsSnapshot();
+  const userIds = agents.map((agent) => String(agent._id));
+  const activityByUserId = new Map<string, EmployeeActivity>();
+  if (!userIds.length) return activityByUserId;
+
+  const businessDayStart = combineDateAndTime(getBusinessDateKey(new Date()), "00:00");
+
+  const activeShifts = await ShiftSession.find({ userId: { $in: userIds }, status: "active" })
+    .select("_id userId")
     .lean();
 
-  const assignedAgents = ((user?.assignedAgentIds || []) as any[]).map((agent) => {
-    const id = String(agent?._id || "");
-    const email = String(agent?.email || "");
-    const monitorIds = getAgentMonitorIds(agent);
-    const activeMonitorId = findEmployeeForAgent(agent)?.id || findActiveMonitorId(monitorIds);
+  const [activeShiftLastEvents, todayLatestEvents] = await Promise.all([
+    ShiftEvent.aggregate<any>([
+      { $match: { shiftId: { $in: activeShifts.map((shift) => shift._id) } } },
+      { $sort: { createdAt: -1, _id: -1 } },
+      { $group: { _id: "$shiftId", type: { $first: "$type" }, timestamp: { $first: "$timestamp" } } },
+    ]),
+    ShiftEvent.aggregate<any>([
+      { $match: { userId: { $in: userIds }, timestamp: { $gte: businessDayStart } } },
+      { $sort: { timestamp: -1, _id: -1 } },
+      { $group: { _id: "$userId", type: { $first: "$type" }, timestamp: { $first: "$timestamp" } } },
+    ]),
+  ]);
 
-    return {
-      id,
-      name: String(agent?.name || email || id),
-      email,
-      isOnline: Boolean(activeMonitorId),
-      activeMonitorId,
-      monitorIds,
-    };
-  });
+  const lastEventByShiftId = new Map(
+    activeShiftLastEvents.map((event) => [String(event._id), event])
+  );
 
-  admin.allowedEmployeeIds = new Set(assignedAgents.flatMap((agent) => agent.monitorIds));
-  admin.assignedEmployees = assignedAgents
-    .map(({ monitorIds: _monitorIds, ...agent }) => agent)
+  for (const shift of activeShifts) {
+    const lastEvent = lastEventByShiftId.get(String(shift._id));
+    const activity = (lastEvent && ACTIVITY_FROM_EVENT[lastEvent.type]) || AVAILABLE_ACTIVITY;
+    activityByUserId.set(String(shift.userId), {
+      ...activity,
+      since: lastEvent ? new Date(lastEvent.timestamp).toISOString() : undefined,
+    });
+  }
+
+  const latestEventByUserId = new Map(
+    todayLatestEvents.map((event) => [String(event._id), event])
+  );
+
+  for (const userId of userIds) {
+    if (activityByUserId.has(userId)) continue;
+
+    // No active shift: an event of type SHIFT_END today means the worker
+    // clocked out; anything else means they never clocked in today.
+    const latest = latestEventByUserId.get(userId);
+    if (latest && latest.type === "SHIFT_END") {
+      activityByUserId.set(userId, {
+        state: "ended_shift",
+        label: "Ended shift",
+        since: new Date(latest.timestamp).toISOString(),
+      });
+    } else {
+      activityByUserId.set(userId, { ...NOT_CLOCKED_IN_ACTIVITY });
+    }
+  }
+
+  activityCache = { at: Date.now(), value: activityByUserId };
+  return activityByUserId;
+}
+
+async function getCachedAgentActivity(): Promise<Map<string, EmployeeActivity>> {
+  const cached = getFreshCache(activityCache);
+  if (cached) return cached;
+
+  try {
+    return await loadAgentActivity();
+  } catch {
+    // Status enrichment must never break presence; degrade to no activity.
+    return new Map<string, EmployeeActivity>();
+  }
+}
+
+async function refreshAllowedEmployeeIds(admin: ScreenClient) {
+  if (admin.type !== "admin") return;
+
+  const supervisorScope = admin.authRole === "supervisor" && Boolean(admin.authUserId);
+
+  let agents: any[] = [];
+  if (supervisorScope) {
+    const user = await User.findById(admin.authUserId)
+      .select("assignedAgentIds")
+      .populate("assignedAgentIds", "_id name email monitorId")
+      .lean();
+
+    agents = (user?.assignedAgentIds || []) as any[];
+    admin.allowedEmployeeIds = new Set(agents.flatMap((agent) => getAgentMonitorIds(agent)));
+  } else {
+    // Admins (including key-authed consoles) monitor the whole workforce.
+    agents = await getAgentsSnapshot();
+  }
+
+  const activityByUserId = await getCachedAgentActivity();
+
+  admin.assignedEmployees = agents
+    .map((agent) => {
+      const id = String(agent?._id || "");
+      const email = String(agent?.email || "");
+      const monitorIds = getAgentMonitorIds(agent);
+      const activeMonitorId = findEmployeeForAgent(agent)?.id || findActiveMonitorId(monitorIds);
+
+      return {
+        id,
+        name: String(agent?.name || email || id),
+        email,
+        isOnline: Boolean(activeMonitorId),
+        activeMonitorId,
+        activity: activityByUserId.get(id) || null,
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // Only supervisor-scoped watchers can have a target revoked by assignment
+  // changes; admins keep full visibility regardless of this snapshot.
   if (
+    supervisorScope &&
     admin.watchingId &&
     !getMonitorAliases(admin.watchingId, true).some((alias) =>
       Boolean(admin.allowedEmployeeIds?.has(alias))
@@ -319,7 +471,7 @@ function sendToWatchingAdmins(employeeId: string, frame: Buffer) {
 }
 
 async function resolveEmployeeUserId(monitorId: string) {
-  const agents = await User.find({ role: "agent" }).select("_id name email monitorId").lean();
+  const agents = await getAgentsSnapshot();
   const agent = agents.find((candidate) => monitorIdMatchesAgent(monitorId, candidate));
 
   return agent ? String(agent._id) : undefined;

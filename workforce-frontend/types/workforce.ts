@@ -208,12 +208,29 @@ export type ScreenMonitorPresence = {
   assignedEmployees?: ScreenMonitorEmployee[];
 };
 
+export type ScreenMonitorActivityState =
+  | "available"
+  | "break"
+  | "lunch"
+  | "meeting"
+  | "training"
+  | "after_call_work"
+  | "ended_shift"
+  | "not_clocked_in";
+
+export type ScreenMonitorActivity = {
+  state: ScreenMonitorActivityState;
+  label: string;
+  since?: string;
+};
+
 export type ScreenMonitorEmployee = {
   id: string;
   name: string;
   email: string;
   isOnline: boolean;
   activeMonitorId?: string;
+  activity?: ScreenMonitorActivity | null;
 };
 
 
