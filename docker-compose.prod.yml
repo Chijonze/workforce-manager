@@ -35,6 +35,9 @@ services:
         NEXT_PUBLIC_CALENDLY_URL: ${NEXT_PUBLIC_CALENDLY_URL}
         NEXT_PUBLIC_WHATSAPP_URL: ${NEXT_PUBLIC_WHATSAPP_URL}
         NEXT_PUBLIC_LIVEKIT_WS_URL: wss://${LIVEKIT_DOMAIN:-livekit.advancedvirtualsolutions.com}
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
     restart: unless-stopped
     expose:
       - "3001"
