@@ -1,12 +1,28 @@
 "use client";
 
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Sparkles, X } from "lucide-react";
 import { VideoCallButton } from "@/components/video-call-button";
+import { useAssistant } from "@/components/assistant-provider";
 import { openChatwootChat } from "@/lib/chatwoot";
 
 export function FloatingChat() {
+  const { isOpen, openAssistant, closeAssistant } = useAssistant();
+
   return (
     <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3">
+      <button
+        aria-label={isOpen ? "Close AI assistant" : "Ask the AVS AI assistant"}
+        aria-expanded={isOpen}
+        className="grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-brand-blue to-cyan-500 text-white shadow-cta ring-1 ring-white/60 transition hover:brightness-110 focus:outline-none focus:ring-4 focus:ring-brand-blue/30"
+        onClick={() => (isOpen ? closeAssistant() : openAssistant())}
+        title="Ask the AVS AI assistant"
+      >
+        {isOpen ? (
+          <X aria-hidden="true" className="h-7 w-7" />
+        ) : (
+          <Sparkles aria-hidden="true" className="h-7 w-7" />
+        )}
+      </button>
       <VideoCallButton
         aria-label="Call us now"
         className="h-14 w-14 min-h-14 gap-0 rounded-full bg-cyan-500 p-0 text-slate-950 shadow-soft ring-1 ring-white/60 transition hover:bg-cyan-300 focus:outline-none focus:ring-4 focus:ring-cyan-500/30"
