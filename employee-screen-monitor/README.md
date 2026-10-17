@@ -83,9 +83,9 @@ activity monitoring** for the signed-in worker's active shift:
 - While a worker with an active shift is connected, the server sends
   `START_MONITORING` (and later `STOP_MONITORING` when the shift ends). The
   agent then reports aggregated mouse movement (position sampled every second,
-  one small batch per minute) and takes that shift's remaining 7-10 randomized
-  screenshots via `desktopCapturer` — no new permission prompts beyond the
-  standard Screen Recording permission.
+  one small batch per minute) and takes an automatic screenshot every 15
+  minutes via `desktopCapturer` until the shift ends — no new permission
+  prompts beyond the standard Screen Recording permission.
 - Everything rides the existing WebSocket connection with no new login.
 - Older builds without this feature keep working exactly as before: they simply
   ignore the `START_MONITORING`/`STOP_MONITORING` commands, and the dashboard

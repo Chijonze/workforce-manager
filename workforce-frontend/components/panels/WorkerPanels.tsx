@@ -257,7 +257,7 @@ export function LiveExecutionPanel({
               ? "Your desktop agent tracks activity across the whole computer until you end your shift."
               : "Mouse activity is tracked until you end your shift."}
             {monitoring?.capturesEnabled
-              ? ` Automatic screenshots: ${monitoring.capturesTaken}${monitoring.capturePlan ? ` of ${monitoring.capturePlan}` : ""} taken.`
+              ? ` Automatic screenshots: ${monitoring.capturesTaken} taken · one every ${monitoring.captureIntervalMinutes} minutes until you end your shift.`
               : monitoring?.captureNotice
                 ? ` ${monitoring.captureNotice}${monitoring.canRetryCapture ? "" : "; screenshots are unavailable this session."}`
                 : " Setting up screenshots…"}

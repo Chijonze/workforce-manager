@@ -335,7 +335,8 @@ export default function Home() {
   }, [canMonitorWorkforce, isSupervisor, overviewDate, token]);
 
   // Shift monitoring runs for the whole active shift: mouse tracking from
-  // Available to End shift plus the randomized screenshot schedule.
+  // Available to End shift plus one screenshot every 15 minutes over the same
+  // window, for both time-managed and fluid shifts.
   useEffect(() => {
     const shiftId = currentShiftId;
 
@@ -352,7 +353,6 @@ export default function Home() {
     monitoringRef.current = createMonitoringSession({
       token,
       shiftId,
-      plannedEndTime: activeShift?.shift.scheduledEndTime || null,
       onState: setMonitoringStats,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

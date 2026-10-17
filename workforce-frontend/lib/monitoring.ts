@@ -5,7 +5,7 @@ import { getApiUrl } from "./api";
 export type MonitoringStats = {
   shiftId: string;
   running: boolean;
-  capturePlan: number;
+  captureIntervalMinutes: number;
   capturesTaken: number;
   capturesEnabled: boolean;
   captureNotice: string | null;
@@ -23,15 +23,15 @@ export type MonitoringHandle = {
 type EngineOptions = {
   token: string;
   shiftId: string;
-  plannedEndTime?: string | null;
   onState: (stats: MonitoringStats) => void;
 };
 
 const MOUSE_FLUSH_MS = 60_000;
 const MAX_CAPTURE_WIDTH = 1280;
 const JPEG_QUALITY = 0.6;
-const DEFAULT_FLUID_WINDOW_HOURS = 8;
-const MAX_WINDOW_HOURS = 12;
+// Fixed cadence, overridable by the server until clients catch up.
+const DEFAULT_CAPTURE_INTERVAL_MS = 15 * 60_000;
+const MIN_CAPTURE_INTERVAL_MS = 60_000;
 
 // Counts only — one tiny object mutated in place. No per-event allocation, so
 // the listeners stay negligible even under heavy mouse activity.
@@ -52,7 +52,8 @@ const authHeaders = (token: string): HeadersInit => ({
 /**
  * Runs worker activity monitoring for one shift:
  *  - mouse tracking (aggregated per minute, from "Available" to "End shift")
- *  - 7-10 automatic randomized screenshots across the work window
+ *  - an automatic screenshot every 15 minutes over the same window, for both
+ *    time-managed and fluid shifts
  *
  * If the worker's desktop agent (Electron) connects, the server hands the
  * shift over to it for desktop-wide tracking; this page then stands down and
@@ -61,13 +62,13 @@ const authHeaders = (token: string): HeadersInit => ({
  * Deliberately frugal: counters instead of event streams, one small upload per
  * minute, screenshots taken from a display stream that stays paused between
  * captures, and a single reused canvas. Server load is a few tiny requests per
- * worker per hour plus at most ten ~100KB JPEGs per shift.
+ * worker per hour plus one ~100KB JPEG per 15 minutes of shift.
  */
 export function createMonitoringSession(options: EngineOptions): MonitoringHandle {
-  const { token, shiftId, plannedEndTime, onState } = options;
+  const { token, shiftId, onState } = options;
 
   let stopped = false;
-  let capturePlan = 0;
+  let captureIntervalMs = DEFAULT_CAPTURE_INTERVAL_MS;
   let capturesTaken = 0;
   let capturesEnabled = false;
   let captureNotice: string | null = null;
@@ -78,13 +79,13 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
   const totals = { movements: 0, distancePx: 0, clicks: 0, scrolls: 0 };
 
   const flushTimer = window.setInterval(() => void flushTick(), MOUSE_FLUSH_MS);
-  const captureTimers = new Set<number>();
+  let captureTimer: number | null = null;
 
   const emit = () => {
     onState({
       shiftId,
       running: !stopped,
-      capturePlan,
+      captureIntervalMinutes: Math.round(captureIntervalMs / 60_000),
       capturesTaken,
       capturesEnabled,
       captureNotice,
@@ -117,13 +118,15 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     window.removeEventListener("wheel", onWheel);
   };
 
-  function clearCaptureTimers() {
-    captureTimers.forEach((timer) => window.clearTimeout(timer));
-    captureTimers.clear();
+  function clearCaptureTimer() {
+    if (captureTimer !== null) {
+      window.clearInterval(captureTimer);
+      captureTimer = null;
+    }
   }
 
   // Once the worker's desktop agent reports in, it owns desktop-wide tracking
-  // and the remaining screenshot plan; the browser page stands down so data
+  // and the remaining screenshot cadence; the browser page stands down so data
   // is not double-counted.
   function supersedeByDesktopAgent() {
     if (viaDesktopAgent) return;
@@ -132,7 +135,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     capturesEnabled = false;
     canRetryCapture = false;
     captureNotice = "Desktop agent is handling tracking and screenshots";
-    clearCaptureTimers();
+    clearCaptureTimer();
     disarmGestureRetry();
     detachMouseListeners();
     if (video?.srcObject) {
@@ -155,7 +158,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       // The desktop agent is gone: resume browser-scoped tracking with the
       // server's capture counts as the baseline.
       viaDesktopAgent = false;
-      capturePlan = Number(data?.capturePlan) || capturePlan;
+      applyCaptureInterval(data?.captureIntervalMinutes);
       capturesTaken = Math.max(Number(data?.captureCount) || 0, capturesTaken);
       attachMouseListeners();
       startCaptureService();
@@ -165,38 +168,31 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     }
   }
 
-  function armRemainingCaptures() {
-    if (!capturesEnabled || capturePlan <= 0) return;
-
-    const remaining = Math.max(0, capturePlan - capturesTaken);
-    if (!remaining) return;
-
-    const now = Date.now();
-    const plannedEnd = plannedEndTime ? new Date(plannedEndTime).getTime() : 0;
-    const horizon = plannedEnd > now
-      ? plannedEnd - now
-      : DEFAULT_FLUID_WINDOW_HOURS * 60 * 60_000;
-    const windowMs = Math.min(horizon, MAX_WINDOW_HOURS * 60 * 60_000);
-
-    for (let index = 0; index < remaining; index += 1) {
-      const slotStart = (index / remaining) * windowMs;
-      const slotEnd = ((index + 1) / remaining) * windowMs;
-      const delay = slotStart + Math.random() * (slotEnd - slotStart);
-      const timer = window.setTimeout(() => {
-        captureTimers.delete(timer);
-        if (stopped || !capturesEnabled) return;
-
-        const videoEl = video;
-        if (!videoEl) return;
-
-        videoEl.play()
-          .then(() => new Promise((resolve) => window.setTimeout(resolve, 400)))
-          .then(() => captureFromVideo())
-          .catch(() => undefined)
-          .finally(() => videoEl.pause());
-      }, Math.max(5_000, delay));
-      captureTimers.add(timer);
+  function applyCaptureInterval(minutes: unknown) {
+    const parsed = Math.round(Number(minutes) || 0);
+    if (parsed > 0) {
+      captureIntervalMs = Math.max(MIN_CAPTURE_INTERVAL_MS, parsed * 60_000);
     }
+  }
+
+  // One screenshot per cadence tick, from when capture starts (the worker
+  // going Available) until the shift ends. The tick is a no-op while screen
+  // capture is unavailable, so a late permission grant just rejoins the beat.
+  function startCaptureCadence() {
+    if (captureTimer !== null) return;
+
+    captureTimer = window.setInterval(() => {
+      if (stopped || !capturesEnabled || viaDesktopAgent) return;
+
+      const videoEl = video;
+      if (!videoEl) return;
+
+      videoEl.play()
+        .then(() => new Promise((resolve) => window.setTimeout(resolve, 400)))
+        .then(() => captureFromVideo())
+        .catch(() => undefined)
+        .finally(() => videoEl.pause());
+    }, captureIntervalMs);
   }
 
   async function flushMouse(keepalive: boolean) {
@@ -340,11 +336,11 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
           capturesEnabled = false;
           canRetryCapture = true;
           captureNotice = "Screen sharing was stopped";
-          clearCaptureTimers();
+          clearCaptureTimer();
           emit();
         });
 
-        armRemainingCaptures();
+        startCaptureCadence();
       })
       .catch((error: DOMException) => {
         if (stopped || viaDesktopAgent) return;
@@ -377,7 +373,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       const data = await response.json();
       if (!response.ok) throw new Error(data?.message || "Monitoring setup failed");
 
-      capturePlan = Number(data.capturePlan) || 0;
+      applyCaptureInterval(data.captureIntervalMinutes);
       capturesTaken = Number(data.captures) || 0;
       emit();
     } catch {
@@ -421,7 +417,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       stopped = true;
 
       window.clearInterval(flushTimer);
-      clearCaptureTimers();
+      clearCaptureTimer();
       disarmGestureRetry();
       detachMouseListeners();
       video?.srcObject &&

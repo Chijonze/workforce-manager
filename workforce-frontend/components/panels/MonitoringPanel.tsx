@@ -286,7 +286,7 @@ export default function MonitoringPanel({ agents, token }: { agents: User[]; tok
                 {monitoring.captures.length
                   ? "Click a screenshot to open it full size"
                   : monitoring.status === "active"
-                    ? "No screenshots yet — they are taken at random moments during the shift"
+                    ? "No screenshots yet — one is taken every 15 minutes during the shift"
                     : "No screenshots were captured in this shift"}
               </span>
             </div>

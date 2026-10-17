@@ -1,11 +1,10 @@
 import path from "path";
 import fs from "fs";
-import crypto from "crypto";
 import ShiftSession from "../../models/ShiftSession";
 import MonitoringSession, {
+  CAPTURE_INTERVAL_MINUTES,
   MAX_CAPTURES,
   MAX_MOUSE_SAMPLES,
-  MIN_CAPTURE_PLAN,
 } from "../../models/MonitoringSession";
 import User from "../../models/User";
 import { notifyMonitoringAgent } from "./monitoringAgentBus";
@@ -31,9 +30,24 @@ const clampInt = (value: unknown, max: number) => {
   return Math.min(max, Math.max(0, parsed));
 };
 
-export const randomCapturePlan = () => {
-  // Between 7 and 10 automatic screenshots per work window (inclusive).
-  return MIN_CAPTURE_PLAN + crypto.randomInt(0, 4);
+// Fluid shifts have no scheduled end, so the displayed plan assumes a standard
+// 8-hour work window; actual captures continue until the shift ends.
+const DEFAULT_FLUID_WINDOW_MINUTES = 8 * 60;
+
+export const plannedCaptureCount = (
+  startedAt: Date,
+  scheduledEndTime?: Date | null
+) => {
+  const startMs = new Date(startedAt).getTime();
+  const endMs = scheduledEndTime ? new Date(scheduledEndTime).getTime() : 0;
+  const windowMinutes = endMs > startMs
+    ? Math.ceil((endMs - startMs) / 60_000)
+    : DEFAULT_FLUID_WINDOW_MINUTES;
+
+  return Math.min(
+    MAX_CAPTURES,
+    Math.max(1, Math.ceil(windowMinutes / CAPTURE_INTERVAL_MINUTES))
+  );
 };
 
 async function assertShiftIsOwnedAndActive(userId: string, shiftId: string) {
@@ -56,13 +70,18 @@ export const ensureMonitoringSession = async (
 
   if (existing) return existing;
 
+  // The plan is the expected screenshot count at the fixed 15-minute cadence
+  // across the scheduled window; fluid shifts fall back to a standard window.
+  const shift = await ShiftSession.findById(shiftId).select("scheduledEndTime");
+  const scheduledEndTime = shift?.scheduledEndTime ? new Date(shift.scheduledEndTime) : null;
+
   return MonitoringSession.create({
     userId,
     shiftSessionId: shiftId,
     scheduleType,
     status: "active",
     startedAt: new Date(),
-    capturePlan: randomCapturePlan(),
+    capturePlan: plannedCaptureCount(new Date(), scheduledEndTime),
     captures: [],
     mouseSamples: [],
     mouseTotals: {},
@@ -147,10 +166,11 @@ export const addCapture = async (
   if (session.status !== "active") throw new Error("Monitoring session has ended");
 
   const captureCount = session.captures.length;
-  const plan = Math.min(MAX_CAPTURES, Math.max(MIN_CAPTURE_PLAN, session.capturePlan));
 
-  // Hard cap: server refuses anything beyond min(plan, MAX_CAPTURES).
-  if (captureCount >= Math.min(plan, MAX_CAPTURES)) {
+  // Hard cap: the client cadence (one capture per 15-minute tick until end
+  // shift) must never let the captures array grow without bound, even if a
+  // client bug fires early or repeats.
+  if (captureCount >= MAX_CAPTURES) {
     throw new Error("Capture limit reached for this shift");
   }
 
@@ -195,7 +215,7 @@ export const addCapture = async (
       seq,
       capturedAt: updated.captures[updated.captures.length - 1]?.capturedAt || new Date(),
       captureCount: updated.captures.length,
-      capturePlan: plan,
+      capturePlan: session.capturePlan,
     };
   } catch (error) {
     await fs.promises.unlink(filePath).catch(() => undefined);
@@ -255,6 +275,8 @@ export const getDesktopMonitoringHandoff = async (userId: string) => {
     shiftId: String(session.shiftSessionId),
     capturePlan: session.capturePlan,
     capturesTaken: session.captures.length,
+    // Clients schedule one screenshot per tick of this cadence until end shift.
+    captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
     scheduledEndTime: shift.scheduledEndTime ? new Date(shift.scheduledEndTime).toISOString() : null,
   };
 };
@@ -274,6 +296,7 @@ export const getMonitoringSessionState = async (userId: string, shiftId: string)
     desktopAgentActive: Boolean(session.desktopAgentActive),
     captureCount: session.captures.length,
     capturePlan: session.capturePlan,
+    captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
   };
 };
 

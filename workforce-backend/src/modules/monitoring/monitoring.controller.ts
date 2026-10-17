@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
+import { CAPTURE_INTERVAL_MINUTES } from "../../models/MonitoringSession";
 import * as monitoringService from "./monitoring.service";
 
 type AuthedRequest = Request & { user?: { userId: string; role: string } };
@@ -28,6 +29,7 @@ export const startMonitoringSession = async (req: AuthedRequest, res: Response) 
     res.status(201).json({
       monitoringSessionId: session._id,
       capturePlan: session.capturePlan,
+      captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
       captures: session.captures.length,
       startedAt: session.startedAt,
     });

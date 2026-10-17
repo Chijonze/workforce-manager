@@ -29,8 +29,9 @@ let monitoring = null;
 const MONITOR_MOUSE_POLL_MS = 1000;
 const MONITOR_MOUSE_FLUSH_MS = 60000;
 const MONITOR_MAX_WIDTH = 1280;
-const MONITOR_HORIZON_DEFAULT_MS = 8 * 60 * 60 * 1000;
-const MONITOR_HORIZON_MAX_MS = 12 * 60 * 60 * 1000;
+// Fixed cadence, overridable by the server until agents catch up.
+const MONITOR_CAPTURE_INTERVAL_MS = 15 * 60 * 1000;
+const MONITOR_CAPTURE_INTERVAL_MIN_MS = 60 * 1000;
 
 function readJson(filePath) {
   try {
@@ -293,8 +294,11 @@ function stopMonitoring() {
     monitoring.flushTimer = null;
   }
 
-  monitoring.captureTimers.forEach((timer) => clearTimeout(timer));
-  monitoring.captureTimers.clear();
+  if (monitoring.captureTimer) {
+    clearInterval(monitoring.captureTimer);
+    monitoring.captureTimer = null;
+  }
+
   monitoring = null;
 
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -311,41 +315,32 @@ function startMonitoring(message) {
 
   stopMonitoring();
 
-  const now = Date.now();
-  const scheduledEnd = message.scheduledEndTime ? new Date(message.scheduledEndTime).getTime() : 0;
-  const horizonMs = scheduledEnd > now
-    ? scheduledEnd - now
-    : MONITOR_HORIZON_DEFAULT_MS;
+  const intervalMinutes = Math.round(Number(message.captureIntervalMinutes) || 0);
+  const captureIntervalMs = Math.max(
+    MONITOR_CAPTURE_INTERVAL_MIN_MS,
+    intervalMinutes > 0 ? intervalMinutes * 60 * 1000 : MONITOR_CAPTURE_INTERVAL_MS
+  );
 
   monitoring = {
     shiftId,
-    capturePlan: Math.max(0, Math.min(10, Number(message.capturePlan) || 0)),
     capturesTaken: Math.max(0, Math.round(Number(message.capturesTaken) || 0)),
     bucket: emptyMouseBucket(),
     lastPoint: null,
     mouseTimer: null,
     flushTimer: null,
-    captureTimers: new Set(),
+    captureTimer: null,
+    captureIntervalMs,
     captureInFlight: false,
   };
 
   monitoring.mouseTimer = setInterval(pollMousePosition, MONITOR_MOUSE_POLL_MS);
   monitoring.flushTimer = setInterval(flushMouseBatch, MONITOR_MOUSE_FLUSH_MS);
 
-  // Spread the remaining captures randomly across the rest of the work window.
-  const remaining = Math.max(0, monitoring.capturePlan - monitoring.capturesTaken);
-  const windowMs = Math.min(horizonMs, MONITOR_HORIZON_MAX_MS);
-
-  for (let index = 0; index < remaining; index += 1) {
-    const slotStart = (index / remaining) * windowMs;
-    const slotEnd = ((index + 1) / remaining) * windowMs;
-    const delay = slotStart + Math.random() * Math.max(1, slotEnd - slotStart);
-    const timer = setTimeout(() => {
-      monitoring?.captureTimers.delete(timer);
-      void takeMonitoringScreenshot();
-    }, Math.max(5000, delay));
-    monitoring.captureTimers.add(timer);
-  }
+  // One screenshot per cadence tick until the shift ends; the first one lands
+  // a full interval after the agent takes over.
+  monitoring.captureTimer = setInterval(() => {
+    void takeMonitoringScreenshot();
+  }, captureIntervalMs);
 
   setStatus("Live", "Activity monitoring active for the current shift.");
 }

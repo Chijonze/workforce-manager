@@ -41,11 +41,13 @@ export interface IMonitoringSession extends Document {
   updatedAt?: Date;
 }
 
-// Hard limits keep a single document small: at most 10 screenshot entries and
-// 24h of one-minute mouse samples (~1440 tiny subdocuments), so the doc stays
-// well under MongoDB's size limits and cheap to update incrementally.
-export const MAX_CAPTURES = 10;
-export const MIN_CAPTURE_PLAN = 7;
+// Screenshots follow a fixed cadence (one every CAPTURE_INTERVAL_MINUTES from
+// shift start to end shift) rather than a fixed count. MAX_CAPTURES is only an
+// abuse bound: 96 covers 24h of continuous work at the 15-minute cadence and
+// keeps the document (plus 24h of one-minute mouse samples) small enough to
+// stay cheap to update incrementally.
+export const MAX_CAPTURES = 96;
+export const CAPTURE_INTERVAL_MINUTES = 15;
 export const MAX_MOUSE_SAMPLES = 1500;
 
 const mouseSampleSchema = new Schema<IMouseSample>(
@@ -89,7 +91,9 @@ const monitoringSessionSchema = new Schema<IMonitoringSession>(
     },
     startedAt: { type: Date, required: true, default: Date.now },
     endedAt: { type: Date, default: null },
-    capturePlan: { type: Number, default: MIN_CAPTURE_PLAN },
+    // Informational: expected screenshots for the scheduled window at the
+    // fixed cadence. It no longer gates uploads (MAX_CAPTURES does).
+    capturePlan: { type: Number, default: 0 },
     captures: { type: [captureSchema], default: [] },
     mouseSamples: { type: [mouseSampleSchema], default: [] },
     mouseTotals: {
