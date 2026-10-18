@@ -3,8 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, Menu, Search, X } from "lucide-react";
+import { ArrowRight, Menu, X } from "lucide-react";
 import { AnnouncementBar } from "@/components/announcement-bar";
+import { AssistantBotIcon } from "@/components/assistant-bot-icon";
 import { useAssistant } from "@/components/assistant-provider";
 import { navigation, site } from "@/lib/site-content";
 
@@ -49,7 +50,7 @@ export function SiteHeader() {
               className="grid h-11 w-11 place-items-center rounded-full border border-slate-200 text-navy transition hover:border-brand-blue/40 hover:bg-blue-50 hover:text-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
               onClick={() => (isOpen ? closeAssistant() : openAssistant())}
             >
-              {isOpen ? <X size={18} aria-hidden="true" /> : <Search size={18} aria-hidden="true" />}
+              {isOpen ? <X size={18} aria-hidden="true" /> : <AssistantBotIcon size={20} />}
             </button>
             <a
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-brand-blue px-5 py-3 text-sm font-semibold text-white shadow-cta transition duration-200 hover:bg-brand-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
@@ -71,7 +72,7 @@ export function SiteHeader() {
               className="grid h-11 w-11 place-items-center rounded-full border border-slate-200 text-navy transition hover:border-brand-blue/40 hover:bg-blue-50 hover:text-brand-blue"
               onClick={() => (isOpen ? closeAssistant() : openAssistant())}
             >
-              {isOpen ? <X size={18} aria-hidden="true" /> : <Search size={18} aria-hidden="true" />}
+              {isOpen ? <X size={18} aria-hidden="true" /> : <AssistantBotIcon size={20} />}
             </button>
             <button
               className="grid h-11 w-11 place-items-center rounded-full border border-slate-200 text-navy"

@@ -1,7 +1,8 @@
 "use client";
 
-import { MessageCircle, Sparkles, X } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 import { VideoCallButton } from "@/components/video-call-button";
+import { AssistantBotIcon } from "@/components/assistant-bot-icon";
 import { useAssistant } from "@/components/assistant-provider";
 import { openChatwootChat } from "@/lib/chatwoot";
 
@@ -20,7 +21,7 @@ export function FloatingChat() {
         {isOpen ? (
           <X aria-hidden="true" className="h-7 w-7" />
         ) : (
-          <Sparkles aria-hidden="true" className="h-7 w-7" />
+          <AssistantBotIcon size={30} />
         )}
       </button>
       <VideoCallButton
