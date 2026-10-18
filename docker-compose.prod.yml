@@ -73,6 +73,9 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       TELEGRAM_ALERT_TIMEZONE: ${TELEGRAM_ALERT_TIMEZONE:-Africa/Lagos}
+      # Dedicated key for AI shift analyses; falls back to the shared GEMINI_API_KEY.
+      GEMINI_API_KEY: ${WFM_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       MONITORING_UPLOADS_DIR: /app/uploads/monitoring
     volumes:
       - monitoring_uploads:/app/uploads/monitoring

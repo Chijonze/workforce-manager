@@ -6,6 +6,7 @@ import app from "./app";
 import { connectDB } from "./config/db";
 import { attachScreenMonitorServer } from "./realtime/screenMonitor";
 import { autoCloseExpiredShifts } from "./modules/execution/execution.service";
+import { sweepMissingShiftAnalyses } from "./modules/analysis/analysis.service";
 
 const PORT = process.env.PORT || 5000;
 
@@ -19,6 +20,10 @@ const startServer = async () => {
   const maintenanceTimer = setInterval(() => {
     void autoCloseExpiredShifts().catch((error) => {
       console.error("Shift auto-close failed", error);
+    });
+    // Backfill AI analyses for concluded shifts that missed generation.
+    void sweepMissingShiftAnalyses().catch((error) => {
+      console.error("Shift analysis sweep failed", error);
     });
   }, 60_000);
   maintenanceTimer.unref();

@@ -8,6 +8,7 @@ import { calculateOvertimeMinutes } from "../../utils/attendanceCompliance";
 import { combineDateAndTimeRange } from "../../utils/scheduleTime";
 import { hasApprovedLeave } from "../leave/leave.service";
 import { endMonitoringSession } from "../monitoring/monitoring.service";
+import { enqueueShiftAnalysis } from "../analysis/analysis.service";
 import { getUtcDayRange } from "../scheduling/enforcement/enforcement.utils";
 
 type TimelineEvent = {
@@ -625,6 +626,9 @@ export const autoCloseExpiredShifts = async (now = new Date()) => {
       console.error("Monitoring auto-close failed", error);
     });
 
+    // Auto-closed shifts are concluded too — analyse them like normal ends.
+    enqueueShiftAnalysis(shift._id.toString());
+
     autoClosed += 1;
   }
 
@@ -668,7 +672,7 @@ export const runExecutionMaintenance = async (now = new Date()) => {
 
     if (scheduledEndTime > now) continue;
 
-    await ShiftSession.create({
+    const newShift = await ShiftSession.create({
       userId: schedule.userId,
       scheduleId: schedule._id,
       shiftTemplateId: template._id,
@@ -692,6 +696,9 @@ export const runExecutionMaintenance = async (now = new Date()) => {
       activityAdherenceScore: 0,
       kpiEvaluatedAt: now,
     });
+
+    // Absent shifts get a deterministic offline analysis (no Gemini call).
+    enqueueShiftAnalysis(newShift._id.toString());
 
     missedShifts += 1;
   }

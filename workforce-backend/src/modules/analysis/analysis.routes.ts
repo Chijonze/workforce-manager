@@ -1,0 +1,13 @@
+import { Router } from "express";
+import { protect, requireAdminOrSupervisor } from "../../middleware/auth.middleware";
+import * as controller from "./analysis.controller";
+
+export const router = Router();
+
+router.use(protect, requireAdminOrSupervisor);
+
+router.get("/overview", controller.getOverview);
+router.get("/workers", controller.listWorkers);
+router.get("/workers/:userId/shifts", controller.listWorkerShifts);
+router.get("/shift/:shiftId", controller.getShiftAnalysis);
+router.post("/shift/:shiftId/generate", controller.generateShiftAnalysis);

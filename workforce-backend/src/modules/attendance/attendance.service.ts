@@ -16,6 +16,7 @@ import {
   determineAttendanceStatus,
 } from "../../utils/attendanceCompliance";
 import { persistShiftKpi } from "../execution/execution.service";
+import { enqueueShiftAnalysis } from "../analysis/analysis.service";
 import {
   ensureMonitoringSession,
   endMonitoringSession,
@@ -386,6 +387,9 @@ if (
   await endMonitoringSession(String(shiftObjectId), "completed").catch((error) => {
     console.error("Monitoring session close failed", error);
   });
+
+  // The shift is concluded and KPI-scored — its AI analysis is now generated.
+  enqueueShiftAnalysis(String(shiftObjectId));
 
   return result;
 };

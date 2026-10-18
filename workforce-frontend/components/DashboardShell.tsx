@@ -18,6 +18,7 @@ import {
   MousePointer2,
   RefreshCw,
   ScanEye,
+  Sparkles,
   UserRound,
   Users,
 } from "lucide-react";
@@ -36,7 +37,7 @@ export type SectionKey =
   | "profile";
 
 export type NavItem = {
-  key: SectionKey | "link:assignments" | "link:execution-report";
+  key: SectionKey | "link:assignments" | "link:execution-report" | "link:ai-analysis";
   label: string;
   icon: React.ComponentType<{ size?: number | string }>;
   description?: string;
@@ -64,6 +65,7 @@ export function navGroupsForRole(role: User["role"]): NavGroup[] {
           { key: "scheduling", label: "Scheduling Setup", icon: CalendarDays, description: "Templates and assignment" },
           { key: "link:assignments", label: "Assignments", icon: CalendarRange, href: "/assignments" },
           { key: "link:execution-report", label: "Execution Reports", icon: BarChart3, href: "/execution-report" },
+          { key: "link:ai-analysis", label: "AI Analysis & Summary", icon: Sparkles, href: "/ai-analysis", description: "Gemini shift insights" },
         ],
       },
       {
@@ -90,6 +92,7 @@ export function navGroupsForRole(role: User["role"]): NavGroup[] {
         label: "Overview",
         items: [
           { key: "overview", label: "Team Overview", icon: LayoutDashboard, description: "Assigned agents today" },
+          { key: "link:ai-analysis", label: "AI Analysis & Summary", icon: Sparkles, href: "/ai-analysis", description: "Gemini shift insights" },
         ],
       },
       {

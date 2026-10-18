@@ -318,3 +318,87 @@ export type MonitoringSessionStart = {
   captures: number;
   startedAt: string;
 };
+
+export type AnalysisChartPoint = {
+  label: string;
+  value: number;
+};
+
+export type ShiftAnalysis = {
+  _id: string;
+  shiftSessionId: string;
+  userId: string;
+  workDate: string;
+  status: "completed" | "failed";
+  source: "gemini" | "fallback";
+  aiModel: string;
+  overallScore: number;
+  adherenceScore: number;
+  metrics: {
+    scheduleType: ScheduleType;
+    attendanceStatus: string;
+    closureReason: string;
+    scheduledMinutes: number;
+    workedMinutes: number;
+    breakMinutes: number;
+    lateMinutes: number;
+    overtimeMinutes: number;
+    punctualityScore: number;
+    workScore: number;
+    activityAdherenceScore: number;
+    monitoring: {
+      captureCount: number;
+      mouseMovements: number;
+      mouseDistancePx: number;
+      mouseClicks: number;
+      mouseScrolls: number;
+      mouseSampleCount: number;
+      activeSamplePercent: number;
+      hourlyActivity: { hour: string; activeMinutes: number }[];
+    };
+    captures: { captureId: string; capturedAt: string }[];
+    eventCounts: Record<string, number>;
+  };
+  narrative: {
+    headline: string;
+    workerSummary: string;
+    workSummary: string;
+    highlights: string[];
+    concerns: string[];
+  };
+  charts: {
+    bar: { title: string; unit: string; series: AnalysisChartPoint[] };
+    pie: { title: string; unit: string; segments: AnalysisChartPoint[] };
+  };
+  generatedAt: string;
+  error?: string | null;
+};
+
+export type AnalysisWorker = {
+  _id: string;
+  name: string;
+  email: string;
+  role: Role;
+};
+
+export type AnalysisWorkerShift = {
+  shiftId: string;
+  workDate: string;
+  clockInTime: string;
+  clockOutTime?: string | null;
+  attendanceStatus?: string;
+  closureReason?: string;
+  kpiScore: number;
+  analysis: {
+    status: string;
+    source: string;
+    generatedAt: string;
+  } | null;
+};
+
+export type AnalysisOverview = {
+  totalAnalyses: number;
+  averageScore: number;
+  geminiAnalyses: number;
+  recentAnalyses: number;
+};
