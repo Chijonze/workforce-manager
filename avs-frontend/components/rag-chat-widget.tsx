@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, SendHorizonal, Sparkles, X } from "lucide-react";
+import { SendHorizonal, X } from "lucide-react";
+import { AssistantBotIcon } from "@/components/assistant-bot-icon";
 import { suggestedQuestions } from "@/lib/rag/knowledge-base";
 
 interface Message {
@@ -95,7 +96,7 @@ export function RagChatWidget({ open, onClose }: RagChatWidgetProps) {
       {/* Header */}
       <div className="flex items-center gap-3 bg-navy px-4 py-3.5 text-white">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-blue to-cyan-400">
-          <Sparkles aria-hidden="true" className="h-5 w-5" />
+          <AssistantBotIcon size={26} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="font-heading text-sm font-semibold leading-tight">AVS Assistant</p>
@@ -126,7 +127,7 @@ export function RagChatWidget({ open, onClose }: RagChatWidgetProps) {
           >
             {message.role === "assistant" && (
               <span className="mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-brand-blue shadow-card">
-                <Bot aria-hidden="true" className="h-4 w-4" />
+                <AssistantBotIcon size={19} />
               </span>
             )}
             <div className="max-w-[85%]">
@@ -158,7 +159,7 @@ export function RagChatWidget({ open, onClose }: RagChatWidgetProps) {
         {loading && (
           <div className="flex items-start gap-2">
             <span className="mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-brand-blue shadow-card">
-              <Bot aria-hidden="true" className="h-4 w-4" />
+              <AssistantBotIcon size={19} />
             </span>
             <div className="flex gap-1 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 shadow-card">
               <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 [animation-delay:0ms]" />
