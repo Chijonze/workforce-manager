@@ -2845,32 +2845,11 @@ select:focus {
 }
 
 .score-donut-caption {
-  font-size: 11px;
+  font-size: 8.5px;
   font-weight: 700;
   fill: var(--muted);
   letter-spacing: 0.4px;
   text-transform: uppercase;
-}
-
-.ai-source-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.ai-source-badge.gemini {
-  background: rgba(13, 148, 136, 0.12);
-  color: var(--primary);
-}
-
-.ai-source-badge.fallback {
-  background: rgba(217, 119, 6, 0.14);
-  color: #b45309;
 }
 
 .ai-narrative-panel .stack {
