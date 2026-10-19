@@ -32,6 +32,9 @@ const MONITOR_MAX_WIDTH = 1280;
 // Fixed cadence, overridable by the server until agents catch up.
 const MONITOR_CAPTURE_INTERVAL_MS = 15 * 60 * 1000;
 const MONITOR_CAPTURE_INTERVAL_MIN_MS = 60 * 1000;
+// Proof-of-life capture shortly after takeover so monitoring is visible
+// immediately instead of one full interval later.
+const MONITOR_FIRST_CAPTURE_MS = 60 * 1000;
 
 function readJson(filePath) {
   try {
@@ -299,6 +302,11 @@ function stopMonitoring() {
     monitoring.captureTimer = null;
   }
 
+  if (monitoring.firstCaptureTimer) {
+    clearTimeout(monitoring.firstCaptureTimer);
+    monitoring.firstCaptureTimer = null;
+  }
+
   monitoring = null;
 
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -329,6 +337,7 @@ function startMonitoring(message) {
     mouseTimer: null,
     flushTimer: null,
     captureTimer: null,
+    firstCaptureTimer: null,
     captureIntervalMs,
     captureInFlight: false,
   };
@@ -336,11 +345,16 @@ function startMonitoring(message) {
   monitoring.mouseTimer = setInterval(pollMousePosition, MONITOR_MOUSE_POLL_MS);
   monitoring.flushTimer = setInterval(flushMouseBatch, MONITOR_MOUSE_FLUSH_MS);
 
-  // One screenshot per cadence tick until the shift ends; the first one lands
-  // a full interval after the agent takes over.
+  // One screenshot per cadence tick until the shift ends, plus an early
+  // proof-of-life capture right after the agent takes over.
   monitoring.captureTimer = setInterval(() => {
     void takeMonitoringScreenshot();
   }, captureIntervalMs);
+  monitoring.firstCaptureTimer = setTimeout(() => {
+    if (!monitoring) return;
+    monitoring.firstCaptureTimer = null;
+    void takeMonitoringScreenshot();
+  }, MONITOR_FIRST_CAPTURE_MS);
 
   setStatus("Live", "Activity monitoring active for the current shift.");
 }

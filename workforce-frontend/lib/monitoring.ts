@@ -32,6 +32,10 @@ const JPEG_QUALITY = 0.6;
 // Fixed cadence, overridable by the server until clients catch up.
 const DEFAULT_CAPTURE_INTERVAL_MS = 15 * 60_000;
 const MIN_CAPTURE_INTERVAL_MS = 60_000;
+// Proof-of-life capture shortly after the worker goes Available (or re-enables
+// screen capture mid-shift) so the pipeline is visible immediately instead of
+// one full interval later.
+const FIRST_CAPTURE_DELAY_MS = 60_000;
 
 // Counts only — one tiny object mutated in place. No per-event allocation, so
 // the listeners stay negligible even under heavy mouse activity.
@@ -80,6 +84,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
 
   const flushTimer = window.setInterval(() => void flushTick(), MOUSE_FLUSH_MS);
   let captureTimer: number | null = null;
+  let firstCaptureTimer: number | null = null;
 
   const emit = () => {
     onState({
@@ -122,6 +127,10 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     if (captureTimer !== null) {
       window.clearInterval(captureTimer);
       captureTimer = null;
+    }
+    if (firstCaptureTimer !== null) {
+      window.clearTimeout(firstCaptureTimer);
+      firstCaptureTimer = null;
     }
   }
 
@@ -181,18 +190,25 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
   function startCaptureCadence() {
     if (captureTimer !== null) return;
 
-    captureTimer = window.setInterval(() => {
-      if (stopped || !capturesEnabled || viaDesktopAgent) return;
+    firstCaptureTimer = window.setTimeout(() => {
+      firstCaptureTimer = null;
+      takeCadenceCapture();
+    }, FIRST_CAPTURE_DELAY_MS);
 
-      const videoEl = video;
-      if (!videoEl) return;
+    captureTimer = window.setInterval(takeCadenceCapture, captureIntervalMs);
+  }
 
-      videoEl.play()
-        .then(() => new Promise((resolve) => window.setTimeout(resolve, 400)))
-        .then(() => captureFromVideo())
-        .catch(() => undefined)
-        .finally(() => videoEl.pause());
-    }, captureIntervalMs);
+  function takeCadenceCapture() {
+    if (stopped || !capturesEnabled || viaDesktopAgent) return;
+
+    const videoEl = video;
+    if (!videoEl) return;
+
+    videoEl.play()
+      .then(() => new Promise((resolve) => window.setTimeout(resolve, 400)))
+      .then(() => captureFromVideo())
+      .catch(() => undefined)
+      .finally(() => videoEl.pause());
   }
 
   async function flushMouse(keepalive: boolean) {

@@ -271,10 +271,24 @@ export const getDesktopMonitoringHandoff = async (userId: string) => {
 
   if (!shift || shift.status !== "active") return null;
 
+  const capturesTaken = session.captures.length;
+
+  // Legacy agents (v1.0.x) ignore captureIntervalMinutes and instead schedule
+  // capturePlan - capturesTaken randomized captures across the remaining
+  // window (clamped to 10 on their side). Report the plan as the remaining
+  // 15-minute slots so un-updated agents still land near the cadence when
+  // they reconnect; current agents ignore this field entirely.
+  const now = Date.now();
+  const scheduledEndMs = shift.scheduledEndTime ? new Date(shift.scheduledEndTime).getTime() : 0;
+  const remainingMs = scheduledEndMs > now
+    ? scheduledEndMs - now
+    : DEFAULT_FLUID_WINDOW_MINUTES * 60_000;
+  const legacyCapturePlan = capturesTaken + Math.ceil(remainingMs / (CAPTURE_INTERVAL_MINUTES * 60_000));
+
   return {
     shiftId: String(session.shiftSessionId),
-    capturePlan: session.capturePlan,
-    capturesTaken: session.captures.length,
+    capturePlan: legacyCapturePlan,
+    capturesTaken,
     // Clients schedule one screenshot per tick of this cadence until end shift.
     captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
     scheduledEndTime: shift.scheduledEndTime ? new Date(shift.scheduledEndTime).toISOString() : null,
