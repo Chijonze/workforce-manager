@@ -67,7 +67,11 @@ export function BarChart({
   const axisMax = niceAxisMax(Math.max(...values, 0));
   const bars = buildBarGeometry(values, { plotX, plotY, plotWidth, plotHeight, scaleMax: axisMax });
   const labelStep = Math.ceil(series.length / 10);
-  const formatValue = (value: number) => (unit === "min" ? formatMinutes(value) : `${Math.round(value)}${unit ? ` ${unit}` : ""}`);
+  const formatValue = (value: number) => {
+    if (unit === "min") return formatMinutes(value);
+    if (unit === "%") return `${Math.round(value)}%`;
+    return `${Math.round(value)}${unit ? ` ${unit}` : ""}`;
+  };
 
   return (
     <div className="chart-card">

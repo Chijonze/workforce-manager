@@ -7,6 +7,8 @@ export const router = Router();
 router.use(protect, requireAdminOrSupervisor);
 
 router.get("/overview", controller.getOverview);
+router.get("/aggregate", controller.getAggregate);
+router.post("/aggregate/narrative", controller.generateAggregateNarrative);
 router.get("/workers", controller.listWorkers);
 router.get("/workers/:userId/shifts", controller.listWorkerShifts);
 router.get("/shift/:shiftId", controller.getShiftAnalysis);

@@ -3016,3 +3016,39 @@ select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* Mode toggle (shift analysis | aggregate report) */
+.mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.mode-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-toggle button:hover {
+  color: var(--ink);
+}
+
+.mode-toggle button.active {
+  background: var(--primary);
+  color: #ffffff;
+}

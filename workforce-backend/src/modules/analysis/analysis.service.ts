@@ -3,6 +3,7 @@ import ShiftAnalysis, {
   IAnalysisMetrics,
   IShiftAnalysis,
 } from "../../models/ShiftAnalysis";
+import PeriodAnalysis, { IPeriodAnalysis } from "../../models/PeriodAnalysis";
 import ShiftEvent from "../../models/ShiftEvent";
 import ShiftSession from "../../models/ShiftSession";
 import ShiftTemplate from "../../models/shiftTemplate.model";
@@ -337,13 +338,12 @@ const buildGeminiPayload = (context: ShiftAnalysisContext, overallScore: number)
   return { systemPrompt, userPrompt };
 };
 
-const callGemini = async (context: ShiftAnalysisContext, overallScore: number) => {
+const callGeminiJSON = async (systemPrompt: string, userPrompt: string) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
   await nextGeminiSlot();
 
-  const { systemPrompt, userPrompt } = buildGeminiPayload(context, overallScore);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
@@ -384,6 +384,11 @@ const callGemini = async (context: ShiftAnalysisContext, overallScore: number) =
   } finally {
     clearTimeout(timeout);
   }
+};
+
+const callGemini = async (context: ShiftAnalysisContext, overallScore: number) => {
+  const { systemPrompt, userPrompt } = buildGeminiPayload(context, overallScore);
+  return callGeminiJSON(systemPrompt, userPrompt);
 };
 
 // ---------------------------------------------------------------------------
@@ -695,4 +700,252 @@ export const getAnalysisOverview = async (requester: Requester) => {
     geminiAnalyses: geminiCount,
     recentAnalyses,
   };
+};
+
+// ---------------------------------------------------------------------------
+// Aggregate period analysis — per-worker rollup of saved shift analyses over a
+// date range, plus a cached Gemini narrative for the period.
+// ---------------------------------------------------------------------------
+const AGGREGATE_MAX_DAYS = 366;
+
+export type AggregateWorkerRow = {
+  userId: string;
+  name: string;
+  email: string;
+  shiftCount: number;
+  absentCount: number;
+  averageScore: number;
+  averageAdherence: number;
+  workedMinutes: number;
+  scheduledMinutes: number;
+};
+
+export type AggregateTotals = {
+  workers: number;
+  analyses: number;
+  averageScore: number;
+  averageAdherence: number;
+  workedMinutes: number;
+  absentCount: number;
+};
+
+const normalizeRange = (startDate: string, endDate: string) => {
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(startDate) || !datePattern.test(endDate)) {
+    throw new Error("Dates must use the YYYY-MM-DD format");
+  }
+  if (endDate < startDate) {
+    throw new Error("The end date must be on or after the start date");
+  }
+  const days = (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000;
+  if (days > AGGREGATE_MAX_DAYS) {
+    throw new Error("The period cannot exceed 366 days");
+  }
+  return { startDate, endDate };
+};
+
+const scopeKeyFor = (requester: Requester, assignedAgentIds: string[] | null) =>
+  assignedAgentIds ? requester.userId : "admin";
+
+export const getAggregateAnalysis = async (
+  requester: Requester,
+  startDate: string,
+  endDate: string
+) => {
+  const range = normalizeRange(startDate, endDate);
+  const assignedAgentIds = await assignedAgentIdsFor(requester);
+
+  const match: Record<string, unknown> = {
+    status: "completed",
+    workDate: { $gte: range.startDate, $lte: range.endDate },
+  };
+  if (assignedAgentIds) match.userId = { $in: assignedAgentIds };
+
+  const grouped = await ShiftAnalysis.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: "$userId",
+        shiftCount: { $sum: 1 },
+        absentCount: {
+          $sum: { $cond: [{ $eq: ["$metrics.attendanceStatus", "absent"] }, 1, 0] },
+        },
+        averageScore: { $avg: "$overallScore" },
+        averageAdherence: { $avg: "$adherenceScore" },
+        workedMinutes: { $sum: "$metrics.workedMinutes" },
+        scheduledMinutes: { $sum: "$metrics.scheduledMinutes" },
+      },
+    },
+    { $sort: { averageScore: -1 } },
+  ]);
+
+  const users = grouped.length
+    ? await User.find({ _id: { $in: grouped.map((row: any) => row._id) } })
+        .select("_id name email")
+        .lean()
+    : [];
+  const userById = new Map(users.map((user: any) => [String(user._id), user]));
+
+  const rows: AggregateWorkerRow[] = grouped.map((row: any) => {
+    const user = userById.get(String(row._id));
+    return {
+      userId: String(row._id),
+      name: user?.name || "Unknown worker",
+      email: user?.email || "",
+      shiftCount: row.shiftCount,
+      absentCount: row.absentCount,
+      averageScore: clampScore(row.averageScore),
+      averageAdherence: clampScore(row.averageAdherence),
+      workedMinutes: row.workedMinutes || 0,
+      scheduledMinutes: row.scheduledMinutes || 0,
+    };
+  });
+
+  const analyses = rows.reduce((sum, row) => sum + row.shiftCount, 0);
+  const totals: AggregateTotals = {
+    workers: rows.length,
+    analyses,
+    averageScore: analyses
+      ? clampScore(rows.reduce((sum, row) => sum + row.averageScore * row.shiftCount, 0) / analyses)
+      : 0,
+    averageAdherence: analyses
+      ? clampScore(rows.reduce((sum, row) => sum + row.averageAdherence * row.shiftCount, 0) / analyses)
+      : 0,
+    workedMinutes: rows.reduce((sum, row) => sum + row.workedMinutes, 0),
+    absentCount: rows.reduce((sum, row) => sum + row.absentCount, 0),
+  };
+
+  const narrative = await PeriodAnalysis.findOne({
+    rangeStart: range.startDate,
+    rangeEnd: range.endDate,
+    scopeKey: scopeKeyFor(requester, assignedAgentIds),
+  }).sort({ generatedAt: -1 });
+
+  return { ...range, totals, rows, narrative };
+};
+
+const buildAggregateFallback = (
+  rows: AggregateWorkerRow[],
+  totals: AggregateTotals,
+  range: { startDate: string; endDate: string }
+) => {
+  const top = rows[0];
+  const lowest = rows.length > 1 ? rows[rows.length - 1] : null;
+  const highlights: string[] = [];
+  const concerns: string[] = [];
+
+  if (top) {
+    highlights.push(`${top.name} leads the period with an average performance of ${top.averageScore}% across ${top.shiftCount} analysed shift(s).`);
+  }
+  if (totals.averageAdherence >= 80) {
+    highlights.push(`Schedule adherence averaged ${totals.averageAdherence}% for the period.`);
+  }
+  highlights.push(`${totals.analyses} concluded shift(s) were analysed, covering ${formatDuration(totals.workedMinutes)} of recorded work.`);
+  if (lowest && lowest.averageScore < 70) {
+    concerns.push(`${lowest.name} averaged ${lowest.averageScore}% — the lowest score of the period.`);
+  }
+  if (totals.absentCount > 0) {
+    concerns.push(`${totals.absentCount} absent shift(s) were recorded in this period.`);
+  }
+
+  return {
+    headline: `${totals.averageScore}% average performance across ${totals.analyses} analysed shift(s)`,
+    summary: `Between ${range.startDate} and ${range.endDate}, ${totals.workers} worker(s) generated ${totals.analyses} analysed concluded shifts with an average performance score of ${totals.averageScore}% and an average adherence of ${totals.averageAdherence}%. A combined ${formatDuration(totals.workedMinutes)} of work was recorded${totals.absentCount ? `, alongside ${totals.absentCount} absent shift(s)` : ""}.`,
+    highlights: highlights.slice(0, 4),
+    concerns: concerns.slice(0, 4),
+  };
+};
+
+export const generateAggregateNarrative = async (
+  requester: Requester,
+  startDate: string,
+  endDate: string,
+  force = false
+): Promise<IPeriodAnalysis> => {
+  const { totals, rows, ...range } = await getAggregateAnalysis(requester, startDate, endDate);
+  if (!rows.length) {
+    throw new Error("No analyzed shifts fall within this period");
+  }
+
+  const assignedAgentIds = await assignedAgentIdsFor(requester);
+  const scopeKey = scopeKeyFor(requester, assignedAgentIds);
+
+  const existing = await PeriodAnalysis.findOne({
+    rangeStart: range.startDate,
+    rangeEnd: range.endDate,
+    scopeKey,
+  });
+  if (existing && !force) return existing;
+
+  const AGGREGATE_CONTRACT = `{
+  "headline": "one short sentence (max 100 chars) summarising the period",
+  "summary": "3-5 sentence narrative comparing workers, totals and trends for the period",
+  "highlights": ["2-4 short positive observations"],
+  "concerns": ["0-4 short issues to watch (empty array if none)"]
+}`;
+
+  const systemPrompt = [
+    "You are a workforce analytics analyst for ShiftSync by Advanced Virtual Solutions.",
+    "You turn aggregated shift telemetry into concise, professional, factual period narratives for hiring managers.",
+    "Use only the numbers provided; never invent metrics. Scores are percentages from 0 to 100; durations are minutes.",
+    "Compare workers against each other and call out the strongest and weakest performers by name.",
+    `Respond with strict JSON only, exactly matching this contract: ${AGGREGATE_CONTRACT}`,
+  ].join(" ");
+
+  const userPrompt = JSON.stringify({
+    period: range,
+    totals,
+    workers: rows.map((row) => ({
+      name: row.name,
+      shifts: row.shiftCount,
+      absences: row.absentCount,
+      averageScore: row.averageScore,
+      averageAdherence: row.averageAdherence,
+      workedMinutes: row.workedMinutes,
+      scheduledMinutes: row.scheduledMinutes,
+    })),
+  });
+
+  let narrative: ReturnType<typeof buildAggregateFallback>;
+  let source: "gemini" | "fallback" = "fallback";
+  let aiModel = "";
+  let error: string | undefined;
+
+  try {
+    const raw = await callGeminiJSON(systemPrompt, userPrompt);
+    const sanitized = {
+      headline: sanitizeText(raw?.headline, 140),
+      summary: sanitizeText(raw?.summary, 1600),
+      highlights: sanitizeTextList(raw?.highlights, 4),
+      concerns: sanitizeTextList(raw?.concerns, 4),
+    };
+    if (sanitized.headline && sanitized.summary) {
+      narrative = sanitized;
+      source = "gemini";
+      aiModel = GEMINI_MODEL;
+    } else {
+      narrative = buildAggregateFallback(rows, totals, range);
+    }
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Unknown Gemini failure";
+    console.error("Gemini aggregate narrative failed, using offline summary", error);
+    narrative = buildAggregateFallback(rows, totals, range);
+  }
+
+  return PeriodAnalysis.findOneAndUpdate(
+    { rangeStart: range.startDate, rangeEnd: range.endDate, scopeKey },
+    {
+      rangeStart: range.startDate,
+      rangeEnd: range.endDate,
+      scopeKey,
+      totals,
+      narrative,
+      status: "completed",
+      source,
+      aiModel,
+      generatedAt: new Date(),
+      error: error || null,
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
 };

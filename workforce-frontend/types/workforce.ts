@@ -402,3 +402,56 @@ export type AnalysisOverview = {
   geminiAnalyses: number;
   recentAnalyses: number;
 };
+
+export type AggregateWorkerRow = {
+  userId: string;
+  name: string;
+  email: string;
+  shiftCount: number;
+  absentCount: number;
+  averageScore: number;
+  averageAdherence: number;
+  workedMinutes: number;
+  scheduledMinutes: number;
+};
+
+export type PeriodNarrative = {
+  _id: string;
+  rangeStart: string;
+  rangeEnd: string;
+  scopeKey: string;
+  totals: {
+    workers: number;
+    analyses: number;
+    averageScore: number;
+    averageAdherence: number;
+    workedMinutes: number;
+    absentCount: number;
+  };
+  narrative: {
+    headline: string;
+    summary: string;
+    highlights: string[];
+    concerns: string[];
+  };
+  status: "completed" | "failed";
+  source: "gemini" | "fallback";
+  aiModel: string;
+  generatedAt: string;
+  error?: string | null;
+};
+
+export type AggregateAnalysis = {
+  startDate: string;
+  endDate: string;
+  totals: {
+    workers: number;
+    analyses: number;
+    averageScore: number;
+    averageAdherence: number;
+    workedMinutes: number;
+    absentCount: number;
+  };
+  rows: AggregateWorkerRow[];
+  narrative: PeriodNarrative | null;
+};

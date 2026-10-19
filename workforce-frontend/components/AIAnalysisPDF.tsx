@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   scoreSection: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 18 },
   donutWrap: { width: 150, alignItems: "center" },
   donutScore: { marginTop: -95, fontSize: 22, fontFamily: "Helvetica-Bold", color: black },
-  donutCaption: { fontSize: 7.5, color: muted, marginTop: 58 },
+  donutCaption: { fontSize: 7.5, color: muted, marginTop: 76 },
   kpiGrid: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 6 },
   kpiTile: { width: "32%", backgroundColor: "#F7FAF9", borderRadius: 4, padding: 6, borderWidth: 1, borderColor: line },
   kpiValue: { fontSize: 13, fontFamily: "Helvetica-Bold", color: darkTeal },
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
   pageNumber: { fontSize: 8, color: muted },
 });
 
-function DonutChart({ score, size = 130 }: { score: number; size?: number }) {
+export function DonutChart({ score, size = 130 }: { score: number; size?: number }) {
   const clamped = Math.max(0, Math.min(100, score));
   const geometry = buildDonutGeometry([clamped, 100 - clamped], {
     centerX: size / 2,
@@ -134,7 +134,7 @@ function DonutChart({ score, size = 130 }: { score: number; size?: number }) {
   );
 }
 
-function BarChartSvg({ series, unit }: { series: { label: string; value: number }[]; unit: string }) {
+export function BarChartSvg({ series, unit }: { series: { label: string; value: number }[]; unit: string }) {
   const width = 500;
   const height = 158;
   const plotX = 40;
@@ -217,7 +217,11 @@ function PieChartSvg({ segments, unit }: { segments: { label: string; value: num
   });
   const total = segments.reduce((sum, segment) => sum + Math.max(0, segment.value), 0);
   const palette = ["#0D9488", "#D97706", "#0284C7", "#7C3AED", "#E11D48", "#65A30D"];
-  const formatValue = (value: number) => (unit === "min" ? formatMinutes(value) : `${Math.round(value)} ${unit}`.trim());
+  const formatValue = (value: number) => {
+    if (unit === "min") return formatMinutes(value);
+    if (unit === "%") return `${Math.round(value)}%`;
+    return `${Math.round(value)} ${unit}`.trim();
+  };
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 18 }}>

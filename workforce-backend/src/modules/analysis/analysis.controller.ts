@@ -86,3 +86,38 @@ export const generateShiftAnalysis = async (req: AuthedRequest, res: Response) =
     res.status(status).json({ message });
   }
 };
+
+export const getAggregate = async (req: AuthedRequest, res: Response) => {
+  try {
+    const startDate = String(req.query.startDate || "");
+    const endDate = String(req.query.endDate || "");
+    const aggregate = await analysisService.getAggregateAnalysis(
+      requesterOf(req),
+      startDate,
+      endDate
+    );
+    res.json(aggregate);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "An unknown error occurred";
+    res.status(400).json({ message });
+  }
+};
+
+export const generateAggregateNarrative = async (req: AuthedRequest, res: Response) => {
+  try {
+    const startDate = String(req.body?.startDate || "");
+    const endDate = String(req.body?.endDate || "");
+    const force = req.body?.force !== false;
+    const narrative = await analysisService.generateAggregateNarrative(
+      requesterOf(req),
+      startDate,
+      endDate,
+      force
+    );
+    res.json(narrative);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "An unknown error occurred";
+    const status = /not allowed/i.test(message) ? 403 : /no analyzed shifts/i.test(message) ? 404 : 400;
+    res.status(status).json({ message });
+  }
+};
