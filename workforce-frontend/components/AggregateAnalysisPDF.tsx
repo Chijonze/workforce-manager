@@ -20,6 +20,7 @@ export type AggregatePdfData = {
   generatedAtLabel: string;
   modelLabel: string;
   periodLabel: string;
+  worker?: { name: string; email: string } | null;
   hiringManager: { name: string; email: string; organization: string; address: string; companyNumber: string };
   aggregate: AggregateAnalysis;
   logoSrc?: string;
@@ -27,6 +28,7 @@ export type AggregatePdfData = {
 
 export function buildAggregatePdfData(input: {
   aggregate: AggregateAnalysis;
+  worker?: { name: string; email: string } | null;
   hiringManager: import("@/types/workforce").User;
   logoSrc?: string;
 }): AggregatePdfData {
@@ -42,6 +44,7 @@ export function buildAggregatePdfData(input: {
         : "ShiftSync offline summary"
       : "No narrative generated",
     periodLabel: `${aggregate.startDate} to ${aggregate.endDate}`,
+    worker: input.worker || null,
     hiringManager: {
       name: input.hiringManager.name,
       email: input.hiringManager.email,
@@ -164,13 +167,23 @@ export function AggregateAnalysisPDF({ data }: { data: AggregatePdfData }) {
           </View>
 
           <View style={styles.parties}>
-            <View style={styles.party}>
-              <Text style={styles.partyHeading}>Analysis scope</Text>
-              <Text style={styles.partyName}>{t.workers} worker{t.workers === 1 ? "" : "s"}</Text>
-              <Text style={styles.address}>
-                {t.analyses} concluded shift{t.analyses === 1 ? "" : "s"} analysed{"\n"}Period: {data.periodLabel}
-              </Text>
-            </View>
+            {data.worker ? (
+              <View style={styles.party}>
+                <Text style={styles.partyHeading}>Analysed worker</Text>
+                <Text style={styles.partyName}>{data.worker.name}</Text>
+                <Text style={styles.address}>
+                  {data.worker.email}{"\n"}{t.analyses} concluded shift{t.analyses === 1 ? "" : "s"} analysed{"\n"}Period: {data.periodLabel}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.party}>
+                <Text style={styles.partyHeading}>Analysis scope</Text>
+                <Text style={styles.partyName}>{t.workers} worker{t.workers === 1 ? "" : "s"}</Text>
+                <Text style={styles.address}>
+                  {t.analyses} concluded shift{t.analyses === 1 ? "" : "s"} analysed{"\n"}Period: {data.periodLabel}
+                </Text>
+              </View>
+            )}
             <View style={styles.party}>
               <Text style={styles.partyHeading}>Report billed to</Text>
               <Text style={styles.partyName}>{data.hiringManager.organization}</Text>

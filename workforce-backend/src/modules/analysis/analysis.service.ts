@@ -744,22 +744,32 @@ const normalizeRange = (startDate: string, endDate: string) => {
   return { startDate, endDate };
 };
 
-const scopeKeyFor = (requester: Requester, assignedAgentIds: string[] | null) =>
-  assignedAgentIds ? requester.userId : "admin";
+const scopeKeyFor = (
+  requester: Requester,
+  assignedAgentIds: string[] | null,
+  targetUserId?: string
+) => `${assignedAgentIds ? requester.userId : "admin"}:${targetUserId || "all"}`;
 
 export const getAggregateAnalysis = async (
   requester: Requester,
   startDate: string,
-  endDate: string
+  endDate: string,
+  targetUserId?: string
 ) => {
   const range = normalizeRange(startDate, endDate);
   const assignedAgentIds = await assignedAgentIdsFor(requester);
+
+  if (targetUserId) {
+    // Workers outside the requester's scope (or unknown ids) are rejected here.
+    await assertCanViewWorker(requester, targetUserId);
+  }
 
   const match: Record<string, unknown> = {
     status: "completed",
     workDate: { $gte: range.startDate, $lte: range.endDate },
   };
   if (assignedAgentIds) match.userId = { $in: assignedAgentIds };
+  if (targetUserId) match.userId = targetUserId;
 
   const grouped = await ShiftAnalysis.aggregate([
     { $match: match },
@@ -818,10 +828,10 @@ export const getAggregateAnalysis = async (
   const narrative = await PeriodAnalysis.findOne({
     rangeStart: range.startDate,
     rangeEnd: range.endDate,
-    scopeKey: scopeKeyFor(requester, assignedAgentIds),
+    scopeKey: scopeKeyFor(requester, assignedAgentIds, targetUserId),
   }).sort({ generatedAt: -1 });
 
-  return { ...range, totals, rows, narrative };
+  return { ...range, targetUserId: targetUserId || null, totals, rows, narrative };
 };
 
 const buildAggregateFallback = (
@@ -831,8 +841,30 @@ const buildAggregateFallback = (
 ) => {
   const top = rows[0];
   const lowest = rows.length > 1 ? rows[rows.length - 1] : null;
+  const singleWorker = rows.length === 1;
+  const workerName = singleWorker ? rows[0].name : null;
   const highlights: string[] = [];
   const concerns: string[] = [];
+
+  if (singleWorker) {
+    highlights.push(`${workerName} completed ${totals.analyses} analysed shift(s) in this period.`);
+    if (rows[0].averageAdherence >= 80) {
+      highlights.push(`Schedule adherence averaged ${rows[0].averageAdherence}% across the period.`);
+    }
+    highlights.push(`${formatDuration(totals.workedMinutes)} of work was recorded against ${formatDuration(totals.workedMinutes ? rows[0].scheduledMinutes : 0)} scheduled.`);
+    if (rows[0].averageScore < 70) {
+      concerns.push(`The average performance score of ${rows[0].averageScore}% is below the 70% comfort line.`);
+    }
+    if (totals.absentCount > 0) {
+      concerns.push(`${totals.absentCount} absent shift(s) were recorded in this period.`);
+    }
+    return {
+      headline: `${workerName}: ${totals.averageScore}% average performance across ${totals.analyses} analysed shift(s)`,
+      summary: `Between ${range.startDate} and ${range.endDate}, ${workerName} completed ${totals.analyses} analysed concluded shift(s) with an average performance score of ${totals.averageScore}% and an average adherence of ${totals.averageAdherence}%. A combined ${formatDuration(totals.workedMinutes)} of work was recorded${totals.absentCount ? `, alongside ${totals.absentCount} absent shift(s)` : ""}.`,
+      highlights: highlights.slice(0, 4),
+      concerns: concerns.slice(0, 4),
+    };
+  }
 
   if (top) {
     highlights.push(`${top.name} leads the period with an average performance of ${top.averageScore}% across ${top.shiftCount} analysed shift(s).`);
@@ -860,15 +892,21 @@ export const generateAggregateNarrative = async (
   requester: Requester,
   startDate: string,
   endDate: string,
-  force = false
+  force = false,
+  targetUserId?: string
 ): Promise<IPeriodAnalysis> => {
-  const { totals, rows, ...range } = await getAggregateAnalysis(requester, startDate, endDate);
+  const { totals, rows, ...range } = await getAggregateAnalysis(
+    requester,
+    startDate,
+    endDate,
+    targetUserId
+  );
   if (!rows.length) {
     throw new Error("No analyzed shifts fall within this period");
   }
 
   const assignedAgentIds = await assignedAgentIdsFor(requester);
-  const scopeKey = scopeKeyFor(requester, assignedAgentIds);
+  const scopeKey = scopeKeyFor(requester, assignedAgentIds, targetUserId);
 
   const existing = await PeriodAnalysis.findOne({
     rangeStart: range.startDate,
@@ -879,21 +917,25 @@ export const generateAggregateNarrative = async (
 
   const AGGREGATE_CONTRACT = `{
   "headline": "one short sentence (max 100 chars) summarising the period",
-  "summary": "3-5 sentence narrative comparing workers, totals and trends for the period",
+  "summary": "3-5 sentence narrative about the worker's activities, totals and trends for the period",
   "highlights": ["2-4 short positive observations"],
   "concerns": ["0-4 short issues to watch (empty array if none)"]
 }`;
 
+  const singleWorker = rows.length === 1;
   const systemPrompt = [
     "You are a workforce analytics analyst for ShiftSync by Advanced Virtual Solutions.",
     "You turn aggregated shift telemetry into concise, professional, factual period narratives for hiring managers.",
     "Use only the numbers provided; never invent metrics. Scores are percentages from 0 to 100; durations are minutes.",
-    "Compare workers against each other and call out the strongest and weakest performers by name.",
+    singleWorker
+      ? `The report focuses on a single worker (${rows[0].name}) — narrate their activities, work habits and performance across the whole period rather than comparing workers.`
+      : "Compare workers against each other and call out the strongest and weakest performers by name.",
     `Respond with strict JSON only, exactly matching this contract: ${AGGREGATE_CONTRACT}`,
   ].join(" ");
 
   const userPrompt = JSON.stringify({
     period: range,
+    focusWorker: targetUserId || null,
     totals,
     workers: rows.map((row) => ({
       name: row.name,

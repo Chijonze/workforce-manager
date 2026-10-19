@@ -91,15 +91,21 @@ export const getAggregate = async (req: AuthedRequest, res: Response) => {
   try {
     const startDate = String(req.query.startDate || "");
     const endDate = String(req.query.endDate || "");
+    const userId = String(req.query.userId || "");
+    if (userId && !isObjectId(userId)) {
+      return res.status(400).json({ message: "Invalid user ID format" });
+    }
     const aggregate = await analysisService.getAggregateAnalysis(
       requesterOf(req),
       startDate,
-      endDate
+      endDate,
+      userId || undefined
     );
     res.json(aggregate);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "An unknown error occurred";
-    res.status(400).json({ message });
+    const status = /not allowed/i.test(message) ? 403 : 400;
+    res.status(status).json({ message });
   }
 };
 
@@ -107,12 +113,17 @@ export const generateAggregateNarrative = async (req: AuthedRequest, res: Respon
   try {
     const startDate = String(req.body?.startDate || "");
     const endDate = String(req.body?.endDate || "");
+    const userId = String(req.body?.userId || "");
+    if (userId && !isObjectId(userId)) {
+      return res.status(400).json({ message: "Invalid user ID format" });
+    }
     const force = req.body?.force !== false;
     const narrative = await analysisService.generateAggregateNarrative(
       requesterOf(req),
       startDate,
       endDate,
-      force
+      force,
+      userId || undefined
     );
     res.json(narrative);
   } catch (err: unknown) {

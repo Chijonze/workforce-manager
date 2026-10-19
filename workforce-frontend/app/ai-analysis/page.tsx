@@ -91,6 +91,7 @@ export default function AiAnalysisPage() {
 
   const [aggStart, setAggStart] = useState(MONTH_START_KEY);
   const [aggEnd, setAggEnd] = useState(TODAY_KEY);
+  const [aggWorkerId, setAggWorkerId] = useState("");
   const [aggregate, setAggregate] = useState<AggregateAnalysis | null>(null);
   const [aggLoading, setAggLoading] = useState(false);
   const [aggGenerating, setAggGenerating] = useState(false);
@@ -103,6 +104,10 @@ export default function AiAnalysisPage() {
   const selectedWorker = useMemo(
     () => workers.find((worker) => worker._id === workerId),
     [workers, workerId]
+  );
+  const aggSelectedWorker = useMemo(
+    () => workers.find((worker) => worker._id === aggWorkerId),
+    [workers, aggWorkerId]
   );
   const selectedHiringManager = hiringManagers.find(
     (manager) => manager._id === hiringManagerId
@@ -149,9 +154,9 @@ export default function AiAnalysisPage() {
   }, []);
 
   const loadAggregate = useCallback(
-    async (authToken: string, start: string, end: string) => {
+    async (authToken: string, start: string, end: string, targetWorkerId = "") => {
       const data = await apiRequest<AggregateAnalysis>(
-        `/api/analysis/aggregate?startDate=${start}&endDate=${end}`,
+        `/api/analysis/aggregate?startDate=${start}&endDate=${end}${targetWorkerId ? `&userId=${targetWorkerId}` : ""}`,
         { token: authToken }
       );
       setAggregate(data);
@@ -270,7 +275,7 @@ export default function AiAnalysisPage() {
         setAggLoading(true);
         setError("");
         try {
-          await loadAggregate(token, aggStart, aggEnd);
+          await loadAggregate(token, aggStart, aggEnd, aggWorkerId);
         } catch (err) {
           setError(err instanceof Error ? err.message : "Could not load the aggregate analysis.");
         } finally {
@@ -280,12 +285,12 @@ export default function AiAnalysisPage() {
     }
   }
 
-  async function applyAggregatePeriod() {
+  async function applyAggregatePeriod(targetWorkerId = aggWorkerId) {
     if (!token) return;
     setAggLoading(true);
     setError("");
     try {
-      await loadAggregate(token, aggStart, aggEnd);
+      await loadAggregate(token, aggStart, aggEnd, targetWorkerId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the aggregate analysis.");
     } finally {
@@ -313,7 +318,7 @@ export default function AiAnalysisPage() {
         }
       }
       if (mode === "aggregate") {
-        await loadAggregate(token, aggStart, aggEnd);
+        await loadAggregate(token, aggStart, aggEnd, aggWorkerId);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not refresh AI analyses.");
@@ -350,9 +355,9 @@ export default function AiAnalysisPage() {
       await apiRequest<AggregateAnalysis["narrative"]>("/api/analysis/aggregate/narrative", {
         method: "POST",
         token,
-        body: { startDate: aggStart, endDate: aggEnd, force: true },
+        body: { startDate: aggStart, endDate: aggEnd, userId: aggWorkerId || undefined, force: true },
       });
-      await loadAggregate(token, aggStart, aggEnd);
+      await loadAggregate(token, aggStart, aggEnd, aggWorkerId);
       await loadOverview(token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate the period summary.");
@@ -405,6 +410,7 @@ export default function AiAnalysisPage() {
       const logoSrc = await fetchLogoDataUri();
       const data = buildAggregatePdfData({
         aggregate,
+        worker: aggSelectedWorker ? { name: aggSelectedWorker.name, email: aggSelectedWorker.email } : null,
         hiringManager: selectedHiringManager,
         logoSrc,
       });
@@ -412,7 +418,8 @@ export default function AiAnalysisPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `ai-period-analysis-${aggStart}-to-${aggEnd}.pdf`;
+      const workerSlug = aggSelectedWorker ? `-${aggSelectedWorker.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : "";
+      link.download = `ai-period-analysis${workerSlug}-${aggStart}-to-${aggEnd}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -554,6 +561,23 @@ export default function AiAnalysisPage() {
           </div>
         ) : (
           <div className="form-grid execution-report-filters">
+            <div className="field">
+              <label htmlFor="aggregate-worker">Team member</label>
+              <select
+                id="aggregate-worker"
+                value={aggWorkerId}
+                onChange={(event) => {
+                  setAggWorkerId(event.target.value);
+                  void applyAggregatePeriod(event.target.value);
+                }}
+                disabled={aggLoading || !workers.length}
+              >
+                <option value="">All team members</option>
+                {workers.map((worker) => (
+                  <option key={worker._id} value={worker._id}>{worker.name} ({worker.email})</option>
+                ))}
+              </select>
+            </div>
             <div className="field">
               <label htmlFor="aggregate-start">From date</label>
               <input
@@ -785,7 +809,12 @@ export default function AiAnalysisPage() {
                       <Sparkles size={20} />
                       <div>
                         <h2>AI period summary</h2>
-                        <p className="panel-subtitle">{aggregate.narrative?.narrative.headline || `${formatDate(aggregate.startDate)} — ${formatDate(aggregate.endDate)}`}</p>
+                        <p className="panel-subtitle">
+                          {aggregate.narrative?.narrative.headline ||
+                            (aggSelectedWorker
+                              ? `Activities by ${aggSelectedWorker.name} · ${formatDate(aggregate.startDate)} — ${formatDate(aggregate.endDate)}`
+                              : `${formatDate(aggregate.startDate)} — ${formatDate(aggregate.endDate)}`)}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -828,13 +857,17 @@ export default function AiAnalysisPage() {
 
               <section className="panel">
                 <div className="panel-header">
-                  <div className="panel-title">
-                    <Users size={20} />
-                    <div>
-                      <h2>Worker breakdown</h2>
-                      <p className="panel-subtitle">Concluded shifts analysed per worker · {formatDate(aggregate.startDate)} — {formatDate(aggregate.endDate)}</p>
+                    <div className="panel-title">
+                      <Users size={20} />
+                      <div>
+                        <h2>Worker breakdown</h2>
+                        <p className="panel-subtitle">
+                          {aggSelectedWorker
+                            ? `${aggSelectedWorker.name}'s analysed shifts · ${formatDate(aggregate.startDate)} — ${formatDate(aggregate.endDate)}`
+                            : `Concluded shifts analysed per worker · ${formatDate(aggregate.startDate)} — ${formatDate(aggregate.endDate)}`}
+                        </p>
+                      </div>
                     </div>
-                  </div>
                 </div>
                 <div className="table-wrap">
                   <table className="data-table">
