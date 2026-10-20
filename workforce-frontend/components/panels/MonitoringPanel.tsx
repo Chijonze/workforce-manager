@@ -9,9 +9,12 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { apiRequest, formatDateTime, formatDate, getApiUrl } from "@/lib/api";
-import type { MonitoringDetail, MonitoringSummary, User } from "@/types/workforce";
-
-const MAX_LOADED_IMAGES = 10;
+import type {
+  MonitoringCapture,
+  MonitoringDetail,
+  MonitoringSummary,
+  User,
+} from "@/types/workforce";
 
 function formatDistance(px: number) {
   const meters = px / 96 * 2.54 / 100; // assume ~96dpi
@@ -45,15 +48,90 @@ function MouseSparkline({ samples }: { samples: { at: string; movements: number 
   );
 }
 
+function CaptureThumb({
+  capture,
+  error,
+  url,
+  onVisible,
+}: {
+  capture: MonitoringCapture;
+  error: boolean;
+  url?: string;
+  onVisible: (captureId: string) => void;
+}) {
+  const cardRef = useRef<HTMLElement>(null);
+  const [imageFailed, setImageFailed] = useState(false);
+  const sizeLabel = capture.sizeBytes
+    ? `${Math.max(1, Math.round(capture.sizeBytes / 1000))} KB`
+    : null;
+
+  // Load each screenshot only when its card approaches the viewport. This is
+  // what lets the gallery show every capture in the shift (not just the first
+  // ten) without downloading dozens of images up front.
+  useEffect(() => {
+    if (url || error || imageFailed) return;
+
+    const node = cardRef.current;
+    if (!node) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      onVisible(capture._id);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          observer.disconnect();
+          onVisible(capture._id);
+        }
+      },
+      { rootMargin: "400px 0px" }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [capture._id, error, imageFailed, onVisible, url]);
+
+  return (
+    <figure className="capture-card" ref={cardRef}>
+      {url && !imageFailed ? (
+        <a href={url} target="_blank" rel="noreferrer">
+          <img
+            alt={`Screenshot ${capture.seq} at ${formatDateTime(capture.capturedAt)}`}
+            loading="lazy"
+            onError={() => setImageFailed(true)}
+            src={url}
+          />
+        </a>
+      ) : (
+        <div className="capture-loading">
+          {error || imageFailed ? <ImageOff size={16} /> : <span>Loading…</span>}
+        </div>
+      )}
+      <figcaption>
+        #{capture.seq} · {formatDateTime(capture.capturedAt)}
+        {sizeLabel ? ` · ${sizeLabel}` : ""}
+        {capture.source === "desktop" && (
+          <span className="pill accent-pill capture-source-pill">Desktop</span>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
+
 export default function MonitoringPanel({ agents, token }: { agents: User[]; token: string }) {
   const [agentId, setAgentId] = useState("");
   const [sessions, setSessions] = useState<MonitoringSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [detail, setDetail] = useState<MonitoringDetail | null>(null);
   const [captureUrls, setCaptureUrls] = useState<Record<string, string>>({});
+  const [captureErrors, setCaptureErrors] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const urlsRef = useRef<Record<string, string>>({});
+  const loadingCapturesRef = useRef<Set<string>>(new Set());
+  const captureGenerationRef = useRef(0);
   const detailRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -62,10 +140,56 @@ export default function MonitoringPanel({ agents, token }: { agents: User[]; tok
   }, [agentId, agents]);
 
   const releaseUrls = useCallback(() => {
+    captureGenerationRef.current += 1;
     Object.values(urlsRef.current).forEach((url) => URL.revokeObjectURL(url));
     urlsRef.current = {};
+    loadingCapturesRef.current.clear();
     setCaptureUrls({});
+    setCaptureErrors({});
   }, []);
+
+  // Authorized blob fetch for one capture. <img> tags cannot send bearer
+  // tokens, so each card fetches its own image as it scrolls into view.
+  const loadCapture = useCallback(async (captureId: string) => {
+    if (!captureId || urlsRef.current[captureId] || loadingCapturesRef.current.has(captureId)) {
+      return;
+    }
+
+    loadingCapturesRef.current.add(captureId);
+    const generation = captureGenerationRef.current;
+
+    try {
+      const response = await fetch(
+        `${getApiUrl()}/api/monitoring/captures/${captureId}/file`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (generation !== captureGenerationRef.current) return;
+
+      if (!response.ok) {
+        setCaptureErrors((current) => ({ ...current, [captureId]: true }));
+        return;
+      }
+
+      const blob = await response.blob();
+      if (generation !== captureGenerationRef.current) return;
+
+      const url = URL.createObjectURL(blob);
+      if (generation !== captureGenerationRef.current) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      urlsRef.current[captureId] = url;
+      setCaptureUrls((current) => ({ ...current, [captureId]: url }));
+    } catch {
+      if (generation === captureGenerationRef.current) {
+        setCaptureErrors((current) => ({ ...current, [captureId]: true }));
+      }
+    } finally {
+      loadingCapturesRef.current.delete(captureId);
+    }
+  }, [token]);
 
   const loadSessions = useCallback(async () => {
     if (!agentId) return;
@@ -112,39 +236,9 @@ export default function MonitoringPanel({ agents, token }: { agents: User[]; tok
     apiRequest<MonitoringDetail>(`/api/monitoring/shift/${shiftId}`, { token })
       .then((result) => {
         if (cancelled) return;
+        releaseUrls();
         setDetail(result);
         detailRef.current = shiftId;
-
-        // Authorized blob fetches: <img> tags cannot send bearer tokens, and
-        // ten pre-signed-style round trips would be overkill for this size.
-        releaseUrls();
-        const captures = result.monitoring.captures.slice(0, MAX_LOADED_IMAGES);
-        Promise.all(
-          captures.map(async (capture) => {
-            try {
-              const response = await fetch(
-                `${getApiUrl()}/api/monitoring/captures/${capture._id}/file`,
-                { headers: { Authorization: `Bearer ${token}` } }
-              );
-              if (!response.ok) return null;
-              const blob = await response.blob();
-              return [capture._id, URL.createObjectURL(blob)] as const;
-            } catch {
-              return null;
-            }
-          })
-        ).then((entries) => {
-          if (cancelled) {
-            entries.forEach((entry) => entry && URL.revokeObjectURL(entry[1]));
-            return;
-          }
-          const map: Record<string, string> = {};
-          entries.forEach((entry) => {
-            if (entry) map[entry[0]] = entry[1];
-          });
-          urlsRef.current = map;
-          setCaptureUrls(map);
-        });
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load monitoring detail");
@@ -284,7 +378,7 @@ export default function MonitoringPanel({ agents, token }: { agents: User[]; tok
               <span><Camera size={14} /> Automatic screenshots</span>
               <span className="muted">
                 {monitoring.captures.length
-                  ? "Click a screenshot to open it full size"
+                  ? "Click a screenshot to open it full size — all captures load as you scroll"
                   : monitoring.status === "active"
                     ? "No screenshots yet — one is taken every 15 minutes during the shift"
                     : "No screenshots were captured in this shift"}
@@ -294,25 +388,13 @@ export default function MonitoringPanel({ agents, token }: { agents: User[]; tok
             {monitoring.captures.length ? (
               <div className="capture-gallery">
                 {monitoring.captures.map((capture) => (
-                  <figure className="capture-card" key={capture._id}>
-                    {captureUrls[capture._id] ? (
-                      <a href={captureUrls[capture._id]} target="_blank" rel="noreferrer">
-                        <img
-                          alt={`Screenshot ${capture.seq} at ${formatDateTime(capture.capturedAt)}`}
-                          loading="lazy"
-                          src={captureUrls[capture._id]}
-                        />
-                      </a>
-                    ) : (
-                      <div className="capture-loading"><ImageOff size={16} /></div>
-                    )}
-                    <figcaption>
-                      #{capture.seq} · {formatDateTime(capture.capturedAt)}
-                      {capture.source === "desktop" && (
-                        <span className="pill accent-pill capture-source-pill">Desktop</span>
-                      )}
-                    </figcaption>
-                  </figure>
+                  <CaptureThumb
+                    capture={capture}
+                    error={Boolean(captureErrors[capture._id])}
+                    key={capture._id}
+                    onVisible={loadCapture}
+                    url={captureUrls[capture._id]}
+                  />
                 ))}
               </div>
             ) : null}

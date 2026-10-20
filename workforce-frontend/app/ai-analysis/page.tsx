@@ -56,14 +56,42 @@ async function fetchCaptureDataUri(token: string, captureId: string): Promise<st
     });
     if (!response.ok) return undefined;
     const blob = await response.blob();
-    return await new Promise<string | undefined>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
-      reader.onerror = () => resolve(undefined);
-      reader.readAsDataURL(blob);
-    });
+    return await pdfCompatibleDataUri(blob);
   } catch {
     return undefined;
+  }
+}
+
+function readBlobAsDataUri(blob: Blob): Promise<string | undefined> {
+  return new Promise<string | undefined>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Screenshots are stored as WebP to stay under 300KB. @react-pdf/renderer only
+// decodes JPEG/PNG, so convert WebP through a canvas before embedding it in a
+// report; previews keep using the WebP object/data URI directly.
+async function pdfCompatibleDataUri(blob: Blob): Promise<string | undefined> {
+  if (blob.type !== "image/webp") return readBlobAsDataUri(blob);
+
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+
+    const context = canvas.getContext("2d");
+    if (!context) return readBlobAsDataUri(blob);
+
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+
+    return canvas.toDataURL("image/jpeg", 0.92);
+  } catch {
+    return readBlobAsDataUri(blob);
   }
 }
 

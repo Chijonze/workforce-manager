@@ -9,12 +9,16 @@ router.use(protect);
 // Agent-only write endpoints: workers report their own monitoring data.
 const agentWrite = [protect, requireNonSupervisor];
 
-// Raw JPEG upload — parsed as a buffer only on this route, keeping the global
-// JSON parser and its 32kb limit untouched elsewhere.
+// Raw image upload — parsed as a buffer only on this route, keeping the global
+// JSON parser and its 32kb limit untouched elsewhere. The service sniffs the
+// magic bytes and re-encodes everything to WebP under 300KB.
 router.post(
   "/session/:shiftId/capture",
   agentWrite,
-  raw({ type: "application/octet-stream", limit: "2mb" }),
+  raw({
+    type: ["application/octet-stream", "image/jpeg", "image/png", "image/webp"],
+    limit: "2mb",
+  }),
   controller.postCapture
 );
 router.post("/session/start", agentWrite, controller.startMonitoringSession);

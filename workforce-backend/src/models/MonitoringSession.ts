@@ -15,6 +15,9 @@ export interface IMonitoringCapture {
   sizeBytes: number;
   width: number;
   height: number;
+  // Screenshots are stored as WebP when the server can re-encode them; older
+  // captures have no mimeType and are served as JPEG.
+  mimeType?: "image/jpeg" | "image/png" | "image/webp";
   source?: "browser" | "desktop";
 }
 
@@ -69,6 +72,11 @@ const captureSchema = new Schema<IMonitoringCapture>(
     sizeBytes: { type: Number, default: 0 },
     width: { type: Number, default: 0 },
     height: { type: Number, default: 0 },
+    mimeType: {
+      type: String,
+      enum: ["image/jpeg", "image/png", "image/webp"],
+      default: "image/jpeg",
+    },
     source: { type: String, enum: ["browser", "desktop"], default: "browser" },
   },
   { _id: true }

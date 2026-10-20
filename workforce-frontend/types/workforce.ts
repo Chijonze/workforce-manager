@@ -257,6 +257,7 @@ export type MonitoringCapture = {
   sizeBytes: number;
   width: number;
   height: number;
+  mimeType?: "image/jpeg" | "image/png" | "image/webp";
   source?: "browser" | "desktop";
 };
 

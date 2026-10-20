@@ -10,11 +10,174 @@ import User from "../../models/User";
 import { notifyMonitoringAgent } from "./monitoringAgentBus";
 
 const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_SAMPLE_VALUES = {
   movements: 10_000,
   distancePx: 5_000_000,
   clicks: 600,
   scrolls: 600,
+};
+
+// Screenshots are re-encoded to WebP so a dense 1280px desktop capture stays
+// under the 300KB budget while text remains readable. WebP is roughly 25-35%
+// smaller than JPEG at the same visual quality.
+export const CAPTURE_TARGET_BYTES = 300 * 1000;
+const CAPTURE_MAX_WIDTH = 1600;
+const CAPTURE_MAX_PIXELS = 50_000_000;
+const WEBP_QUALITY_LADDER = [86, 78, 70, 62];
+const DOWNSCALE_STEPS = [1, 0.85, 0.7, 0.55, 0.42];
+const CAPTURE_INTERVAL_MS = CAPTURE_INTERVAL_MINUTES * 60_000;
+
+type CaptureFormat = {
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  extension: "jpg" | "png" | "webp";
+};
+
+type OptimizedCapture = CaptureFormat & {
+  buffer: Buffer;
+  width: number;
+  height: number;
+};
+
+type SharpModule = ((input: Buffer, options?: Record<string, unknown>) => any) | null;
+
+// sharp is a native dependency and is optional: when it is not installed the
+// original bytes are stored and clients still enforce the budget themselves.
+let sharpModule: SharpModule = null;
+let sharpResolved = false;
+
+const getSharp = (): SharpModule => {
+  if (sharpResolved) return sharpModule;
+
+  sharpResolved = true;
+  try {
+    sharpModule = require("sharp") as SharpModule;
+  } catch {
+    sharpModule = null;
+    console.warn("sharp is unavailable; monitoring screenshots will be stored as uploaded");
+  }
+
+  return sharpModule;
+};
+
+const detectCaptureFormat = (buffer: Buffer): CaptureFormat | null => {
+  if (buffer.length >= 3 && buffer.subarray(0, 3).equals(JPEG_MAGIC)) {
+    return { mimeType: "image/jpeg", extension: "jpg" };
+  }
+
+  if (buffer.length >= PNG_MAGIC.length && buffer.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) {
+    return { mimeType: "image/png", extension: "png" };
+  }
+
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buffer.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return { mimeType: "image/webp", extension: "webp" };
+  }
+
+  return null;
+};
+
+const optimizeCapture = async (
+  raw: Buffer,
+  detected: CaptureFormat
+): Promise<OptimizedCapture> => {
+  // A browser that already encoded a WebP under budget is left untouched:
+  // re-encoding would only add CPU work and could soften text.
+  if (detected.mimeType === "image/webp" && raw.length <= CAPTURE_TARGET_BYTES) {
+    return { buffer: raw, ...detected, width: 0, height: 0 };
+  }
+
+  const sharp = getSharp();
+
+  if (!sharp) {
+    return { buffer: raw, ...detected, width: 0, height: 0 };
+  }
+
+  try {
+    const metadata = await sharp(raw, {
+      failOn: "none",
+      limitInputPixels: CAPTURE_MAX_PIXELS,
+    }).metadata();
+
+    const sourceWidth = Math.max(1, Math.round(Number(metadata.width) || CAPTURE_MAX_WIDTH));
+    const cappedWidth = Math.min(sourceWidth, CAPTURE_MAX_WIDTH);
+    const widths = DOWNSCALE_STEPS
+      .map((scale) => Math.max(1, Math.round(cappedWidth * scale)))
+      .filter((width, index, list) => width >= 480 && list.indexOf(width) === index);
+
+    let smallest: OptimizedCapture | null = null;
+
+    for (const width of widths) {
+      for (const quality of WEBP_QUALITY_LADDER) {
+        const { data, info } = await sharp(raw, {
+          failOn: "none",
+          limitInputPixels: CAPTURE_MAX_PIXELS,
+        })
+          .rotate()
+          .resize({ width, height: 4000, fit: "inside", withoutEnlargement: true })
+          .webp({ quality, effort: 4, smartSubsample: true })
+          .toBuffer({ resolveWithObject: true });
+
+        const candidate: OptimizedCapture = {
+          buffer: data,
+          mimeType: "image/webp",
+          extension: "webp",
+          width: Number(info.width) || width,
+          height: Number(info.height) || 0,
+        };
+
+        if (!smallest || candidate.buffer.length < smallest.buffer.length) {
+          smallest = candidate;
+        }
+
+        if (candidate.buffer.length <= CAPTURE_TARGET_BYTES) {
+          return candidate;
+        }
+      }
+    }
+
+    // Pathological aspect ratios (very tall/wide screens) can miss the width
+    // ladder above; one last bounded attempt guarantees the budget.
+    const fallback = await sharp(raw, {
+      failOn: "none",
+      limitInputPixels: CAPTURE_MAX_PIXELS,
+    })
+      .rotate()
+      .resize({ width: 640, height: 640, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 50, effort: 4 })
+      .toBuffer({ resolveWithObject: true });
+
+    const fallbackCapture: OptimizedCapture = {
+      buffer: fallback.data,
+      mimeType: "image/webp",
+      extension: "webp",
+      width: Number(fallback.info.width) || 640,
+      height: Number(fallback.info.height) || 0,
+    };
+
+    if (
+      fallbackCapture.buffer.length <= CAPTURE_TARGET_BYTES ||
+      !smallest ||
+      fallbackCapture.buffer.length < smallest.buffer.length
+    ) {
+      return fallbackCapture;
+    }
+
+    return smallest || { buffer: raw, ...detected, width: 0, height: 0 };
+  } catch (error) {
+    console.warn("Could not re-encode monitoring screenshot", error);
+
+    // Small originals are safe to keep as-is; anything larger is rejected so a
+    // malformed payload cannot bypass the 300KB budget.
+    if (raw.length <= CAPTURE_TARGET_BYTES) {
+      return { buffer: raw, ...detected, width: 0, height: 0 };
+    }
+
+    throw new Error("Capture image could not be processed");
+  }
 };
 
 export type Requester = {
@@ -66,32 +229,109 @@ export const ensureMonitoringSession = async (
   shiftId: string,
   scheduleType: "time_managed" | "fluid" = "time_managed"
 ) => {
-  const existing = await MonitoringSession.findOne({ shiftSessionId: shiftId });
+  // The shift is needed both to size the capture plan and to decide whether a
+  // monitoring session that was closed by a page unload is safe to resume.
+  const shift = await ShiftSession.findById(shiftId).select(
+    "userId status scheduledEndTime scheduleType"
+  );
 
-  if (existing) return existing;
+  // This is the only worker-writable session-creation path, so never let a
+  // token create (or claim) a monitoring session for another worker's shift.
+  if (!shift || String(shift.userId) !== String(userId)) {
+    throw new Error("Shift not found for this worker");
+  }
+
+  const existing = await MonitoringSession.findOne({ shiftSessionId: shiftId });
+  const shiftIsActive = shift.status === "active";
+
+  if (existing) {
+    if (existing.status !== "active" && shiftIsActive) {
+      // A browser unload/reload used to mark the monitoring session completed,
+      // which silently blocked every later screenshot upload for the shift.
+      // The shift lifecycle is the source of truth: if the shift is active,
+      // resume the session so the next page load can keep capturing.
+      existing.status = "active";
+      existing.endedAt = undefined;
+      await existing.save();
+    }
+
+    // A browser page load also lands here. Re-send the handoff so an agent
+    // whose registration raced with clock-in still takes over instead of
+    // silently leaving the worker on browser capture. Never restart tracking
+    // for a shift that has already ended.
+    if (existing.status === "active" && shiftIsActive) {
+      const delivered = notifyMonitoringAgent(userId, {
+        action: "START_MONITORING",
+        shiftId,
+        capturesTaken: existing.captures.length,
+        captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
+        startedAt: existing.startedAt.toISOString(),
+      });
+
+      if (delivered && !existing.desktopAgentActive) {
+        await markDesktopAgentActive(userId, true).catch(() => undefined);
+      }
+    }
+
+    return existing;
+  }
+
+  if (!shiftIsActive) {
+    throw new Error("Shift is not active");
+  }
 
   // The plan is the expected screenshot count at the fixed 15-minute cadence
   // across the scheduled window; fluid shifts fall back to a standard window.
-  const shift = await ShiftSession.findById(shiftId).select("scheduledEndTime");
   const scheduledEndTime = shift?.scheduledEndTime ? new Date(shift.scheduledEndTime) : null;
+  const resolvedScheduleType = shift?.scheduleType || scheduleType;
 
-  return MonitoringSession.create({
+  const session = await MonitoringSession.create({
     userId,
     shiftSessionId: shiftId,
-    scheduleType,
+    scheduleType: resolvedScheduleType,
     status: "active",
     startedAt: new Date(),
     capturePlan: plannedCaptureCount(new Date(), scheduledEndTime),
     captures: [],
     mouseSamples: [],
     mouseTotals: {},
+  }).catch(async (error: any) => {
+    // Clock-in and the first browser page load can race on session creation;
+    // the unique shiftSessionId index makes one of them lose. Reuse the winner.
+    if (error?.code === 11000) {
+      const raced = await MonitoringSession.findOne({ shiftSessionId: shiftId });
+      if (raced) return raced;
+    }
+
+    throw error;
   });
+
+  // If the worker's desktop agent is already connected, hand the new shift to
+  // it immediately. Without this an agent that connected before clock-in never
+  // starts desktop monitoring, so the worker silently falls back to browser
+  // capture (which needs a fresh screen-share grant) while a co-worker with a
+  // reconnecting agent gets desktop captures — different counts for the same
+  // shift length. Starting it here keeps every agent on the same schedule.
+  const delivered = notifyMonitoringAgent(userId, {
+    action: "START_MONITORING",
+    shiftId,
+    capturesTaken: session.captures.length,
+    captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
+    startedAt: session.startedAt.toISOString(),
+  });
+
+  if (delivered) {
+    await markDesktopAgentActive(userId, true).catch(() => undefined);
+  }
+
+  return session;
 };
 
 export const addMouseSamples = async (
   userId: string,
   shiftId: string,
-  samples: any[]
+  samples: any[],
+  source: "browser" | "desktop" = "browser"
 ) => {
   await assertShiftIsOwnedAndActive(userId, shiftId);
 
@@ -120,8 +360,15 @@ export const addMouseSamples = async (
 
   // $slice keeps only the most recent samples so the document cannot grow
   // without bound; totals live in a separate increments object.
-  return MonitoringSession.findOneAndUpdate(
-    { shiftSessionId: shiftId, userId, status: "active" },
+  const updated = await MonitoringSession.findOneAndUpdate(
+    {
+      shiftSessionId: shiftId,
+      userId,
+      status: "active",
+      // While the desktop agent owns the shift, browser batches are ignored so
+      // the handover window cannot double-count mouse activity.
+      ...(source === "browser" ? { desktopAgentActive: { $ne: true } } : {}),
+    } as any,
     {
       $push: {
         mouseSamples: {
@@ -139,6 +386,14 @@ export const addMouseSamples = async (
     },
     { new: true, upsert: false }
   );
+
+  if (!updated && source === "browser") {
+    // The batch was skipped because the desktop agent took over. Return the
+    // current session so the browser receives the flag and stands down.
+    return MonitoringSession.findOne({ shiftSessionId: shiftId, userId, status: "active" });
+  }
+
+  return updated;
 };
 
 export const addCapture = async (
@@ -147,7 +402,11 @@ export const addCapture = async (
   image: Buffer,
   width = 0,
   height = 0,
-  source: "browser" | "desktop" = "browser"
+  source: "browser" | "desktop" = "browser",
+  // v2 clients align captures to fixed slots and can be de-duplicated. Older
+  // agents (no protocol marker) keep the previous best-effort behaviour so an
+  // un-updated desktop install is not silently starved of screenshots.
+  protocol = 1
 ) => {
   await assertShiftIsOwnedAndActive(userId, shiftId);
 
@@ -155,9 +414,13 @@ export const addCapture = async (
     throw new Error("Capture payload is empty or too small");
   }
 
-  // Reject non-JPEG payloads early instead of storing arbitrary bytes.
-  if (!image.subarray(0, 3).equals(JPEG_MAGIC)) {
-    throw new Error("Capture payload must be a JPEG image");
+  // Accept the formats the browser and desktop agent can produce. The bytes are
+  // re-encoded to WebP below, so the stored file type never depends on which
+  // capture path the worker happened to use.
+  const detected = detectCaptureFormat(image);
+
+  if (!detected) {
+    throw new Error("Capture payload must be a JPEG, PNG or WebP image");
   }
 
   const session = await MonitoringSession.findOne({ shiftSessionId: shiftId, userId });
@@ -174,31 +437,76 @@ export const addCapture = async (
     throw new Error("Capture limit reached for this shift");
   }
 
+  // One capture per fixed cadence slot, measured from the monitoring session
+  // start. Both the browser and a desktop agent can try to capture around a
+  // handover (or a second tab, or a reconnect), which used to give one worker
+  // extra screenshots. Whichever capture reaches the server first claims the
+  // slot; the rest are rejected so every worker's count follows the same plan.
+  // Browser uploads are always slot-checked; legacy desktop agents without a
+  // protocol marker are exempt until they are updated.
+  const now = new Date();
+  const startedMsRaw = new Date(session.startedAt).getTime();
+  const startedMs = Number.isFinite(startedMsRaw) ? startedMsRaw : now.getTime();
+  const slot = Math.max(0, Math.floor((now.getTime() - startedMs) / CAPTURE_INTERVAL_MS));
+  const slotStart = new Date(startedMs + slot * CAPTURE_INTERVAL_MS);
+  const slotEnd = new Date(slotStart.getTime() + CAPTURE_INTERVAL_MS);
+  const enforceSlot = protocol >= 2 || source === "browser";
+
+  if (enforceSlot) {
+    const slotAlreadyCaptured = (session.captures || []).some((capture: any) => {
+      const capturedAt = new Date(capture.capturedAt).getTime();
+      return capturedAt >= slotStart.getTime() && capturedAt < slotEnd.getTime();
+    });
+
+    if (slotAlreadyCaptured) {
+      throw new Error("A screenshot was already recorded for this interval");
+    }
+  }
+
+  const optimized = await optimizeCapture(image, detected);
+  const finalWidth = optimized.width || clampInt(width, 100_000);
+  const finalHeight = optimized.height || clampInt(height, 100_000);
+
   const dir = path.join(uploadsRoot(), String(session._id));
   await fs.promises.mkdir(dir, { recursive: true });
 
   const seq = captureCount + 1;
-  const fileName = `${seq}-${Date.now()}.jpg`;
+  const fileName = `${seq}-${Date.now()}.${optimized.extension}`;
   const filePath = path.join(dir, fileName);
 
-  await fs.promises.writeFile(filePath, image);
-
   try {
+    await fs.promises.writeFile(filePath, optimized.buffer);
+
     const updated = await MonitoringSession.findOneAndUpdate(
       {
         _id: session._id,
+        status: "active",
         // Conditional push keeps the array bounded even under races.
         [`captures.${MAX_CAPTURES - 1}`]: { $exists: false },
-      },
+        // Same-slot uploads are rejected atomically for slot-enforced clients,
+        // not just by the pre-check above.
+        ...(enforceSlot
+          ? {
+              captures: {
+                $not: {
+                  $elemMatch: {
+                    capturedAt: { $gte: slotStart, $lt: slotEnd },
+                  },
+                },
+              },
+            }
+          : {}),
+      } as any,
       {
         $push: {
           captures: {
             seq,
-            capturedAt: new Date(),
+            capturedAt: now,
             filePath,
-            sizeBytes: image.length,
-            width: clampInt(width, 100_000),
-            height: clampInt(height, 100_000),
+            sizeBytes: optimized.buffer.length,
+            width: finalWidth,
+            height: finalHeight,
+            mimeType: optimized.mimeType,
             source,
           },
         },
@@ -208,14 +516,20 @@ export const addCapture = async (
 
     if (!updated) {
       await fs.promises.unlink(filePath).catch(() => undefined);
-      throw new Error("Capture limit reached for this shift");
+      throw new Error(
+        "Capture was not recorded; the shift limit was reached or this interval already has a screenshot"
+      );
     }
 
     return {
       seq,
-      capturedAt: updated.captures[updated.captures.length - 1]?.capturedAt || new Date(),
+      capturedAt: now,
       captureCount: updated.captures.length,
       capturePlan: session.capturePlan,
+      sizeBytes: optimized.buffer.length,
+      mimeType: optimized.mimeType,
+      width: finalWidth,
+      height: finalHeight,
     };
   } catch (error) {
     await fs.promises.unlink(filePath).catch(() => undefined);
@@ -291,6 +605,10 @@ export const getDesktopMonitoringHandoff = async (userId: string) => {
     capturesTaken,
     // Clients schedule one screenshot per tick of this cadence until end shift.
     captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
+    // Aligning the cadence to the session start (instead of the moment the
+    // agent reconnects) keeps reconnects and handovers on the same slots as
+    // every other worker.
+    startedAt: session.startedAt.toISOString(),
     scheduledEndTime: shift.scheduledEndTime ? new Date(shift.scheduledEndTime).toISOString() : null,
   };
 };
@@ -311,6 +629,7 @@ export const getMonitoringSessionState = async (userId: string, shiftId: string)
     captureCount: session.captures.length,
     capturePlan: session.capturePlan,
     captureIntervalMinutes: CAPTURE_INTERVAL_MINUTES,
+    startedAt: session.startedAt.toISOString(),
   };
 };
 
@@ -357,6 +676,7 @@ export const getShiftMonitoring = async (shiftId: string, requester: Requester) 
         sizeBytes: capture.sizeBytes,
         width: capture.width,
         height: capture.height,
+        mimeType: capture.mimeType || "image/jpeg",
         source: capture.source || "browser",
       })),
       mouseTotals: session.mouseTotals,

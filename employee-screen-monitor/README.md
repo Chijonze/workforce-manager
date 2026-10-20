@@ -86,6 +86,15 @@ activity monitoring** for the signed-in worker's active shift:
   one small batch per minute) and takes an automatic screenshot every 15
   minutes via `desktopCapturer` until the shift ends — no new permission
   prompts beyond the standard Screen Recording permission.
+- Activity screenshots are compressed to stay **below 300KB** while keeping
+  text readable. The agent searches JPEG quality/resolution per capture
+  (Electron's NativeImage cannot encode WebP); the server re-encodes uploads to
+  WebP under the same budget, so browser and desktop captures use the same
+  compact format.
+- Capture slots are aligned to the monitoring-session start, not to the moment
+  the agent connected. Reconnects and browser/desktop handovers therefore do
+  not add extra screenshots, and the server rejects a second capture in the
+  same 15-minute slot.
 - Everything rides the existing WebSocket connection with no new login.
 - Older builds without this feature keep working exactly as before: they simply
   ignore the `START_MONITORING`/`STOP_MONITORING` commands, and the dashboard

@@ -28,7 +28,9 @@ type EngineOptions = {
 
 const MOUSE_FLUSH_MS = 60_000;
 const MAX_CAPTURE_WIDTH = 1280;
-const JPEG_QUALITY = 0.6;
+// Every stored screenshot must stay under this budget. WebP keeps text
+// readable at a fraction of the JPEG size, so quality can stay high.
+const CAPTURE_TARGET_BYTES = 300 * 1000;
 // Fixed cadence, overridable by the server until clients catch up.
 const DEFAULT_CAPTURE_INTERVAL_MS = 15 * 60_000;
 const MIN_CAPTURE_INTERVAL_MS = 60_000;
@@ -36,6 +38,9 @@ const MIN_CAPTURE_INTERVAL_MS = 60_000;
 // screen capture mid-shift) so the pipeline is visible immediately instead of
 // one full interval later.
 const FIRST_CAPTURE_DELAY_MS = 60_000;
+// Fire just after a slot boundary so a small clock/network skew still records
+// the capture inside the intended 15-minute window.
+const CAPTURE_SLOT_OFFSET_MS = 750;
 
 // Counts only — one tiny object mutated in place. No per-event allocation, so
 // the listeners stay negligible even under heavy mouse activity.
@@ -53,6 +58,89 @@ const authHeaders = (token: string): HeadersInit => ({
   Authorization: `Bearer ${token}`,
 });
 
+let webpEncodingSupported: boolean | null = null;
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+async function detectWebpEncoding() {
+  if (webpEncodingSupported !== null) return webpEncodingSupported;
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 2;
+    canvas.height = 2;
+    const blob = await canvasToBlob(canvas, "image/webp", 0.5);
+    webpEncodingSupported = Boolean(blob && blob.type === "image/webp");
+  } catch {
+    webpEncodingSupported = false;
+  }
+
+  return webpEncodingSupported;
+}
+
+function scaleCanvas(source: HTMLCanvasElement, width: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(source.height * (canvas.width / source.width)));
+
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+  return canvas;
+}
+
+type EncodedCapture = { blob: Blob; width: number; height: number };
+
+/**
+ * Encodes a canvas under the 300KB budget.
+ *
+ * WebP is preferred (Chrome/Edge/Firefox, and Safari 16+ for encoding) because
+ * it preserves small UI text far better than JPEG at the same byte count.
+ * Quality starts high and only steps down when a dense screen would break the
+ * budget; if even the lowest quality is too large, the frame is downscaled a
+ * step at a time. The first encode under budget wins, so a normal dashboard
+ * capture keeps the top quality setting.
+ */
+async function encodeCapture(source: HTMLCanvasElement): Promise<EncodedCapture | null> {
+  const useWebp = await detectWebpEncoding();
+  const mimeType = useWebp ? "image/webp" : "image/jpeg";
+  const qualities = useWebp
+    ? [0.9, 0.82, 0.74, 0.66, 0.58]
+    : [0.86, 0.78, 0.7, 0.62, 0.54];
+  const widths = [
+    source.width,
+    Math.round(source.width * 0.85),
+    Math.round(source.width * 0.7),
+    Math.round(source.width * 0.55),
+  ].filter((width, index, list) => width >= 480 && list.indexOf(width) === index);
+
+  let smallest: EncodedCapture | null = null;
+
+  for (const width of widths) {
+    const canvas = width === source.width ? source : scaleCanvas(source, width);
+    if (!canvas) continue;
+
+    for (const quality of qualities) {
+      const blob = await canvasToBlob(canvas, mimeType, quality);
+      if (!blob) continue;
+
+      const candidate = { blob, width: canvas.width, height: canvas.height };
+
+      if (!smallest || blob.size < smallest.blob.size) smallest = candidate;
+
+      if (blob.size <= CAPTURE_TARGET_BYTES) return candidate;
+    }
+  }
+
+  return smallest;
+}
+
 /**
  * Runs worker activity monitoring for one shift:
  *  - mouse tracking (aggregated per minute, from "Available" to "End shift")
@@ -64,9 +152,8 @@ const authHeaders = (token: string): HeadersInit => ({
  * probes once a minute, resuming browser-scoped tracking if the agent leaves.
  *
  * Deliberately frugal: counters instead of event streams, one small upload per
- * minute, screenshots taken from a display stream that stays paused between
- * captures, and a single reused canvas. Server load is a few tiny requests per
- * worker per hour plus one ~100KB JPEG per 15 minutes of shift.
+ * minute, a single reused canvas, and one WebP screenshot per 15 minutes of
+ * shift that is compressed to stay under 300KB.
  */
 export function createMonitoringSession(options: EngineOptions): MonitoringHandle {
   const { token, shiftId, onState } = options;
@@ -79,6 +166,12 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
   let viaDesktopAgent = false;
   let canRetryCapture = false;
   let gestureRetryArmed = false;
+  let captureInFlight = false;
+  let captureRequestPending = false;
+  // Capture slots are aligned to the monitoring session's start time so a
+  // reload, a late screen-share grant, or a desktop-handover cannot shift the
+  // cadence and produce a different screenshot count than another worker.
+  let startedAtMs = Date.now();
   let bucket = emptyBucket();
   const totals = { movements: 0, distancePx: 0, clicks: 0, scrolls: 0 };
 
@@ -125,13 +218,27 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
 
   function clearCaptureTimer() {
     if (captureTimer !== null) {
-      window.clearInterval(captureTimer);
+      window.clearTimeout(captureTimer);
       captureTimer = null;
     }
     if (firstCaptureTimer !== null) {
       window.clearTimeout(firstCaptureTimer);
       firstCaptureTimer = null;
     }
+  }
+
+  function applyCaptureInterval(minutes: unknown) {
+    const parsed = Math.round(Number(minutes) || 0);
+    if (parsed > 0) {
+      captureIntervalMs = Math.max(MIN_CAPTURE_INTERVAL_MS, parsed * 60_000);
+    }
+  }
+
+  function applyStartedAt(value: unknown) {
+    if (typeof value !== "string") return;
+
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed)) startedAtMs = parsed;
   }
 
   // Once the worker's desktop agent reports in, it owns desktop-wide tracking
@@ -158,57 +265,92 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       const response = await fetch(`${getApiUrl()}/api/monitoring/session/${shiftId}/state`, {
         headers: authHeaders(token),
       });
+      if (!response.ok) return;
+
       const data = await response.json().catch(() => ({}));
 
       if (stopped) return;
 
-      if (data?.desktopAgentActive) return;
+      applyStartedAt(data?.startedAt);
+
+      if (data?.desktopAgentActive) {
+        // The agent may have connected after this page started; stand down.
+        supersedeByDesktopAgent();
+        return;
+      }
+
+      if (!viaDesktopAgent) return;
 
       // The desktop agent is gone: resume browser-scoped tracking with the
-      // server's capture counts as the baseline.
+      // server's capture count as the baseline. Do not re-prompt for screen
+      // access when the worker has already declined; the dashboard exposes an
+      // explicit retry button for that case.
       viaDesktopAgent = false;
       applyCaptureInterval(data?.captureIntervalMinutes);
       capturesTaken = Math.max(Number(data?.captureCount) || 0, capturesTaken);
       attachMouseListeners();
-      startCaptureService();
+      if (!capturesEnabled && !canRetryCapture) startCaptureService();
       emit();
     } catch {
       // Keep probing; the next tick retries.
     }
   }
 
-  function applyCaptureInterval(minutes: unknown) {
-    const parsed = Math.round(Number(minutes) || 0);
-    if (parsed > 0) {
-      captureIntervalMs = Math.max(MIN_CAPTURE_INTERVAL_MS, parsed * 60_000);
-    }
+  function msUntilNextCaptureSlot() {
+    const elapsed = Math.max(0, Date.now() - startedAtMs);
+    const nextSlot = (Math.floor(elapsed / captureIntervalMs) + 1) * captureIntervalMs;
+    return Math.max(1_000, nextSlot - elapsed + CAPTURE_SLOT_OFFSET_MS);
   }
 
-  // One screenshot per cadence tick, from when capture starts (the worker
+  function scheduleNextCadenceCapture() {
+    if (stopped || !capturesEnabled || viaDesktopAgent || captureTimer !== null) return;
+
+    captureTimer = window.setTimeout(() => {
+      captureTimer = null;
+      void takeCadenceCapture().finally(scheduleNextCadenceCapture);
+    }, msUntilNextCaptureSlot());
+  }
+
+  // One screenshot per cadence slot, from when capture starts (the worker
   // going Available) until the shift ends. The tick is a no-op while screen
   // capture is unavailable, so a late permission grant just rejoins the beat.
   function startCaptureCadence() {
-    if (captureTimer !== null) return;
+    if (captureTimer !== null || firstCaptureTimer !== null) return;
 
-    firstCaptureTimer = window.setTimeout(() => {
-      firstCaptureTimer = null;
-      takeCadenceCapture();
-    }, FIRST_CAPTURE_DELAY_MS);
+    // Only take the early proof-of-life shot when this shift has no captures
+    // yet; a resumed page/agent must wait for the next slot instead of adding
+    // an extra screenshot.
+    if (capturesTaken === 0) {
+      firstCaptureTimer = window.setTimeout(() => {
+        firstCaptureTimer = null;
+        void takeCadenceCapture().finally(scheduleNextCadenceCapture);
+      }, FIRST_CAPTURE_DELAY_MS);
+      return;
+    }
 
-    captureTimer = window.setInterval(takeCadenceCapture, captureIntervalMs);
+    scheduleNextCadenceCapture();
   }
 
-  function takeCadenceCapture() {
-    if (stopped || !capturesEnabled || viaDesktopAgent) return;
+  async function takeCadenceCapture() {
+    if (stopped || !capturesEnabled || viaDesktopAgent || captureInFlight) return;
 
     const videoEl = video;
     if (!videoEl) return;
 
-    videoEl.play()
-      .then(() => new Promise((resolve) => window.setTimeout(resolve, 400)))
-      .then(() => captureFromVideo())
-      .catch(() => undefined)
-      .finally(() => videoEl.pause());
+    captureInFlight = true;
+
+    try {
+      await videoEl.play();
+      // Give the freshly resumed stream one frame before painting the canvas.
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+      await captureFromVideo();
+    } catch {
+      // A blocked autoplay or a transient capture failure is retried on the
+      // next cadence slot.
+    } finally {
+      videoEl.pause();
+      captureInFlight = false;
+    }
   }
 
   async function flushMouse(keepalive: boolean) {
@@ -236,7 +378,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
 
       const data = await response.json().catch(() => ({}));
 
-      if (data?.desktopAgentActive) {
+      if (!stopped && data?.desktopAgentActive) {
         supersedeByDesktopAgent();
       }
     } catch {
@@ -244,13 +386,15 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     }
   }
 
-  function flushTick() {
+  // Probe every minute even when the worker is idle: mouse batches stop while
+  // there is no movement, and a desktop handover must still be noticed before
+  // the next capture slot.
+  async function flushTick() {
     if (stopped) return;
-    if (viaDesktopAgent) {
-      void probeDesktopAgent();
-      return;
-    }
-    void flushMouse(false);
+
+    await probeDesktopAgent();
+
+    if (!viaDesktopAgent) await flushMouse(false);
   }
 
   let video: HTMLVideoElement | null = null;
@@ -274,24 +418,27 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
 
     context.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
 
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvasEl.toBlob(resolve, "image/jpeg", JPEG_QUALITY)
-    );
-    if (!blob || stopped) return;
+    const encoded = await encodeCapture(canvasEl);
+    if (!encoded || stopped) return;
 
-    await fetch(
-      `${getApiUrl()}/api/monitoring/session/${shiftId}/capture?width=${canvasEl.width}&height=${canvasEl.height}`,
+    // The route parses a raw octet-stream; the server sniffs JPEG/PNG/WebP and
+    // re-encodes to WebP under 300KB, so the content type stays generic here.
+    const response = await fetch(
+      `${getApiUrl()}/api/monitoring/session/${shiftId}/capture?width=${encoded.width}&height=${encoded.height}&protocol=2`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/octet-stream",
           Authorization: `Bearer ${token}`,
         },
-        body: blob,
+        body: encoded.blob,
       }
     );
 
-    capturesTaken += 1;
+    if (!response.ok || stopped) return;
+
+    const data = await response.json().catch(() => ({}));
+    capturesTaken = typeof data?.captureCount === "number" ? data.captureCount : capturesTaken + 1;
     emit();
   }
 
@@ -317,13 +464,15 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
   }
 
   function startCaptureService() {
-    if (stopped || viaDesktopAgent || capturesEnabled) return;
+    if (stopped || viaDesktopAgent || capturesEnabled || captureRequestPending) return;
 
     if (!navigator.mediaDevices?.getDisplayMedia) {
       captureNotice = "Screen capture is not supported in this browser";
       emit();
       return;
     }
+
+    captureRequestPending = true;
 
     navigator.mediaDevices
       .getDisplayMedia({ video: { frameRate: 1 }, audio: false })
@@ -376,6 +525,9 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
         }
 
         emit();
+      })
+      .finally(() => {
+        captureRequestPending = false;
       });
   }
 
@@ -390,6 +542,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       if (!response.ok) throw new Error(data?.message || "Monitoring setup failed");
 
       applyCaptureInterval(data.captureIntervalMinutes);
+      applyStartedAt(data.startedAt);
       capturesTaken = Number(data.captures) || 0;
       emit();
     } catch {
@@ -408,6 +561,8 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       const state = await stateResponse.json().catch(() => ({}));
 
       if (stopped) return;
+
+      applyStartedAt(state?.startedAt);
 
       if (state?.desktopAgentActive) {
         supersedeByDesktopAgent();
@@ -430,8 +585,14 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
     },
     stop() {
       if (stopped) return;
-      stopped = true;
 
+      // Start the final flush before flipping `stopped`, otherwise the flush
+      // guard would drop the worker's last partial minute of activity. The
+      // shift lifecycle owns closing the monitoring session, so a page unload
+      // or reload does not disable screenshots for the rest of the shift.
+      void flushMouse(true).catch(() => undefined);
+
+      stopped = true;
       window.clearInterval(flushTimer);
       clearCaptureTimer();
       disarmGestureRetry();
@@ -439,22 +600,7 @@ export function createMonitoringSession(options: EngineOptions): MonitoringHandl
       video?.srcObject &&
         (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
 
-      // Best-effort final flush + session close; the server also closes the
-      // monitoring session when the shift itself ends.
-      void flushMouse(true).catch(() => undefined);
-      void postJson(token, `/api/monitoring/session/${shiftId}/end`, { status: "completed" }, true)
-        .catch(() => undefined);
-
       emit();
     },
   };
-}
-
-async function postJson(token: string, path: string, body: unknown, keepalive = false) {
-  await fetch(`${getApiUrl()}${path}`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify(body),
-    keepalive,
-  });
 }

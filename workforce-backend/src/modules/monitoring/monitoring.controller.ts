@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import { CAPTURE_INTERVAL_MINUTES } from "../../models/MonitoringSession";
+import ShiftSession from "../../models/ShiftSession";
 import * as monitoringService from "./monitoring.service";
 
 type AuthedRequest = Request & { user?: { userId: string; role: string } };
@@ -50,7 +51,8 @@ export const postMouseSamples = async (req: AuthedRequest, res: Response) => {
     const updated = await monitoringService.addMouseSamples(
       requesterOf(req).userId,
       shiftId,
-      (req.body || {}).samples
+      (req.body || {}).samples,
+      "browser"
     );
 
     if (!updated) {
@@ -103,7 +105,7 @@ export const postCapture = async (req: AuthedRequest, res: Response) => {
     const image = Buffer.isBuffer(req.body) ? req.body : null;
 
     if (!image) {
-      return res.status(400).json({ message: "Expected raw JPEG body" });
+      return res.status(400).json({ message: "Expected a raw image body" });
     }
 
     const result = await monitoringService.addCapture(
@@ -111,7 +113,9 @@ export const postCapture = async (req: AuthedRequest, res: Response) => {
       shiftId,
       image,
       Number(req.query.width) || 0,
-      Number(req.query.height) || 0
+      Number(req.query.height) || 0,
+      "browser",
+      Math.round(Number(req.query.protocol) || 1)
     );
 
     res.status(201).json(result);
@@ -127,6 +131,23 @@ export const endMonitoringSession = async (req: AuthedRequest, res: Response) =>
 
     if (!isObjectId(shiftId)) {
       return res.status(400).json({ message: "Invalid shift ID format" });
+    }
+
+    // The route is worker-writable, so scope it to the caller's own shift.
+    const shift = await ShiftSession.findOne({
+      _id: shiftId,
+      userId: requesterOf(req).userId,
+    }).select("status");
+
+    if (!shift) {
+      return res.status(404).json({ message: "Shift not found" });
+    }
+
+    // Monitoring is tied to the shift lifecycle. A page unload/reload must not
+    // disable screenshots for the rest of an active shift; only the shift-end
+    // and auto-close paths close the monitoring session for an active shift.
+    if (shift.status === "active") {
+      return res.json({ ok: true, ended: false });
     }
 
     const status = req.body?.status === "expired" ? "expired" : "completed";
@@ -197,7 +218,8 @@ export const getCaptureFile = async (req: AuthedRequest, res: Response) => {
     // input, so serving it directly cannot be turned into a path traversal.
     await fs.promises.access(capture.filePath, fs.constants.R_OK);
 
-    res.setHeader("Content-Type", "image/jpeg");
+    // New captures are WebP; legacy ones are JPEG and have no mimeType.
+    res.setHeader("Content-Type", capture.mimeType || "image/jpeg");
     res.setHeader("Cache-Control", "private, max-age=86400, immutable");
     res.sendFile(path.resolve(capture.filePath), (error) => {
       if (error && !res.headersSent) {

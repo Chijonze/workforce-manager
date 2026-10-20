@@ -14,6 +14,10 @@ dist/
 .next/
 out/
 
+# Desktop agent build output stays local (Windows exe in employee-screen-monitor/dist/);
+# macOS DMGs are produced by the GitHub Actions workflow and uploaded as artifacts.
+employee-screen-monitor/dist/
+
 *.log
 *.err
 *.tsbuildinfo

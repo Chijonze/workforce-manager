@@ -26,7 +26,7 @@ type ScreenClient = {
   watchingId?: string;
   allowedEmployeeIds?: Set<string> | null;
   userId?: string;
-  monitoringCaptureMeta?: { shiftId: string; width: number; height: number };
+  monitoringCaptureMeta?: { shiftId: string; width: number; height: number; protocol: number };
 };
 
 type EmployeeActivityState =
@@ -529,11 +529,16 @@ export function attachScreenMonitorServer(server: http.Server) {
   // Shift-lifecycle code (end shift, auto-close) reaches the desktop agent
   // through this notifier so it never needs to import the realtime layer.
   registerAgentNotifier((userId, payload) => {
+    let delivered = false;
+
     for (const employee of employees.values()) {
-      if (employee.userId === userId) {
+      if (employee.userId === userId && employee.socket.readyState === WebSocket.OPEN) {
         sendJson(employee.socket, payload);
+        delivered = true;
       }
     }
+
+    return delivered;
   });
 
   const heartbeat = setInterval(() => {
@@ -630,7 +635,15 @@ export function attachScreenMonitorServer(server: http.Server) {
             client.monitoringCaptureMeta = undefined;
 
             try {
-              await addCapture(client.userId, meta.shiftId, data, meta.width, meta.height, "desktop");
+              await addCapture(
+                client.userId,
+                meta.shiftId,
+                data,
+                meta.width,
+                meta.height,
+                "desktop",
+                meta.protocol
+              );
             } catch {
               // Cap or ownership violations are dropped; the agent keeps its
               // local schedule but the server stays the source of truth.
@@ -652,7 +665,12 @@ export function attachScreenMonitorServer(server: http.Server) {
 
           if (client.userId && message?.type === "monitoring-mouse") {
             try {
-              await addMouseSamples(client.userId, String(message.shiftId || ""), message.samples);
+              await addMouseSamples(
+                client.userId,
+                String(message.shiftId || ""),
+                message.samples,
+                "desktop"
+              );
             } catch {
               // Inactive or unknown shifts are dropped silently.
             }
@@ -664,6 +682,7 @@ export function attachScreenMonitorServer(server: http.Server) {
               shiftId: String(message.shiftId || ""),
               width: Math.max(0, Math.round(Number(message.width) || 0)),
               height: Math.max(0, Math.round(Number(message.height) || 0)),
+              protocol: Math.max(1, Math.round(Number(message.protocol) || 1)),
             };
             return;
           }

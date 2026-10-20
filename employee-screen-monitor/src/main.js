@@ -29,12 +29,21 @@ let monitoring = null;
 const MONITOR_MOUSE_POLL_MS = 1000;
 const MONITOR_MOUSE_FLUSH_MS = 60000;
 const MONITOR_MAX_WIDTH = 1280;
+// Every screenshot is compressed to stay below this budget. WebP would be
+// smaller still, but Electron's NativeImage only encodes JPEG/PNG, so the JPEG
+// quality is searched dynamically instead of using one fixed quality.
+const MONITOR_MAX_CAPTURE_BYTES = 300 * 1000;
+const MONITOR_JPEG_QUALITY_LADDER = [90, 82, 74, 66, 58];
+const MONITOR_DOWNSCALE_STEPS = [1, 0.85, 0.7, 0.55, 0.42];
 // Fixed cadence, overridable by the server until agents catch up.
 const MONITOR_CAPTURE_INTERVAL_MS = 15 * 60 * 1000;
 const MONITOR_CAPTURE_INTERVAL_MIN_MS = 60 * 1000;
 // Proof-of-life capture shortly after takeover so monitoring is visible
 // immediately instead of one full interval later.
 const MONITOR_FIRST_CAPTURE_MS = 60 * 1000;
+// Fire just after a slot boundary so clock/network skew still lands inside the
+// intended 15-minute window.
+const MONITOR_CAPTURE_SLOT_OFFSET_MS = 750;
 
 function readJson(filePath) {
   try {
@@ -238,15 +247,46 @@ function flushMouseBatch(keepalive = false) {
   }
 }
 
+function encodeMonitoringJpeg(image, maxBytes) {
+  const originalSize = image.getSize();
+  let smallest = null;
+
+  for (const scale of MONITOR_DOWNSCALE_STEPS) {
+    const width = Math.max(640, Math.round(originalSize.width * scale));
+    const candidate = width >= originalSize.width ? image : image.resize({ width });
+    const size = candidate.getSize();
+
+    for (const quality of MONITOR_JPEG_QUALITY_LADDER) {
+      const buffer = candidate.toJPEG(quality);
+      const encoded = { buffer, width: size.width, height: size.height };
+
+      if (!smallest || buffer.length < smallest.buffer.length) {
+        smallest = encoded;
+      }
+
+      if (buffer.length <= maxBytes) {
+        return encoded;
+      }
+    }
+  }
+
+  return smallest || {
+    buffer: image.toJPEG(60),
+    width: originalSize.width,
+    height: originalSize.height,
+  };
+}
+
 async function takeMonitoringScreenshot() {
-  if (!monitoring || !socket || socket.readyState !== WebSocket.OPEN || monitoring.captureInFlight) {
+  const state = monitoring;
+
+  if (!state || !socket || socket.readyState !== WebSocket.OPEN || state.captureInFlight) {
     return;
   }
 
-  monitoring.captureInFlight = true;
+  state.captureInFlight = true;
 
   try {
-    const config = getConfig();
     const primary = screen.getPrimaryDisplay();
     const scale = Math.min(2, Number(primary.scaleFactor) || 1);
     const thumbnailSize = {
@@ -259,26 +299,31 @@ async function takeMonitoringScreenshot() {
 
     if (!image || image.isEmpty()) return;
 
+    // The shift may have ended while the capture was in flight.
+    if (monitoring !== state || !socket || socket.readyState !== WebSocket.OPEN) return;
+
     const size = image.getSize();
     const resized = size.width > MONITOR_MAX_WIDTH
       ? image.resize({ width: MONITOR_MAX_WIDTH })
       : image;
-    const jpeg = resized.toJPEG(Math.max(1, Math.min(100, Number(config.jpegQuality) || 60)));
-    const finalSize = resized.getSize();
+    const encoded = encodeMonitoringJpeg(resized, MONITOR_MAX_CAPTURE_BYTES);
 
-    monitoring.capturesTaken += 1;
+    state.capturesTaken += 1;
     sendMonitoringJson({
       type: "monitoring-capture-meta",
-      shiftId: monitoring.shiftId,
-      width: finalSize.width,
-      height: finalSize.height,
+      shiftId: state.shiftId,
+      width: encoded.width,
+      height: encoded.height,
+      // v2: this client aligns captures to fixed slots, so the server may
+      // de-duplicate a browser/desktop handover in the same interval.
+      protocol: 2,
     });
-    socket.send(jpeg, { binary: true });
+    socket.send(encoded.buffer, { binary: true });
   } catch {
     // Permission errors or transient capture failures are skipped silently;
     // the server-enforced capture cap bounds total screenshots regardless.
   } finally {
-    monitoring.captureInFlight = false;
+    state.captureInFlight = false;
   }
 }
 
@@ -298,7 +343,7 @@ function stopMonitoring() {
   }
 
   if (monitoring.captureTimer) {
-    clearInterval(monitoring.captureTimer);
+    clearTimeout(monitoring.captureTimer);
     monitoring.captureTimer = null;
   }
 
@@ -312,6 +357,43 @@ function stopMonitoring() {
   if (socket && socket.readyState === WebSocket.OPEN) {
     setStatus("Live", "Connected and available for monitoring.");
   }
+}
+
+// Capture slots are anchored to the monitoring session's start time rather
+// than to the moment this agent connected. A reconnect or browser/desktop
+// handover therefore lands on the same 15-minute beat every other worker uses
+// instead of adding an off-schedule screenshot.
+function msUntilNextMonitoringSlot() {
+  if (!monitoring) return MONITOR_CAPTURE_INTERVAL_MS;
+
+  const interval = monitoring.captureIntervalMs;
+  const elapsed = Math.max(0, Date.now() - monitoring.startedAtMs);
+  const nextSlot = (Math.floor(elapsed / interval) + 1) * interval;
+
+  return Math.max(1000, nextSlot - elapsed + MONITOR_CAPTURE_SLOT_OFFSET_MS);
+}
+
+function scheduleMonitoringCaptures() {
+  if (!monitoring) return;
+
+  // Only the very first capture of a shift gets the early proof-of-life shot.
+  // Resumed sessions wait for the next aligned slot so reconnects cannot
+  // inflate one worker's screenshot count.
+  if (monitoring.capturesTaken === 0 && !monitoring.firstCaptureScheduled) {
+    monitoring.firstCaptureScheduled = true;
+    monitoring.firstCaptureTimer = setTimeout(() => {
+      if (!monitoring) return;
+      monitoring.firstCaptureTimer = null;
+      void takeMonitoringScreenshot().finally(scheduleMonitoringCaptures);
+    }, MONITOR_FIRST_CAPTURE_MS);
+    return;
+  }
+
+  monitoring.captureTimer = setTimeout(() => {
+    if (!monitoring) return;
+    monitoring.captureTimer = null;
+    void takeMonitoringScreenshot().finally(scheduleMonitoringCaptures);
+  }, msUntilNextMonitoringSlot());
 }
 
 function startMonitoring(message) {
@@ -328,6 +410,7 @@ function startMonitoring(message) {
     MONITOR_CAPTURE_INTERVAL_MIN_MS,
     intervalMinutes > 0 ? intervalMinutes * 60 * 1000 : MONITOR_CAPTURE_INTERVAL_MS
   );
+  const startedAtMs = new Date(message.startedAt || Date.now()).getTime();
 
   monitoring = {
     shiftId,
@@ -338,23 +421,18 @@ function startMonitoring(message) {
     flushTimer: null,
     captureTimer: null,
     firstCaptureTimer: null,
+    firstCaptureScheduled: false,
     captureIntervalMs,
+    startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
     captureInFlight: false,
   };
 
   monitoring.mouseTimer = setInterval(pollMousePosition, MONITOR_MOUSE_POLL_MS);
   monitoring.flushTimer = setInterval(flushMouseBatch, MONITOR_MOUSE_FLUSH_MS);
 
-  // One screenshot per cadence tick until the shift ends, plus an early
-  // proof-of-life capture right after the agent takes over.
-  monitoring.captureTimer = setInterval(() => {
-    void takeMonitoringScreenshot();
-  }, captureIntervalMs);
-  monitoring.firstCaptureTimer = setTimeout(() => {
-    if (!monitoring) return;
-    monitoring.firstCaptureTimer = null;
-    void takeMonitoringScreenshot();
-  }, MONITOR_FIRST_CAPTURE_MS);
+  // One screenshot per aligned cadence slot until the shift ends, plus an
+  // early proof-of-life capture right after the first takeover.
+  scheduleMonitoringCaptures();
 
   setStatus("Live", "Activity monitoring active for the current shift.");
 }
