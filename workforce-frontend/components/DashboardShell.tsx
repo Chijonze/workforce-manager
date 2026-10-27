@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { User } from "@/types/workforce";
 import { formatRole } from "./shared";
+import { ProjectClock } from "./ProjectClock";
 
 export type SectionKey =
   | "overview"
@@ -249,6 +250,8 @@ export function DashboardShell({ user, activeSection, onNavigate, onRefresh, onL
               <p>{activeGroup?.label || "Workforce"} · {formatRole(user.role)} workspace</p>
             </div>
           </div>
+
+          <ProjectClock />
 
           <div className="user-strip">
             <span className="pill success-pill">

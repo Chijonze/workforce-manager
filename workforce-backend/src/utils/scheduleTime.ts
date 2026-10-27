@@ -1,4 +1,9 @@
-export const BUSINESS_TIME_ZONE = "Europe/London";
+// Wall-clock times in templates ("09:00" etc.) live in the business time
+// zone. The project officially runs on UK time (Europe/London), so template
+// times and clock-in windows are interpreted in London time. Overridable via
+// BUSINESS_TIME_ZONE for deployments that follow a different business clock.
+export const BUSINESS_TIME_ZONE =
+  process.env.BUSINESS_TIME_ZONE || "Europe/London";
 
 const dateKeyFromParts = (year: number, month: number, day: number) =>
   `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;

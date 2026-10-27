@@ -50,6 +50,9 @@ services:
       args:
         NEXT_PUBLIC_API_URL: https://${API_DOMAIN:-api.advancedvirtualsolutions.com}
         NEXT_PUBLIC_SCREEN_MONITOR_WS_URL: wss://${API_DOMAIN:-api.advancedvirtualsolutions.com}/screen-monitor
+        NEXT_PUBLIC_BUSINESS_TIME_ZONE: ${BUSINESS_TIME_ZONE:-Europe/London}
+    environment:
+      TZ: Europe/London
     restart: unless-stopped
     expose:
       - "3000"
@@ -72,7 +75,11 @@ services:
       SCREEN_MONITOR_ADMIN_KEY: ${SCREEN_MONITOR_ADMIN_KEY}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
-      TELEGRAM_ALERT_TIMEZONE: ${TELEGRAM_ALERT_TIMEZONE:-Africa/Lagos}
+      TELEGRAM_ALERT_TIMEZONE: ${TELEGRAM_ALERT_TIMEZONE:-Europe/London}
+      # UK project time: zone in which template wall-clock times and shift
+      # windows are interpreted. TZ pins the container system clock to match.
+      BUSINESS_TIME_ZONE: ${BUSINESS_TIME_ZONE:-Europe/London}
+      TZ: Europe/London
       # Dedicated key for AI shift analyses; falls back to the shared GEMINI_API_KEY.
       GEMINI_API_KEY: ${WFM_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}

@@ -6,7 +6,8 @@ import { CalendarDays, ChevronLeft, ChevronRight, Filter, Home, RefreshCw } from
 import { apiRequest, formatDate } from "@/lib/api";
 import type { Schedule, User } from "@/types/workforce";
 
-const BUSINESS_TIME_ZONE = "Europe/London";
+const BUSINESS_TIME_ZONE =
+  process.env.NEXT_PUBLIC_BUSINESS_TIME_ZONE || "Europe/London";
 
 function dateKeyFromParts(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;

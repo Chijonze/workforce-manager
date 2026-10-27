@@ -37,7 +37,7 @@ export const notifyTelegramLogin = async (user: LoginUser, req?: Request) => {
   const timestamp = new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "medium",
-    timeZone: process.env.TELEGRAM_ALERT_TIMEZONE || "Africa/Lagos",
+    timeZone: process.env.TELEGRAM_ALERT_TIMEZONE || "Europe/London",
   }).format(new Date());
 
   const message = [

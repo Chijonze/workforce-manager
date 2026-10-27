@@ -112,6 +112,42 @@ button:disabled {
   font-size: 14px;
 }
 
+/* Live project-time clock in the dashboard topbar (admin + workers). */
+.project-clock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.project-clock svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.project-clock-time {
+  font-size: 15px;
+  font-weight: 700;
+  color: #17212b;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.project-clock-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+}
+
 .page {
   width: min(1520px, 100%);
   margin: 0 auto;

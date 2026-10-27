@@ -4,7 +4,8 @@ export function getApiUrl() {
   return API_URL;
 }
 const SCREEN_MONITOR_WS_URL = process.env.NEXT_PUBLIC_SCREEN_MONITOR_WS_URL;
-const BUSINESS_TIME_ZONE = "Europe/London";
+const BUSINESS_TIME_ZONE =
+  process.env.NEXT_PUBLIC_BUSINESS_TIME_ZONE || "Europe/London";
 
 type ApiOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";

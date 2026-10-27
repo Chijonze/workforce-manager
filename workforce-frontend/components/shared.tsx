@@ -8,7 +8,11 @@ import type {
   ShiftTemplate,
 } from "@/types/workforce";
 
-export const BUSINESS_TIME_ZONE = "Europe/London";
+// Wall-clock times ("09:00") live in the business time zone. The project
+// runs on UK time (Europe/London); overridable via
+// NEXT_PUBLIC_BUSINESS_TIME_ZONE.
+export const BUSINESS_TIME_ZONE =
+  process.env.NEXT_PUBLIC_BUSINESS_TIME_ZONE || "Europe/London";
 
 export type Toast = { id: number; type: "success" | "error"; message: string };
 

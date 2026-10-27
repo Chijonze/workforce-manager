@@ -10,7 +10,8 @@ import { apiRequest, formatDate } from "@/lib/api";
 import type { InvoiceData } from "@/types/invoice";
 import type { ExecutionReport, User } from "@/types/workforce";
 
-const BUSINESS_TIME_ZONE = "Europe/London";
+const BUSINESS_TIME_ZONE =
+  process.env.NEXT_PUBLIC_BUSINESS_TIME_ZONE || "Europe/London";
 const DEFAULT_HOURLY_RATE = 4.5;
 const INVOICE_TEAL = "FF0798B4";
 const INVOICE_NAVY = "FF073B4C";
