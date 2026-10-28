@@ -17,13 +17,13 @@ import {
 } from "@/lib/monitoring";
 import { DashboardShell, navGroupsForRole, type SectionKey } from "@/components/DashboardShell";
 import {
-  DesktopOnlyNotice,
   ToastStack,
   formatRole,
   getScheduleTemplate,
   toDateKey,
   type Toast,
 } from "@/components/shared";
+import MobileDashboard from "@/components/mobile/MobileDashboard";
 import ScreenMonitorPanel from "@/components/panels/ScreenMonitorPanel";
 import SchedulingSetupPanel from "@/components/panels/SchedulingSetupPanel";
 import MonitoringPanel from "@/components/panels/MonitoringPanel";
@@ -171,6 +171,7 @@ export default function Home() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionKey>("overview");
+  const [monitoringAgentId, setMonitoringAgentId] = useState("");
   const [monitoringStats, setMonitoringStats] = useState<MonitoringStats | null>(null);
 
   const monitorSocketRef = useRef<WebSocket | null>(null);
@@ -184,6 +185,7 @@ export default function Home() {
 
   const isAdmin = user?.role === "admin";
   const isSupervisor = user?.role === "supervisor";
+  const userRole = user?.role;
   const canMonitorWorkforce = isAdmin || isSupervisor;
   const currentShiftId = activeShift?.shift._id;
   const currentActivity = getActivityFromEvent(activeShift?.currentState);
@@ -251,14 +253,43 @@ export default function Home() {
   }, [currentActivity]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userRole) return;
 
-    const groups = navGroupsForRole(user.role);
+    const groups = navGroupsForRole(userRole);
+    const allowed = new Set(
+      groups
+        .flatMap((group) => group.items)
+        .map((item) => String(item.key))
+        .filter((key) => !key.startsWith("link:"))
+    );
+
+    // PWA shortcuts and shared links use /?section=... ; only accept a section
+    // the signed-in role is actually allowed to open.
+    let requested: SectionKey | null = null;
+    try {
+      const candidate = new URLSearchParams(window.location.search).get("section");
+      if (candidate && allowed.has(candidate)) requested = candidate as SectionKey;
+    } catch {
+      requested = null;
+    }
+
+    if (requested) {
+      // Consume the shortcut parameter so a later refresh does not override the
+      // section the user has navigated to since.
+      try {
+        window.history.replaceState(null, "", window.location.pathname);
+      } catch {
+        // History may be unavailable in restricted webviews.
+      }
+      setActiveSection(requested);
+      return;
+    }
+
     const first = groups[0]?.items[0]?.key;
     if (first && !String(first).startsWith("link:")) {
       setActiveSection(first as SectionKey);
     }
-  }, [user?.role]);
+  }, [userRole]);
 
   useEffect(() => {
     if (user?.role === "supervisor") {
@@ -1187,7 +1218,11 @@ export default function Home() {
     );
 
     const activityMonitoringPanel = (
-      <MonitoringPanel agents={monitoringAgents} token={token} />
+      <MonitoringPanel
+        agents={monitoringAgents}
+        initialAgentId={monitoringAgentId}
+        token={token}
+      />
     );
 
     const liveExecutionPanel = (
@@ -1215,7 +1250,33 @@ export default function Home() {
 
     switch (activeSection) {
       case "overview":
-        if (isSupervisor || isAdmin) return overviewPanel;
+        if (isSupervisor || isAdmin) {
+          return (
+            <>
+              <div className="mobile-home-view">
+                <MobileDashboard
+                  leaveRequests={leaveRequests}
+                  loading={loading}
+                  onNavigate={setActiveSection}
+                  onOpenAgent={(userId) => {
+                    setMonitoringAgentId(userId);
+                    setActiveSection("activity-monitoring");
+                  }}
+                  onRefresh={() => refreshWorkspace()}
+                  onSelectDate={refreshOverviewDate}
+                  overview={adminOverview}
+                  schedules={schedules}
+                  screenMonitorEmployees={screenMonitorEmployees}
+                  selectedDate={overviewDate}
+                  token={token}
+                  user={user}
+                  users={users}
+                />
+              </div>
+              {overviewPanel ? <div className="desktop-home-view">{overviewPanel}</div> : null}
+            </>
+          );
+        }
         return (
           <div className="stack">
             <div className="dashboard-grid">
@@ -1336,7 +1397,6 @@ export default function Home() {
   if (!token || !user) {
     return (
       <>
-        <DesktopOnlyNotice />
         <main className="auth-wrap">
           <ToastStack toasts={toasts} />
           <section className="auth-panel">
@@ -1531,7 +1591,6 @@ export default function Home() {
   if (user.accountStatus === "pending") {
     return (
       <>
-        <DesktopOnlyNotice />
         <main className="auth-wrap">
           <ToastStack toasts={toasts} />
           <section className="auth-panel">
@@ -1560,7 +1619,6 @@ export default function Home() {
 
   return (
     <>
-      <DesktopOnlyNotice />
       <ToastStack toasts={toasts} />
       <DashboardShell
         user={user}

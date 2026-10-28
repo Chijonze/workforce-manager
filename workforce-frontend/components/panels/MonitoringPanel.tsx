@@ -120,7 +120,15 @@ function CaptureThumb({
   );
 }
 
-export default function MonitoringPanel({ agents, token }: { agents: User[]; token: string }) {
+export default function MonitoringPanel({
+  agents,
+  initialAgentId,
+  token,
+}: {
+  agents: User[];
+  initialAgentId?: string;
+  token: string;
+}) {
   const [agentId, setAgentId] = useState("");
   const [sessions, setSessions] = useState<MonitoringSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -133,11 +141,24 @@ export default function MonitoringPanel({ agents, token }: { agents: User[]; tok
   const loadingCapturesRef = useRef<Set<string>>(new Set());
   const captureGenerationRef = useRef(0);
   const detailRef = useRef<string | null>(null);
+  const appliedInitialAgentRef = useRef("");
 
   useEffect(() => {
+    // A team member tapped on the mobile dashboard opens their data directly.
+    // Apply each requested id once so manual changes in the select stick.
+    if (
+      initialAgentId &&
+      initialAgentId !== appliedInitialAgentRef.current &&
+      agents.some((agent) => agent._id === initialAgentId)
+    ) {
+      appliedInitialAgentRef.current = initialAgentId;
+      setAgentId(initialAgentId);
+      return;
+    }
+
     if (agentId || !agents.length) return;
     setAgentId(agents[0]._id);
-  }, [agentId, agents]);
+  }, [agentId, agents, initialAgentId]);
 
   const releaseUrls = useCallback(() => {
     captureGenerationRef.current += 1;

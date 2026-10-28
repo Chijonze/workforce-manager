@@ -1,0 +1,4 @@
+# Packaged extension artifacts and signing keys must never be committed.
+*.crx
+*.pem
+*.zip

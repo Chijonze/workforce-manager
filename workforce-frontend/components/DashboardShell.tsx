@@ -8,16 +8,17 @@ import {
   CalendarRange,
   ClipboardList,
   Clock3,
+  Download,
   ExternalLink,
   Gauge,
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Menu,
   MessageSquare,
   Monitor,
   MousePointer2,
   RefreshCw,
-  ScanEye,
   Sparkles,
   UserRound,
   Users,
@@ -25,6 +26,8 @@ import {
 import type { User } from "@/types/workforce";
 import { formatRole } from "./shared";
 import { ProjectClock } from "./ProjectClock";
+import InstallBanner from "./pwa/InstallBanner";
+import { usePwaInstall } from "./pwa/usePwaInstall";
 
 export type SectionKey =
   | "overview"
@@ -136,6 +139,41 @@ export function navGroupsForRole(role: User["role"]): NavGroup[] {
   ];
 }
 
+type BottomNavItem = {
+  key: SectionKey;
+  label: string;
+  icon: React.ComponentType<{ size?: number | string }>;
+};
+
+// Four primary destinations plus "More" for everything else. Keys map to the
+// existing sections only; no mobile-only screens are introduced.
+export function bottomNavForRole(role: User["role"]): BottomNavItem[] {
+  if (role === "admin") {
+    return [
+      { key: "overview", label: "Home", icon: LayoutDashboard },
+      { key: "my-shift", label: "Shift", icon: Clock3 },
+      { key: "screen-monitor", label: "Live", icon: Monitor },
+      { key: "leave", label: "Leave", icon: ClipboardList },
+    ];
+  }
+
+  if (role === "supervisor") {
+    return [
+      { key: "overview", label: "Team", icon: LayoutDashboard },
+      { key: "screen-monitor", label: "Live", icon: Monitor },
+      { key: "activity-monitoring", label: "Activity", icon: MousePointer2 },
+      { key: "chat", label: "Chat", icon: MessageSquare },
+    ];
+  }
+
+  return [
+    { key: "my-shift", label: "Shift", icon: Clock3 },
+    { key: "overview", label: "Schedule", icon: CalendarDays },
+    { key: "leave", label: "Leave", icon: ClipboardList },
+    { key: "chat", label: "Chat", icon: MessageSquare },
+  ];
+}
+
 type ShellProps = {
   user: User;
   activeSection: SectionKey;
@@ -148,9 +186,12 @@ type ShellProps = {
 
 export function DashboardShell({ user, activeSection, onNavigate, onRefresh, onLogout, onRequestMfa, children }: ShellProps) {
   const groups = navGroupsForRole(user.role);
+  const bottomItems = bottomNavForRole(user.role);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { mounted: pwaMounted, standalone } = usePwaInstall();
   const activeGroup = groups.find((group) => group.items.some((item) => item.key === activeSection));
   const activeItem = activeGroup?.items.find((item) => item.key === activeSection);
+  const moreActive = !bottomItems.some((item) => item.key === activeSection);
 
   const handleNavigate = (key: NavItem["key"]) => {
     setMobileOpen(false);
@@ -165,8 +206,19 @@ export function DashboardShell({ user, activeSection, onNavigate, onRefresh, onL
           <img
             alt="ShiftSync — Workforce Management"
             className="sidebar-logo"
-            src="/shiftsync-logo.png"
+            src="/shiftsync-logo-light.png"
           />
+          {pwaMounted && !standalone && (
+            <Link
+              aria-label="Install the ShiftSync app"
+              className="sidebar-install-top"
+              href="/install"
+              title="Install app"
+              onClick={() => setMobileOpen(false)}
+            >
+              <Download size={15} />
+            </Link>
+          )}
         </div>
 
         <nav className="sidebar-nav" aria-label="Dashboard sections">
@@ -238,12 +290,12 @@ export function DashboardShell({ user, activeSection, onNavigate, onRefresh, onL
         <header className="topbar">
           <div className="topbar-left">
             <button
-              aria-label="Toggle navigation"
+              aria-label="Open navigation"
               className="icon-button secondary sidebar-toggle"
               type="button"
               onClick={() => setMobileOpen((current) => !current)}
             >
-              <ScanEye size={17} />
+              <Menu size={18} />
             </button>
             <div className="topbar-heading">
               <h2>{activeItem?.label || "Dashboard"}</h2>
@@ -262,9 +314,49 @@ export function DashboardShell({ user, activeSection, onNavigate, onRefresh, onL
               <RefreshCw size={16} />
             </button>
           </div>
+
+          <button
+            aria-label="Open profile and navigation"
+            className="topbar-avatar"
+            type="button"
+            onClick={() => setMobileOpen(true)}
+          >
+            {user.name.slice(0, 1).toUpperCase()}
+          </button>
         </header>
 
+        <InstallBanner />
+
         <div className="page">{children}</div>
+
+        <nav className="mobile-bottom-nav" aria-label="Primary navigation">
+          {bottomItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeSection === item.key;
+
+            return (
+              <button
+                aria-current={isActive ? "page" : undefined}
+                className={`mobile-nav-item ${isActive ? "active" : ""}`}
+                key={item.key}
+                type="button"
+                onClick={() => handleNavigate(item.key)}
+              >
+                <Icon size={20} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+          <button
+            aria-current={moreActive ? "page" : undefined}
+            className={`mobile-nav-item ${moreActive ? "active" : ""}`}
+            type="button"
+            onClick={() => setMobileOpen(true)}
+          >
+            <Menu size={20} />
+            <span>More</span>
+          </button>
+        </nav>
       </div>
     </main>
   );

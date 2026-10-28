@@ -185,27 +185,5 @@ export function ToastStack({ toasts }: { toasts: Toast[] }) {
   );
 }
 
-export function DesktopOnlyNotice() {
-  return (
-    <main className="desktop-only-notice">
-      <section className="auth-panel">
-        <div className="brand">
-          <div className="brand-mark brand-mark-img">
-            <img alt="" src="/shiftsync-icon.png" />
-          </div>
-          <div>
-            <h1>ShiftSync</h1>
-            <p>Desktop access required</p>
-          </div>
-        </div>
-        <p className="muted">
-          This workforce management system is restricted to laptop and desktop screens. Please open
-          it on a computer to continue.
-        </p>
-      </section>
-    </main>
-  );
-}
-
 export const scorePieStyle = (score: number) =>
   ({ "--score": `${Math.max(0, Math.min(100, score))}%` } as CSSProperties);

@@ -47,5 +47,10 @@ export const apiSecurityHeaders = (_req: Request, res: Response, next: NextFunct
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // Workforce, hiring, attendance and monitoring payloads are private. They
+  // must never sit in a browser or intermediary cache across user sessions.
+  // The monitoring capture route overrides this with private, immutable image
+  // caching after its authorization check.
+  res.setHeader("Cache-Control", "no-store");
   next();
 };

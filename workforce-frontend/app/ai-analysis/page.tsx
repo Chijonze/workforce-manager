@@ -211,7 +211,11 @@ export default function AiAnalysisPage() {
         setRole(currentUser.role);
         const [workerList, allUsers] = await Promise.all([
           loadWorkers(savedToken),
-          apiRequest<User[]>("/api/auth/users", { token: savedToken }),
+          // /api/auth/users is admin-only. Hiring managers can still use the
+          // analysis views, but the billing-manager selector is admin-only.
+          currentUser.role === "admin"
+            ? apiRequest<User[]>("/api/auth/users", { token: savedToken })
+            : Promise.resolve<User[]>([]),
         ]);
         setHiringManagers(
           allUsers

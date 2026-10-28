@@ -280,6 +280,44 @@ const server = http.createServer((req, res) => {
       rows,
     });
   }
+  if (path === "/api/analysis/aggregate") {
+    const start = url.searchParams.get("startDate") || dayKey(0);
+    const end = url.searchParams.get("endDate") || dayKey(0);
+    const totals = { workers: 2, analyses: 2, averageScore: 81, averageAdherence: 88, workedMinutes: 96, absentCount: 0 };
+
+    return json(res, 200, {
+      startDate: `${start}T00:00:00.000Z`,
+      endDate: `${end}T00:00:00.000Z`,
+      totals,
+      rows: [
+        { userId: AGENT._id, name: AGENT.name, email: AGENT.email, shiftCount: 1, absentCount: 0, averageScore: 87, averageAdherence: 92, workedMinutes: 96, scheduledMinutes: 540 },
+        { userId: AGENT2._id, name: AGENT2.name, email: AGENT2.email, shiftCount: 1, absentCount: 0, averageScore: 74, averageAdherence: 66, workedMinutes: 0, scheduledMinutes: 540 },
+      ],
+      narrative: {
+        _id: "period001",
+        rangeStart: start,
+        rangeEnd: end,
+        scopeKey: "admin",
+        totals,
+        narrative: {
+          headline: "Attendance is steady while two agents sit below the performance target",
+          summary:
+            "Both scheduled agents are accounted for today, with the team averaging 81% overall performance. One agent is already working through their assigned hours, while the other has not yet started logging activity. Break adherence is holding up, but productivity for the second agent is below the 75% target and needs a light check-in rather than immediate escalation.",
+          highlights: [
+            "Both scheduled agents have an approved shift today",
+            "Break adherence is at or above the expected level",
+          ],
+          concerns: ["One agent is tracking below the 75% performance target"],
+        },
+        status: "completed",
+        source: "gemini",
+        aiModel: "gemini-2.5-flash",
+        generatedAt: new Date().toISOString(),
+        error: null,
+      },
+    });
+  }
+
   if (path === "/api/leave") return json(res, 200, [
     { _id: "l1", userId: AGENT._id, leaveType: "annual", startDate: `${dayKey(10)}T00:00:00.000Z`, endDate: `${dayKey(12)}T00:00:00.000Z`, reason: "Family trip", status: "pending" },
     { _id: "l2", userId: AGENT2._id, leaveType: "sick", startDate: `${dayKey(-2)}T00:00:00.000Z`, endDate: `${dayKey(-1)}T00:00:00.000Z`, reason: "Flu", status: "approved" },
