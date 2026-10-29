@@ -82,7 +82,10 @@ services:
       TZ: Europe/London
       # Dedicated key for AI shift analyses; falls back to the shared GEMINI_API_KEY.
       GEMINI_API_KEY: ${WFM_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      # Dedicated model too: the free tier allows only 20 gemini-2.5-flash
+      # requests per day, so the backend defaults to a lite model with a larger
+      # daily quota without changing the shared GEMINI_MODEL used elsewhere.
+      GEMINI_MODEL: ${WFM_GEMINI_MODEL:-${GEMINI_MODEL:-gemini-2.5-flash}}
       GEMINI_CALL_SPACING_MS: ${GEMINI_CALL_SPACING_MS:-6500}
       # Screenshot narration (vision). One call per block of frames, cached per shift.
       VISION_ENABLED: ${VISION_ENABLED:-true}

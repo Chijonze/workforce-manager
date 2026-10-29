@@ -339,7 +339,11 @@ export const generateActivityNarration = async (
     .sort((left, right) => left.startedAt.getTime() - right.startedAt.getTime())
     .map((block, index) => ({ ...block, index }));
 
-  const succeeded = narratedBlocks.filter((block) => block.summary).length;
+  // A block that only produced a low-confidence OCR excerpt is not a success:
+  // it should keep the shift "partial" so the next run retries with the model.
+  const succeeded = narratedBlocks.filter(
+    (block) => block.summary && (block.source !== "deterministic" || block.confidence >= 40)
+  ).length;
   const status: IActivityNarration["status"] =
     succeeded === 0
       ? blocks.length === 0 && idleBlocks.length > 0

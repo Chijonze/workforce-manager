@@ -78,14 +78,24 @@ export const createOcrSession = async (): Promise<OcrSession | null> => {
     return {
       recognize: async (buffer: Buffer) => {
         // Upscaling small captures and flattening colour measurably improves
-        // accuracy on 10px UI text.
-        const prepared = await sharp(buffer, { limitInputPixels: 40_000_000 })
+        // accuracy on 10px UI text. Dark themes (WhatsApp Web, terminals) are
+        // inverted first: Tesseract expects dark glyphs on a light background.
+        const resized = sharp(buffer, { limitInputPixels: 40_000_000 })
           .rotate()
           .resize({ width: 1600, withoutEnlargement: true })
-          .greyscale()
-          .normalise()
-          .png()
-          .toBuffer();
+          .greyscale();
+
+        let pipeline = resized;
+        try {
+          const { channels } = await resized.clone().stats();
+          if (channels[0]?.mean !== undefined && channels[0].mean < 110) {
+            pipeline = pipeline.negate();
+          }
+        } catch {
+          // Stats are an optimisation; OCR still runs on the original.
+        }
+
+        const prepared = await pipeline.normalise().png().toBuffer();
         const { data } = await worker.recognize(prepared);
         return cleanText(data.text || "", 6000);
       },

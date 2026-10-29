@@ -74,7 +74,7 @@ Every knob is an env var; see `.env.example` and `docker-compose.prod.yml`.
 | Var | Default | Notes |
 | --- | --- | --- |
 | `VISION_ENABLED` | `true` | master switch |
-| `GEMINI_VISION_MODEL` | `gemini-2.5-flash` | `gemini-3.5-flash-lite` also worked in testing |
+| `GEMINI_VISION_MODEL` | `gemini-2.5-flash` | **set to `gemini-3.5-flash-lite` in production** — the 2.5-flash free tier is only 20 requests/day |
 | `VISION_BLOCK_FRAMES` | `6` | frames per model call |
 | `VISION_MAX_BLOCKS` | `8` | hard cap on calls per shift |
 | `VISION_TILE_WIDTH` | `640` | montage tile width |
