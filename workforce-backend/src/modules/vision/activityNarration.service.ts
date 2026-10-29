@@ -148,15 +148,20 @@ export const generateActivityNarration = async (
   // it partial so the conclusion hook narrates the whole shift again.
   const isLive = shift.status === "active";
 
-  const existing = await ActivityNarration.findOne({ shiftSessionId: shift._id });
-  if (existing && existing.status === "completed" && !options.force) return existing;
-
   const session = await MonitoringSession.findOne({ shiftSessionId: shift._id }).lean();
   const captures = (session?.captures || []).map((capture: any) => ({
     seq: capture.seq,
     capturedAt: capture.capturedAt,
     filePath: capture.filePath,
   }));
+
+  const existing = await ActivityNarration.findOne({ shiftSessionId: shift._id });
+  // Cache is only valid while it covers every capture on the session; a shift
+  // that was narrated mid-way must be redone once more screenshots land.
+  const coversAllCaptures = (existing?.coverage?.captures || 0) >= captures.length;
+  if (existing && existing.status === "completed" && coversAllCaptures && !options.force) {
+    return existing;
+  }
 
   const persist = async (fields: Record<string, unknown>): Promise<IActivityNarration> =>
     (await ActivityNarration.findOneAndUpdate(
