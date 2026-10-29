@@ -221,7 +221,7 @@ export const generateActivityNarration = async (
   // blocks it already finished so repeated calls converge instead of paying for
   // block 1 every time.
   const priorByStart = new Map<number, INarrationBlock>();
-  for (const prior of existing?.blocks || []) {
+  for (const prior of options.force ? [] : existing?.blocks || []) {
     if (prior.summary && prior.source !== "deterministic") {
       priorByStart.set(new Date(prior.startedAt).getTime(), prior);
     }
