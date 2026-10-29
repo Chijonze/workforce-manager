@@ -7,6 +7,7 @@ export const router = Router();
 router.use(protect, requireAdminOrSupervisor);
 
 router.get("/overview", controller.getOverview);
+router.get("/quota", controller.getQuotaStatus);
 router.get("/aggregate", controller.getAggregate);
 router.post("/aggregate/narrative", controller.generateAggregateNarrative);
 router.get("/workers", controller.listWorkers);

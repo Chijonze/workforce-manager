@@ -21,7 +21,7 @@ export const visionConfig = {
   model:
     process.env.GEMINI_VISION_MODEL ||
     process.env.GEMINI_MODEL ||
-    "gemini-2.5-flash",
+    "gemini-3.5-flash-lite",
   /** Max unique frames per narrated block (one model call per block). */
   blockFrames: int(process.env.VISION_BLOCK_FRAMES, 6, 1, 12),
   /** Hard cap on model calls per shift; frames are sampled to fit. */
@@ -36,6 +36,11 @@ export const visionConfig = {
   /** Longest an inline call may spend building narration before giving up. */
   inlineBudgetMs: int(process.env.VISION_INLINE_BUDGET_MS, 60_000, 5_000, 300_000),
   requestTimeoutMs: int(process.env.VISION_REQUEST_TIMEOUT_MS, 45_000, 5_000, 180_000),
+  /** Background retry of shifts whose narration failed or was cut short. */
+  retryEnabled: process.env.VISION_RETRY_ENABLED !== "false",
+  retryIntervalMs: int(process.env.VISION_RETRY_INTERVAL_MS, 900_000, 60_000, 86_400_000),
+  retryMaxShiftsPerDay: int(process.env.VISION_RETRY_MAX_SHIFTS_PER_DAY, 2, 1, 24),
+  retryLookbackDays: int(process.env.VISION_RETRY_LOOKBACK_DAYS, 7, 1, 30),
 };
 
 export const businessTimeZone = () => process.env.BUSINESS_TIME_ZONE || "Africa/Lagos";

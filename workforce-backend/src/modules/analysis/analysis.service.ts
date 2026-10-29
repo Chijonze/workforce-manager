@@ -11,6 +11,12 @@ import MonitoringSession from "../../models/MonitoringSession";
 import User from "../../models/User";
 import type { IActivityNarration } from "../../models/ActivityNarration";
 import { acquireGeminiSlot } from "../../utils/geminiLimiter";
+import {
+  blockQuota,
+  isQuotaBlocked,
+  isQuotaExhausted,
+  parseQuotaResetMs,
+} from "../ai/quota.service";
 import { assertCanViewWorker, assignedAgentIdsFor, type Requester } from "./analysis.access";
 import {
   ensureActivityNarration,
@@ -21,7 +27,7 @@ import { visionConfig } from "../vision/vision.config";
 import { formatWindow } from "../vision/vision.time";
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const GEMINI_TIMEOUT_MS = 20_000;
 // Requests are paced through utils/geminiLimiter, shared with screenshot
 // narration so both features draw from one free-tier budget.
@@ -364,6 +370,15 @@ const callGeminiJSON = async (systemPrompt: string, userPrompt: string) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
+  // Fail fast while the daily cap is exhausted: the caller falls back to the
+  // offline narrative and the retry sweep upgrades it after the reset.
+  const quota = await isQuotaBlocked();
+  if (quota.blocked) {
+    throw new Error(
+      `Gemini quota exhausted until ${quota.until?.toISOString() || "reset"}`
+    );
+  }
+
   await acquireGeminiSlot();
 
   const controller = new AbortController();
@@ -389,7 +404,15 @@ const callGeminiJSON = async (systemPrompt: string, userPrompt: string) => {
     );
 
     if (!response.ok) {
-      throw new Error(`Gemini API error ${response.status}`);
+      const detail = await response.text();
+      if (isQuotaExhausted(response.status, detail)) {
+        await blockQuota({
+          retryAfterMs: parseQuotaResetMs(detail, response.headers.get("retry-after")),
+          model: GEMINI_MODEL,
+          reason: detail.slice(0, 400),
+        });
+      }
+      throw new Error(`Gemini API error ${response.status}: ${detail.slice(0, 200)}`);
     }
 
     const data: any = await response.json();

@@ -7,6 +7,8 @@ import { connectDB } from "./config/db";
 import { attachScreenMonitorServer } from "./realtime/screenMonitor";
 import { autoCloseExpiredShifts } from "./modules/execution/execution.service";
 import { sweepMissingShiftAnalyses } from "./modules/analysis/analysis.service";
+import { runNarrationRetrySweep } from "./modules/vision/narrationRetry.service";
+import { visionConfig } from "./modules/vision/vision.config";
 
 const PORT = process.env.PORT || 5000;
 
@@ -27,6 +29,27 @@ const startServer = async () => {
     });
   }, 60_000);
   maintenanceTimer.unref();
+
+  // Screenshot narration: retry shifts that failed or were cut short. The sweep
+  // is a no-op while the Gemini daily quota is exhausted, so it resumes by itself
+  // once the 429 reset instant passes.
+  const runNarrationRetry = () => {
+    void runNarrationRetrySweep()
+      .then((result) => {
+        if (result.ran) {
+          console.log(
+            `Narration retry: ${result.shiftId} ${result.status} (${result.blocks} blocks, ${result.remaining} pending)`
+          );
+        }
+      })
+      .catch((error) => {
+        console.error("Narration retry sweep failed", error);
+      });
+  };
+  const narrationRetryTimer = setInterval(runNarrationRetry, visionConfig.retryIntervalMs);
+  narrationRetryTimer.unref();
+  const narrationRetryBoot = setTimeout(runNarrationRetry, 120_000);
+  narrationRetryBoot.unref();
 
   const server = http.createServer(app);
   attachScreenMonitorServer(server);

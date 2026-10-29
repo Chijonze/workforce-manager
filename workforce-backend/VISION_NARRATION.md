@@ -113,6 +113,37 @@ npx ts-node --transpile-only src/scripts/narrate-shifts.ts --limit 5
 npx ts-node --transpile-only src/scripts/narrate-shifts.ts --shift <shiftId> --force
 ```
 
+## Quota handling
+
+The 2026 free tier is the binding constraint: **`gemini-2.5-flash` allows 20
+requests per day** (confirmed from a live 429), which is about three shifts.
+The backend therefore defaults to `gemini-3.5-flash-lite` for both analysis and
+vision, and never falls back to the shared `GEMINI_MODEL`.
+
+When a 429 does happen:
+
+1. `quota.service` parses the reset instant out of the response body
+   (`"Please retry in 17h49m…"`) and persists it in `aiquotastates`.
+2. Every later call — vision or analysis — short-circuits while that instant is
+   in the future, so no time is wasted retrying an exhausted cap.
+3. `narrationRetry.service` runs on an interval (15 min default). While blocked
+   it does nothing. Once the reset passes it narrates one pending shift at a
+   time, up to `VISION_RETRY_MAX_SHIFTS_PER_DAY` per day, and regenerates any
+   analysis that had fallen back to the offline summary.
+4. `GET /api/analysis/quota` reports the state:
+
+```json
+{
+  "quota": { "model": "gemini-3.5-flash-lite", "blocked": true,
+             "blockedUntil": "2026-10-30T06:49:44.000Z", "attemptsToday": 0 },
+  "pendingNarrations": 8,
+  "retry": { "enabled": true, "intervalMs": 900000, "maxShiftsPerDay": 2 }
+}
+```
+
+YAML-free knobs: `VISION_RETRY_ENABLED`, `VISION_RETRY_INTERVAL_MS`,
+`VISION_RETRY_MAX_SHIFTS_PER_DAY`, `VISION_RETRY_LOOKBACK_DAYS`.
+
 ## Known limits
 
 - One worker's screen only; multi-monitor captures are treated as one frame.

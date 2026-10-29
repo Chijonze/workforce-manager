@@ -1,4 +1,5 @@
 import { acquireGeminiSlot, sleep } from "../../utils/geminiLimiter";
+import { blockQuota, isQuotaBlocked, parseQuotaResetMs } from "../ai/quota.service";
 import type { FrameBlock } from "./imagePrep";
 import { BLOCK_SYSTEM_PROMPT, buildBlockPrompt, sanitizeBlockNarration, type BlockNarration } from "./prompt";
 import { visionConfig } from "./vision.config";
@@ -6,7 +7,6 @@ import { redactPii } from "./vision.redact";
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
-const QUOTA_COOLDOWN_MS = 4 * 60_000;
 
 class GeminiHttpError extends Error {
   status: number;
@@ -39,14 +39,6 @@ const withRetry = async <T>(run: () => Promise<T>): Promise<T> => {
     }
   }
   throw lastError;
-};
-
-const parseRetryAfter = (header: string | null) => {
-  if (!header) return 0;
-  const seconds = Number(header);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const date = Date.parse(header);
-  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
 };
 
 type GeminiPart = Record<string, unknown>;
@@ -82,11 +74,13 @@ const callGemini = async (
     });
 
     if (!response.ok) {
-      const detail = (await response.text()).slice(0, 300);
+      // The quota reset instant lives in the body ("Please retry in 17h49m…"),
+      // not the headers, so parse before truncating.
+      const detail = await response.text();
       throw new GeminiHttpError(
         response.status,
-        `Gemini API error ${response.status}: ${detail}`,
-        parseRetryAfter(response.headers.get("retry-after"))
+        `Gemini API error ${response.status}: ${detail.slice(0, 300)}`,
+        parseQuotaResetMs(detail, response.headers.get("retry-after"))
       );
     }
 
@@ -141,10 +135,9 @@ export type RouterInput = {
 
 /**
  * Provider ladder: vision first (best evidence), then OCR text if vision fails.
- * A quota error puts vision on a short cooldown so later blocks do not each
- * burn 60 seconds of retries before falling back.
+ * Whether the daily quota is exhausted is read from Mongo (quota.service), so a
+ * restart or a new block does not each re-discover the same 429.
  */
-let visionCooldownUntil = 0;
 
 /**
  * Last resort when both model providers are unavailable (quota exhausted or a
@@ -174,8 +167,19 @@ const localOcrNarration = (text: string, frameCount: number): BlockNarration => 
 export const narrateBlock = async (input: RouterInput): Promise<RoutedNarration> => {
   const started = Date.now();
   const errors: string[] = [];
+
+  // One persisted check per block: while the daily cap is exhausted there is no
+  // point hitting the API, and the retry sweep will pick this shift up later.
+  const quota = await isQuotaBlocked();
+  if (quota.blocked) {
+    errors.push(`Gemini quota blocked until ${quota.until?.toISOString() || "unknown"}`);
+  }
+
   const visionAvailable =
-    !input.skipVision && visionConfig.enabled && Boolean(input.montage) && Date.now() >= visionCooldownUntil;
+    !quota.blocked &&
+    !input.skipVision &&
+    visionConfig.enabled &&
+    Boolean(input.montage);
 
   if (visionAvailable && input.montage) {
     try {
@@ -208,13 +212,17 @@ export const narrateBlock = async (input: RouterInput): Promise<RoutedNarration>
       const message = error instanceof Error ? error.message : "unknown vision failure";
       errors.push(message);
       if (error instanceof GeminiHttpError && error.status === 429) {
-        visionCooldownUntil = Date.now() + QUOTA_COOLDOWN_MS;
+        await blockQuota({
+          retryAfterMs: error.retryAfterMs,
+          model: visionConfig.model,
+          reason: message,
+        });
       }
     }
   }
 
   const textPrompt = redactPii(input.ocrText.trim());
-  if (textPrompt.length >= 40) {
+  if (!quota.blocked && textPrompt.length >= 40) {
     try {
       const { parsed, usage } = await withRetry(() =>
         callGemini(

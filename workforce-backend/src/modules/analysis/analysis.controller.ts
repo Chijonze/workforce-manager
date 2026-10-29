@@ -1,5 +1,10 @@
 import { Request, Response } from "express";
 import * as analysisService from "./analysis.service";
+import { quotaSnapshot } from "../ai/quota.service";
+import {
+  countPendingNarrations,
+  retryState,
+} from "../vision/narrationRetry.service";
 
 type AuthedRequest = Request & { user?: { userId: string; role: string } };
 
@@ -126,6 +131,19 @@ export const generateShiftActivity = async (req: AuthedRequest, res: Response) =
     const message = err instanceof Error ? err.message : "An unknown error occurred";
     const status = /not allowed/i.test(message) ? 403 : /not found/i.test(message) ? 404 : 400;
     res.status(status).json({ message });
+  }
+};
+
+export const getQuotaStatus = async (_req: AuthedRequest, res: Response) => {
+  try {
+    const [quota, pendingNarrations] = await Promise.all([
+      quotaSnapshot(),
+      countPendingNarrations(),
+    ]);
+    res.json({ quota, pendingNarrations, retry: retryState() });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "An unknown error occurred";
+    res.status(400).json({ message });
   }
 };
 
