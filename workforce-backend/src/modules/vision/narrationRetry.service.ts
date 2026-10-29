@@ -102,12 +102,12 @@ export const runNarrationRetrySweep = async (): Promise<RetrySweepResult> => {
   const shiftId = pending[0];
   const narration = await generateActivityNarration(shiftId);
 
-  // If the report was generated while the quota was exhausted, regenerate it now
-  // that there is screen evidence to ground it.
+  // Upgrade the report too: either it fell back to the offline narrative, or it
+  // predates screen evidence and therefore has no screenActivity at all.
   const analysis = await ShiftAnalysis.findOne({ shiftSessionId: shiftId })
-    .select("source")
+    .select("source screenActivity")
     .lean();
-  if (analysis?.source === "fallback") {
+  if (!analysis || !analysis.screenActivity || analysis.source === "fallback") {
     await generateShiftAnalysis(shiftId, { force: true, narrate: false });
   }
 

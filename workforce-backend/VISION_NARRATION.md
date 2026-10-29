@@ -128,8 +128,9 @@ When a 429 does happen:
    in the future, so no time is wasted retrying an exhausted cap.
 3. `narrationRetry.service` runs on an interval (15 min default). While blocked
    it does nothing. Once the reset passes it narrates one pending shift at a
-   time, up to `VISION_RETRY_MAX_SHIFTS_PER_DAY` per day, and regenerates any
-   analysis that had fallen back to the offline summary.
+   time, up to `VISION_RETRY_MAX_SHIFTS_PER_DAY` per day, and regenerates the
+   shift's analysis when it has no screen evidence or had fallen back to the
+   offline summary.
 4. `GET /api/analysis/quota` reports the state:
 
 ```json
