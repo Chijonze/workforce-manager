@@ -74,3 +74,16 @@ www.{$DOMAIN} {
 	encode zstd gzip
 	reverse_proxy livekit:7880
 }
+
+# --- nairapool.online (managed by /opt/nairapool/ensure-caddy-route.sh) ---
+# Nairapool is single-origin: one container serves the web client at / and the
+# JSON API at /api. Do NOT add a mail.nairapool.online block here - that host
+# must keep pointing at the InterServer mail server for SMTP.
+nairapool.online {
+	encode zstd gzip
+	reverse_proxy nairapool-api:3000
+}
+
+www.nairapool.online {
+	redir https://nairapool.online{uri} permanent
+}
