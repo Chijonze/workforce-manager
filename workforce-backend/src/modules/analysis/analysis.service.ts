@@ -9,13 +9,22 @@ import ShiftSession from "../../models/ShiftSession";
 import ShiftTemplate from "../../models/shiftTemplate.model";
 import MonitoringSession from "../../models/MonitoringSession";
 import User from "../../models/User";
+import type { IActivityNarration } from "../../models/ActivityNarration";
+import { acquireGeminiSlot } from "../../utils/geminiLimiter";
+import { assertCanViewWorker, assignedAgentIdsFor, type Requester } from "./analysis.access";
+import {
+  ensureActivityNarration,
+  generateActivityNarration,
+  getActivityNarration,
+} from "../vision/activityNarration.service";
+import { visionConfig } from "../vision/vision.config";
+import { formatWindow } from "../vision/vision.time";
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_TIMEOUT_MS = 20_000;
-// The free tier allows only a handful of requests per minute, so successive
-// generations are paced through a shared slot instead of firing in parallel.
-const GEMINI_CALL_SPACING_MS = 6_500;
+// Requests are paced through utils/geminiLimiter, shared with screenshot
+// narration so both features draw from one free-tier budget.
 // Bounds the automatic backfill sweep so a cold start cannot flood the quota.
 const SWEEP_LOOKBACK_DAYS = 7;
 const SWEEP_MAX_SHIFTS = 150;
@@ -23,13 +32,12 @@ const MAX_HOURLY_POINTS = 24;
 const MAX_PIE_SEGMENTS = 6;
 const PDF_CAPTURE_COUNT = 6;
 
-type Requester = { userId: string; role: string };
-
 type ShiftAnalysisContext = {
   shift: any;
   worker: { _id: string; name: string; email: string } | null;
   templateName: string;
   metrics: IAnalysisMetrics;
+  narration: IActivityNarration | null;
 };
 
 const clampScore = (value: unknown) => {
@@ -44,32 +52,9 @@ const clampCount = (value: unknown) => {
   return Math.round(num);
 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const toDayKey = (date?: Date | string) => {
   if (!date) return new Date().toISOString().slice(0, 10);
   return new Date(date).toISOString().slice(0, 10);
-};
-
-// ---------------------------------------------------------------------------
-// Access control — mirrors monitoring.service: admins see everyone, supervisors
-// only the agents allocated to them.
-// ---------------------------------------------------------------------------
-const assertCanViewWorker = async (requester: Requester, targetUserId: string) => {
-  if (requester.role === "admin") return;
-
-  const supervisor = await User.findById(requester.userId).select("assignedAgentIds");
-  const assigned = (supervisor?.assignedAgentIds || []).map((id: any) => String(id));
-
-  if (!assigned.includes(String(targetUserId))) {
-    throw new Error("You are not allowed to view this agent's analysis");
-  }
-};
-
-const assignedAgentIdsFor = async (requester: Requester) => {
-  if (requester.role !== "supervisor") return null;
-  const supervisor = await User.findById(requester.userId).select("assignedAgentIds");
-  return (supervisor?.assignedAgentIds || []).map((id: any) => String(id));
 };
 
 // ---------------------------------------------------------------------------
@@ -98,13 +83,14 @@ const buildHourlyActivity = (mouseSamples: any[]) => {
 };
 
 const collectShiftAnalysisContext = async (shift: any): Promise<ShiftAnalysisContext> => {
-  const [events, monitoring, template, worker] = await Promise.all([
+  const [events, monitoring, template, worker, narration] = await Promise.all([
     ShiftEvent.find({ shiftId: shift._id }).sort({ timestamp: 1 }).lean(),
     MonitoringSession.findOne({ shiftSessionId: shift._id }).lean(),
     shift.shiftTemplateId
       ? ShiftTemplate.findById(shift.shiftTemplateId).select("name").lean()
       : Promise.resolve(null),
     User.findById(shift.userId).select("_id name email").lean(),
+    getActivityNarration(String(shift._id)),
   ]);
 
   const eventCounts: Record<string, number> = {};
@@ -159,6 +145,7 @@ const collectShiftAnalysisContext = async (shift: any): Promise<ShiftAnalysisCon
       : null,
     templateName: template?.name || "Unassigned shift",
     metrics,
+    narration: (narration as IActivityNarration | null) || null,
   };
 };
 
@@ -244,13 +231,30 @@ const buildFallbackAnalysis = (context: ShiftAnalysisContext, overallScore: numb
     if (metrics.monitoring.captureCount > 0) highlights.push(`${metrics.monitoring.captureCount} periodic screenshot(s) captured during the shift.`);
   }
 
+  const screenOverview = context.narration?.overview?.trim() || "";
+  const observedApps = [
+    ...new Set((context.narration?.blocks || []).flatMap((block) => block.apps || [])),
+  ].slice(0, 4);
+  if (screenOverview && observedApps.length) {
+    highlights.push(`Screen activity centred on ${observedApps.join(", ")}.`);
+  }
+
+  const closureLabel =
+    metrics.closureReason === "auto_closed"
+      ? "the session was closed automatically after the maximum active duration"
+      : metrics.closureReason === "missed_shift"
+        ? "the shift was missed"
+        : "normal clock-out";
+
   const workerSummary = absent
     ? `${name} was recorded as absent for "${templateName}". No work, break, or monitoring activity was captured, so the shift scores 0%. This shift requires follow-up with the worker or their hiring manager.`
     : `${name} concluded "${templateName}" with an overall performance score of ${overallScore}% — ${band}. They recorded ${formatDuration(metrics.workedMinutes)} of work against ${formatDuration(metrics.scheduledMinutes)} scheduled${metrics.breakMinutes ? `, plus ${formatDuration(metrics.breakMinutes)} of breaks` : ""}. Punctuality scored ${metrics.punctualityScore}%, schedule adherence ${metrics.activityAdherenceScore}%, and time-on-task ${metrics.workScore}%.`;
 
   const workSummary = absent
     ? `The shift window passed with no clock-in and no monitoring session. The scheduled time of ${formatDuration(metrics.scheduledMinutes)} was fully missed.`
-    : `The session generated ${metrics.monitoring.mouseMovements.toLocaleString()} mouse movements across ${metrics.monitoring.mouseDistancePx.toLocaleString()}px, ${metrics.monitoring.mouseClicks} click(s) and ${metrics.monitoring.mouseScrolls} scroll action(s), with screenshots captured every 15 minutes (${metrics.monitoring.captureCount} total). Closure reason: ${metrics.closureReason === "auto_closed" ? "the session was closed automatically after the maximum active duration" : metrics.closureReason === "missed_shift" ? "the shift was missed" : "normal clock-out"}.`;
+    : screenOverview
+      ? `${screenOverview} ${metrics.monitoring.captureCount} screenshot(s) were reviewed at the 15-minute cadence. Closure reason: ${closureLabel}.`
+      : `The session generated ${metrics.monitoring.mouseMovements.toLocaleString()} mouse movements across ${metrics.monitoring.mouseDistancePx.toLocaleString()}px, ${metrics.monitoring.mouseClicks} click(s) and ${metrics.monitoring.mouseScrolls} scroll action(s), with screenshots captured every 15 minutes (${metrics.monitoring.captureCount} total). Closure reason: ${closureLabel}.`;
 
   return {
     headline: absent
@@ -267,16 +271,6 @@ const buildFallbackAnalysis = (context: ShiftAnalysisContext, overallScore: numb
 // Gemini call — raw REST, mirroring the avs-frontend chat route (free-tier
 // friendly, no SDK).
 // ---------------------------------------------------------------------------
-const nextGeminiSlot = (() => {
-  let nextSlot = 0;
-  return async () => {
-    const now = Date.now();
-    const wait = Math.max(0, nextSlot - now);
-    nextSlot = Math.max(now, nextSlot) + GEMINI_CALL_SPACING_MS;
-    if (wait > 0) await sleep(wait);
-  };
-})();
-
 const ANALYSIS_RESPONSE_CONTRACT = `{
   "headline": "one short sentence (max 90 chars) summarising the shift",
   "workerSummary": "2-4 sentence narration about the worker's performance",
@@ -288,17 +282,44 @@ const ANALYSIS_RESPONSE_CONTRACT = `{
 }`;
 
 const buildGeminiPayload = (context: ShiftAnalysisContext, overallScore: number) => {
-  const { metrics, worker, templateName } = context;
+  const { metrics, worker, templateName, narration } = context;
   const suggestedCharts = {
     barChart: deterministicBarChart(metrics),
     pieChart: deterministicPieChart(metrics),
   };
+
+  const screenBlocks = (narration?.blocks || [])
+    // Drop the low-confidence OCR-only blocks: they add little narrative value
+    // and are the likeliest place for raw screen text to leak into a report.
+    .filter((block) => block.summary && block.confidence >= 40)
+    .map((block) => ({
+      window: formatWindow(block.startedAt, block.endedAt),
+      summary: block.summary,
+      apps: block.apps,
+      tasks: block.tasks,
+      activity: block.activity,
+      concerns: block.concerns,
+    }));
+
+  const screenActivity = screenBlocks.length
+    ? {
+        overview: narration?.overview || "",
+        coverage: {
+          screenshots: narration?.coverage?.captures || 0,
+          uniqueFrames: narration?.coverage?.uniqueFrames || 0,
+          blocks: narration?.coverage?.blocks || 0,
+        },
+        blocks: screenBlocks,
+      }
+    : null;
 
   const systemPrompt = [
     "You are a workforce analytics analyst for ShiftSync by Advanced Virtual Solutions.",
     "You turn structured shift telemetry into concise, professional, factual performance narratives for hiring managers.",
     "Use only the numbers provided; never invent metrics. Scores are percentages from 0 to 100.",
     "Durations are in minutes. The overall performance score is computed by the platform's weighted formula and is authoritative — narrate it, do not recalculate it.",
+    "When screenActivity is present it comes from periodic screenshots of the worker's screen: use it to describe the actual work performed, naming the applications, documents and task types observed. Never claim work the screen evidence does not support, and never treat a quiet screen as proof of idleness.",
+    "Never reproduce personal data — customer names, email addresses, phone numbers or card numbers — even if it appears in screenActivity. Refer to such records generically.",
     "For the charts, showcase volume: prefer the suggested chart data, adjusting labels or titles only when it improves clarity.",
     `Respond with strict JSON only, exactly matching this contract: ${ANALYSIS_RESPONSE_CONTRACT}`,
   ].join(" ");
@@ -331,6 +352,7 @@ const buildGeminiPayload = (context: ShiftAnalysisContext, overallScore: number)
       activeMinutesPercent: metrics.monitoring.activeSamplePercent,
       activeMinutesPerHour: metrics.monitoring.hourlyActivity,
     },
+    screenActivity,
     sessionEventCounts: metrics.eventCounts,
     suggestedCharts,
   });
@@ -342,7 +364,7 @@ const callGeminiJSON = async (systemPrompt: string, userPrompt: string) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
-  await nextGeminiSlot();
+  await acquireGeminiSlot();
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
@@ -455,7 +477,7 @@ const sanitizeGeminiResult = (raw: any, metrics: IAnalysisMetrics) => {
 // ---------------------------------------------------------------------------
 export const generateShiftAnalysis = async (
   shiftId: string,
-  options: { force?: boolean; requester?: Requester } = {}
+  options: { force?: boolean; requester?: Requester; narrate?: boolean } = {}
 ): Promise<IShiftAnalysis> => {
   const shift = await ShiftSession.findById(shiftId).lean();
   if (!shift) throw new Error("Shift not found");
@@ -468,6 +490,15 @@ export const generateShiftAnalysis = async (
 
   const existing = await ShiftAnalysis.findOne({ shiftSessionId: shift._id });
   if (existing && !options.force) return existing;
+
+  // Ground the narrative in what was actually on screen. Cached per shift, so a
+  // regenerated analysis reuses the existing narration instead of paying again.
+  if (options.narrate !== false && visionConfig.enabled && shift.attendanceStatus !== "absent") {
+    await ensureActivityNarration(String(shift._id), {
+      force: Boolean(options.force),
+      budgetMs: visionConfig.inlineBudgetMs,
+    });
+  }
 
   const context = await collectShiftAnalysisContext(shift);
   const overallScore = clampScore(shift.kpiScore);
@@ -526,6 +557,8 @@ export const generateShiftAnalysis = async (
     }
   }
 
+  const narration = context.narration;
+
   return ShiftAnalysis.findOneAndUpdate(
     { shiftSessionId: shift._id },
     {
@@ -539,6 +572,25 @@ export const generateShiftAnalysis = async (
       metrics: context.metrics,
       narrative: analysis.narrative,
       charts: analysis.charts,
+      screenActivity: narration
+        ? {
+            status: narration.status,
+            overview: narration.overview,
+            blocks: (narration.blocks || []).map((block) => ({
+              index: block.index,
+              startedAt: block.startedAt,
+              endedAt: block.endedAt,
+              summary: block.summary,
+              tasks: block.tasks,
+              apps: block.apps,
+              activity: block.activity,
+              evidence: block.evidence,
+              confidence: block.confidence,
+              source: block.source,
+            })),
+            coverage: narration.coverage,
+          }
+        : null,
       generatedAt: new Date(),
       error: analysis.error || null,
     },
@@ -551,14 +603,20 @@ let analysisQueue: Promise<void> = Promise.resolve();
 
 // Fire-and-forget entry point for shift-conclusion hooks: generations run
 // sequentially (never in parallel) so the free-tier quota is respected.
-export const enqueueShiftAnalysis = (shiftId: string, force = false) => {
+// `narrate=false` is used by the backfill sweep: narrating 150 old shifts would
+// burn the quota for days, so historical narration is an explicit CLI choice
+// (`scripts/narrate-shifts.ts`).
+export const enqueueShiftAnalysis = (shiftId: string, force = false, narrate = true) => {
   const key = `${shiftId}:${force ? "force" : "auto"}`;
   if (queuedShiftIds.has(key)) return;
 
   queuedShiftIds.add(key);
   analysisQueue = analysisQueue
     .then(async () => {
-      await generateShiftAnalysis(shiftId, { force });
+      // Narrate the screen first, off the request path: the analysis below then
+      // consumes the cached blocks instead of waiting on vision calls.
+      if (narrate) await ensureActivityNarration(shiftId);
+      await generateShiftAnalysis(shiftId, { force, narrate });
     })
     .catch((error) => {
       console.error("Automatic shift analysis failed", shiftId, error);
@@ -590,7 +648,7 @@ export const sweepMissingShiftAnalyses = async () => {
   let enqueued = 0;
   for (const id of ids) {
     if (!analysedIds.has(id)) {
-      enqueueShiftAnalysis(id);
+      enqueueShiftAnalysis(id, false, false);
       enqueued += 1;
     }
   }
@@ -674,6 +732,31 @@ export const getSavedShiftAnalysis = async (requester: Requester, shiftId: strin
   await assertCanViewWorker(requester, String(shift.userId));
 
   return ShiftAnalysis.findOne({ shiftSessionId: shift._id });
+};
+
+// ---------------------------------------------------------------------------
+// Screen narration access — the per-block "what was on screen" detail that is
+// too large to embed in the analysis list endpoints.
+// ---------------------------------------------------------------------------
+export const getShiftActivityNarration = async (requester: Requester, shiftId: string) => {
+  const shift = await ShiftSession.findById(shiftId).select("userId").lean();
+  if (!shift) throw new Error("Shift not found");
+  await assertCanViewWorker(requester, String(shift.userId));
+
+  return getActivityNarration(shiftId);
+};
+
+export const runShiftActivityNarration = async (
+  requester: Requester,
+  shiftId: string,
+  force = true
+) => {
+  const shift = await ShiftSession.findById(shiftId).select("userId").lean();
+  if (!shift) throw new Error("Shift not found");
+  await assertCanViewWorker(requester, String(shift.userId));
+
+  const narration = await generateActivityNarration(shiftId, { force });
+  return narration;
 };
 
 export const getAnalysisOverview = async (requester: Requester) => {

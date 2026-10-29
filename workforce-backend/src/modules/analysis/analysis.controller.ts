@@ -87,6 +87,48 @@ export const generateShiftAnalysis = async (req: AuthedRequest, res: Response) =
   }
 };
 
+export const getShiftActivity = async (req: AuthedRequest, res: Response) => {
+  try {
+    const shiftId = String(req.params.shiftId || "");
+    if (!isObjectId(shiftId)) {
+      return res.status(400).json({ message: "Invalid shift ID format" });
+    }
+
+    const narration = await analysisService.getShiftActivityNarration(requesterOf(req), shiftId);
+    if (!narration) {
+      return res.status(404).json({ message: "No screen narration has been generated for this shift yet" });
+    }
+
+    res.json(narration);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "An unknown error occurred";
+    const status = /not allowed/i.test(message) ? 403 : /not found/i.test(message) ? 404 : 400;
+    res.status(status).json({ message });
+  }
+};
+
+export const generateShiftActivity = async (req: AuthedRequest, res: Response) => {
+  try {
+    const shiftId = String(req.params.shiftId || "");
+    if (!isObjectId(shiftId)) {
+      return res.status(400).json({ message: "Invalid shift ID format" });
+    }
+
+    const force = req.body?.force !== false;
+    const narration = await analysisService.runShiftActivityNarration(
+      requesterOf(req),
+      shiftId,
+      force
+    );
+
+    res.json(narration);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "An unknown error occurred";
+    const status = /not allowed/i.test(message) ? 403 : /not found/i.test(message) ? 404 : 400;
+    res.status(status).json({ message });
+  }
+};
+
 export const getAggregate = async (req: AuthedRequest, res: Response) => {
   try {
     const startDate = String(req.query.startDate || "");

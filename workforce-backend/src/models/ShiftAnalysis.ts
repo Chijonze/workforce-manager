@@ -36,6 +36,26 @@ export interface IAnalysisMetrics {
   eventCounts: Record<string, number>;
 }
 
+export interface IAnalysisScreenBlock {
+  index: number;
+  startedAt: Date;
+  endedAt: Date;
+  summary: string;
+  tasks: string[];
+  apps: string[];
+  activity: string;
+  evidence: string;
+  confidence: number;
+  source: string;
+}
+
+export interface IAnalysisScreenActivity {
+  status: string;
+  overview: string;
+  blocks: IAnalysisScreenBlock[];
+  coverage: Record<string, number>;
+}
+
 export interface IShiftAnalysis extends Document {
   shiftSessionId: mongoose.Types.ObjectId;
   userId: string;
@@ -62,6 +82,9 @@ export interface IShiftAnalysis extends Document {
     bar: { title: string; unit: string; series: IAnalysisChartPoint[] };
     pie: { title: string; unit: string; segments: IAnalysisChartPoint[] };
   };
+
+  /** Per-block narration of what was visible in the shift's screenshots. */
+  screenActivity?: IAnalysisScreenActivity | null;
 
   generatedAt: Date;
   error?: string;
@@ -121,6 +144,32 @@ const analysisMetricsSchema = new Schema<IAnalysisMetrics>(
       default: [],
     },
     eventCounts: { type: Schema.Types.Mixed, default: {} },
+  },
+  { _id: false }
+);
+
+const screenBlockSchema = new Schema<IAnalysisScreenBlock>(
+  {
+    index: { type: Number, default: 0 },
+    startedAt: { type: Date, required: true },
+    endedAt: { type: Date, required: true },
+    summary: { type: String, default: "" },
+    tasks: { type: [String], default: [] },
+    apps: { type: [String], default: [] },
+    activity: { type: String, default: "unknown" },
+    evidence: { type: String, default: "" },
+    confidence: { type: Number, default: 0 },
+    source: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const screenActivitySchema = new Schema<IAnalysisScreenActivity>(
+  {
+    status: { type: String, default: "completed" },
+    overview: { type: String, default: "" },
+    blocks: { type: [screenBlockSchema], default: [] },
+    coverage: { type: Schema.Types.Mixed, default: {} },
   },
   { _id: false }
 );
@@ -207,6 +256,11 @@ const shiftAnalysisSchema = new Schema<IShiftAnalysis>(
         },
       },
       required: true,
+    },
+
+    screenActivity: {
+      type: screenActivitySchema,
+      default: null,
     },
 
     generatedAt: {

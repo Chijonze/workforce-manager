@@ -83,6 +83,16 @@ services:
       # Dedicated key for AI shift analyses; falls back to the shared GEMINI_API_KEY.
       GEMINI_API_KEY: ${WFM_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_CALL_SPACING_MS: ${GEMINI_CALL_SPACING_MS:-6500}
+      # Screenshot narration (vision). One call per block of frames, cached per shift.
+      VISION_ENABLED: ${VISION_ENABLED:-true}
+      GEMINI_VISION_MODEL: ${GEMINI_VISION_MODEL:-gemini-2.5-flash}
+      VISION_BLOCK_FRAMES: ${VISION_BLOCK_FRAMES:-6}
+      VISION_MAX_BLOCKS: ${VISION_MAX_BLOCKS:-8}
+      VISION_TILE_WIDTH: ${VISION_TILE_WIDTH:-640}
+      VISION_DEDUPE_DISTANCE: ${VISION_DEDUPE_DISTANCE:-5}
+      VISION_OCR_MODE: ${VISION_OCR_MODE:-fallback}
+      VISION_INLINE_BUDGET_MS: ${VISION_INLINE_BUDGET_MS:-60000}
       MONITORING_UPLOADS_DIR: /app/uploads/monitoring
     volumes:
       - monitoring_uploads:/app/uploads/monitoring

@@ -13,3 +13,5 @@ router.get("/workers", controller.listWorkers);
 router.get("/workers/:userId/shifts", controller.listWorkerShifts);
 router.get("/shift/:shiftId", controller.getShiftAnalysis);
 router.post("/shift/:shiftId/generate", controller.generateShiftAnalysis);
+router.get("/shift/:shiftId/activity", controller.getShiftActivity);
+router.post("/shift/:shiftId/activity", controller.generateShiftActivity);
