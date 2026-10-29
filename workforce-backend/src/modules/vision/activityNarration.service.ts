@@ -144,6 +144,10 @@ export const generateActivityNarration = async (
   const shift = await ShiftSession.findById(shiftId).lean();
   if (!shift) throw new Error("Shift not found");
 
+  // A live shift keeps capturing, so anything narrated now is incomplete. Mark
+  // it partial so the conclusion hook narrates the whole shift again.
+  const isLive = shift.status === "active";
+
   const existing = await ActivityNarration.findOne({ shiftSessionId: shift._id });
   if (existing && existing.status === "completed" && !options.force) return existing;
 
@@ -354,7 +358,7 @@ export const generateActivityNarration = async (
         : "completed";
 
   return persist({
-    status,
+    status: isLive && status !== "failed" ? "partial" : status,
     blocks: orderedBlocks,
     overview: composeOverview(orderedBlocks, timeZone),
     coverage,
