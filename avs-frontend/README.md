@@ -11,7 +11,7 @@ Visitor question
 POST /api/chat  (app/api/chat/route.ts)
       │
       ├─► BM25 retrieval over the knowledge base   (lib/rag/retrieval.ts)
-      │        lib/rag/knowledge-base.ts — ~30 curated chunks of AVS facts
+      │        lib/rag/knowledge-base.ts — ~35 curated chunks of AVS facts
       │        Top 5 chunks + company overview become the CONTEXT block
       │
       ├─► Gemini generateContent (free tier)
@@ -28,6 +28,7 @@ POST /api/chat  (app/api/chat/route.ts)
 - **The question angles** in the knowledge base follow what VA-seeking clients ask most often — benchmarked against goldieva.com's customer-facing FAQ topics (hourly pricing, minimum contracts, hidden fees, matching speed, time zones, NDAs, replacements, work tracking, tools, part-time vs full-time).
 - **Rate limiting**: 15 messages per 5 minutes per IP (in-memory) protects the free quota.
 - **Conversation history** (last 8 turns) is passed to Gemini so follow-up questions work.
+- **Scope guardrail (no legal services)**: AVS is not a law firm and has no legal professionals on staff or on standby. `lib/rag/boundaries.ts` detects legal requests, `lib/rag/knowledge-base.ts` carries the policy chunks (`legal-scope-policy`, `legal-adjacent-support`, `legal-referral`), and `lib/rag/retrieval.ts` pins those chunks into the prompt for legal questions while keeping them out of every other answer. Clear legal requests get the curated `legalServiceReply` verbatim instead of a model answer, so the boundary can never be softened into a "maybe"; law-firm admin questions are answered from the policy chunks (and from `lawFirmAdminReply` if the model is unavailable). Keep those replies in sync with the site FAQ when policy changes.
 
 ## Setup
 
@@ -55,7 +56,8 @@ Without a key the widget still works — answers come straight from the knowledg
 {
   "reply": "AVS charges one flexible hourly rate of £4.50 per hour…",
   "sources": [{ "title": "Pricing and hourly rates", "category": "Pricing" }],
-  "fallback": false   // true when Gemini was unavailable
+  "fallback": false,     // true when Gemini was unavailable
+  "deterministic": true  // present on curated scope answers (e.g. legal requests)
 }
 ```
 

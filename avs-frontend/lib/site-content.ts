@@ -500,6 +500,11 @@ export const faqs = [
     answer:
       "Yes. Start with a few hours a week and scale up as trust and workload grow — or scale down in quiet periods. Flexible hourly billing means you only pay for the support you actually use.",
   },
+  {
+    question: "Do you offer legal services or legal advice?",
+    answer:
+      "No. AVS is not a law firm, and legal and attorney services sit outside our expertise: we don't provide legal advice or opinions, review or draft contracts for legal risk, or represent anyone in a legal matter, and we don't have lawyers, solicitors, attorneys, barristers, or paralegals on staff or on standby. If you need legal advice, please speak to a qualified lawyer licensed in the relevant jurisdiction — we can't recommend or refer firms. What we can do is support the admin around a legal matter: inbox and diary management, client intake, document formatting, bundle assembly and transcription, filing, and scheduling, all under the direction and sign-off of your own legal adviser.",
+  },
 ];
 
 export const assistantProfiles = [

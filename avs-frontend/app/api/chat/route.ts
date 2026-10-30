@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 import { buildContext, retrieve } from "@/lib/rag/retrieval";
+import { buildSystemPrompt } from "@/lib/rag/prompt";
+import {
+  classifyLegalInquiry,
+  lawFirmAdminReply,
+  legalAnswerSources,
+  legalChunkIds,
+  legalServiceReply,
+} from "@/lib/rag/boundaries";
 
 export const runtime = "nodejs";
 
@@ -29,21 +37,6 @@ function isRateLimited(ip: string): boolean {
   bucket.count += 1;
   return bucket.count > RATE_LIMIT_MAX;
 }
-
-const SYSTEM_PROMPT = `You are the AI assistant on the Advanced Virtual Solutions (AVS) website. AVS provides dedicated virtual assistants for founders, agencies, coaches, eCommerce brands, and growing teams.
-
-Your job is to answer questions from potential clients about AVS: services, pricing, the hiring process, vetting, security, reporting, guarantees, and how working with an assistant works.
-
-Rules:
-- Answer ONLY using the CONTEXT provided below. Do not invent facts, prices, timelines, guarantees, or policies that are not in the context.
-- The only price AVS publishes is £4.50 per hour flexible hourly billing. Never state any other price.
-- If the context does not contain the answer, say honestly that you don't have that detail, and suggest booking a free consultation or contacting admin@advancedvirtualsolutions.com / +44 7882 615046 (phone or WhatsApp).
-- Keep answers concise and scannable: 2-5 short sentences or a few bullet points. Use plain, friendly, professional language.
-- When it helps, end with a light next step (e.g. "Want me to point you to the free consultation?").
-- Do not mention that you are retrieving from documents, and never mention Gemini or that you are an AI model beyond being the AVS website assistant.
-
-CONTEXT:
-{{context}}`;
 
 interface GeminiPart {
   text: string;
@@ -98,13 +91,32 @@ async function callGemini(
 
 /** Deterministic answer from the top knowledge chunk when Gemini is unavailable. */
 function fallbackReply(message: string): { reply: string; sources: { title: string; category: string }[] } {
-  const { sources } = buildContext(message, 2);
-  const best = retrieve(message, 2).find((r) => r.chunk.id !== "company-overview");
-  const body = best ? best.chunk.text : "AVS provides dedicated virtual assistants starting at £4.50/hour.";
+  // Legal questions always get the curated scope answer, never a generic chunk.
+  const legalInquiry = classifyLegalInquiry(message);
+  if (legalInquiry === "legal-service") {
+    return { reply: legalServiceReply, sources: legalAnswerSources };
+  }
+  if (legalInquiry === "legal-adjacent") {
+    return { reply: lawFirmAdminReply, sources: legalAnswerSources };
+  }
+
+  // Prefer a normal answer chunk over the legal policy: "do you support law
+  // firms?" should return the industries answer, not the scope disclaimer.
+  const legalIds = new Set<string>(legalChunkIds);
+  const results = retrieve(message, 5);
+  const best = results.find((r) => !legalIds.has(r.chunk.id));
+
+  if (!best) {
+    return {
+      reply:
+        "AVS provides dedicated virtual assistants for founders, agencies, coaches, and growing teams, with flexible hourly billing at £4.50 per hour.\n\nFor anything more specific, book a free consultation at advancedvirtualsolutions.com/contact or email admin@advancedvirtualsolutions.com.",
+      sources: [],
+    };
+  }
+
   return {
-    reply:
-      `${body}\n\nFor anything more specific, book a free consultation at advancedvirtualsolutions.com/contact or email admin@advancedvirtualsolutions.com.`,
-    sources,
+    reply: `${best.chunk.text}\n\nFor anything more specific, book a free consultation at advancedvirtualsolutions.com/contact or email admin@advancedvirtualsolutions.com.`,
+    sources: [{ title: best.chunk.title, category: best.chunk.category }],
   };
 }
 
@@ -153,8 +165,20 @@ export async function POST(request: Request) {
         .slice(-MAX_HISTORY_TURNS)
     : [];
 
+  // Requests for legal advice, legal work, or a lawyer are answered from the
+  // curated scope answer instead of the model: the "no" must be identical every
+  // time, and must never be negotiated into a maybe.
+  if (classifyLegalInquiry(message) === "legal-service") {
+    return NextResponse.json({
+      reply: legalServiceReply,
+      sources: legalAnswerSources,
+      fallback: false,
+      deterministic: true,
+    });
+  }
+
   const { context, sources } = buildContext(message, 5);
-  const systemPrompt = SYSTEM_PROMPT.replace("{{context}}", context);
+  const systemPrompt = buildSystemPrompt(context);
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {

@@ -1,4 +1,5 @@
 import { knowledgeBase, type KnowledgeChunk } from "./knowledge-base";
+import { hasLegalSignal, legalChunkIds } from "./boundaries";
 
 /**
  * Lightweight BM25 retrieval over the AVS knowledge base.
@@ -50,6 +51,21 @@ const SYNONYMS: Record<string, string[]> = {
   team: ["multiple", "several"],
   communicate: ["communication", "contact", "channels"],
   human: ["contact", "speak", "talk"],
+  // Legal enquiries — route to the scope-of-service chunks so the assistant
+  // never treats legal work as one of AVS's services. ("legal" deliberately
+  // does not expand to "law", which otherwise matches unrelated phrases such
+  // as "law firms" in the industries chunk.)
+  legal: ["lawyer", "attorney", "solicitor", "paralegal"],
+  law: ["legal", "lawyer", "attorney", "solicitor"],
+  lawyer: ["attorney", "solicitor", "legal", "paralegal"],
+  attorney: ["lawyer", "solicitor", "legal"],
+  solicitor: ["lawyer", "attorney", "legal"],
+  barrister: ["lawyer", "attorney", "legal"],
+  paralegal: ["legal", "lawyer", "attorney"],
+  litigation: ["legal", "lawyer", "lawsuit"],
+  lawsuit: ["litigation", "legal", "lawyer"],
+  sue: ["litigation", "legal", "lawyer"],
+  court: ["legal", "litigation"],
 };
 
 function stem(token: string): string {
@@ -117,9 +133,19 @@ export interface RetrievalResult {
 }
 
 export function retrieve(query: string, topK = 5): RetrievalResult[] {
+  // The legal-scope chunks are only served to legal questions; otherwise a
+  // stray match ("which jurisdictions do you cover?") drags a legal disclaimer
+  // into an unrelated answer.
+  const legalQuery = hasLegalSignal(query);
+  const legalIds = new Set<string>(legalChunkIds);
+  const serve = (entry: IndexedChunk) => legalQuery || !legalIds.has(entry.chunk.id);
+
   const queryTerms = expandQuery(tokenize(query));
   if (queryTerms.length === 0) {
-    return index.slice(0, topK).map((c) => ({ chunk: c.chunk, score: 0 }));
+    return index
+      .filter(serve)
+      .slice(0, topK)
+      .map((c) => ({ chunk: c.chunk, score: 0 }));
   }
 
   const results: RetrievalResult[] = index.map((entry) => {
@@ -137,6 +163,7 @@ export function retrieve(query: string, topK = 5): RetrievalResult[] {
     for (const keyword of entry.chunk.keywords ?? []) {
       if (rawQuery.includes(keyword)) score += KEYWORD_BOOST;
     }
+    if (!serve(entry)) score = 0;
     return { chunk: entry.chunk, score };
   });
 
@@ -157,6 +184,19 @@ export function buildContext(query: string, topK = 5): { context: string; source
     selected.push({ chunk: overview.chunk, score: 0 });
     seen.add(overview.chunk.id);
   }
+
+  // Any mention of law, lawyers, or legal work must be answered against the
+  // scope boundary, not against whatever chunk happens to score highest.
+  if (hasLegalSignal(query)) {
+    for (const id of legalChunkIds) {
+      const pinned = index.find((c) => c.chunk.id === id);
+      if (pinned && !seen.has(pinned.chunk.id)) {
+        selected.push({ chunk: pinned.chunk, score: 0 });
+        seen.add(pinned.chunk.id);
+      }
+    }
+  }
+
   for (const r of results) {
     if (!seen.has(r.chunk.id)) {
       selected.push(r);
