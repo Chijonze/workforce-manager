@@ -75,32 +75,37 @@ const migrate = async () => {
   );
 
   if (summary.narrationBlocks) {
-    await ActivityNarration.updateMany({ "blocks.source": { $nin: narrationSources } }, [
-      {
-        $set: {
-          blocks: {
-            $map: {
-              input: "$blocks",
-              as: "block",
-              in: {
-                $mergeObjects: [
-                  "$$block",
-                  {
-                    source: {
-                      $cond: [
-                        { $in: ["$$block.source", narrationSources] },
-                        "$$block.source",
-                        "ai",
-                      ],
+    await ActivityNarration.updateMany(
+      { "blocks.source": { $nin: narrationSources } },
+      [
+        {
+          $set: {
+            blocks: {
+              $map: {
+                input: "$blocks",
+                as: "block",
+                in: {
+                  $mergeObjects: [
+                    "$$block",
+                    {
+                      source: {
+                        $cond: [
+                          { $in: ["$$block.source", narrationSources] },
+                          "$$block.source",
+                          "ai",
+                        ],
+                      },
                     },
-                  },
-                ],
+                  ],
+                },
               },
             },
           },
         },
-      },
-    ] as any);
+      ] as any,
+      // Mongoose 9 refuses array updates unless this is explicit.
+      { updatePipeline: true }
+    );
   }
 
   const clearModel = { $set: { aiModel: "" } };
