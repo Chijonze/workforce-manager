@@ -1,17 +1,17 @@
 /**
- * Single pacing gate for every Gemini request the backend makes.
+ * Optional pacing gate for every model request the backend makes.
  *
- * The free tier enforces a low requests-per-minute ceiling, so analysis calls
- * and screenshot-narration calls must share one queue instead of each keeping
- * its own timer (which is what used to happen: two independent pacers would
- * double the actual request rate).
+ * The provider allows a high concurrency, so the default spacing is zero. The
+ * gate still exists for two reasons: it serialises bursts from the analysis
+ * backfill sweep, and it gives operators a single knob (`AI_CALL_SPACING_MS`)
+ * when a deployment hits throttling.
  */
-const DEFAULT_SPACING_MS = 6_500;
+const DEFAULT_SPACING_MS = 0;
 
 let nextSlot = 0;
 
 const spacingMs = () => {
-  const configured = Number(process.env.GEMINI_CALL_SPACING_MS);
+  const configured = Number(process.env.AI_CALL_SPACING_MS);
   return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_SPACING_MS;
 };
 
@@ -20,9 +20,9 @@ export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 /**
  * Reserves the next slot in the shared queue and waits for it. Callers should
  * acquire immediately before the network request, not before local work, so a
- * slow montage/OCR pass does not idle the quota.
+ * slow OCR/montage pass does not idle the queue.
  */
-export const acquireGeminiSlot = async () => {
+export const acquireAiSlot = async () => {
   const spacing = spacingMs();
   if (spacing === 0) return;
 
@@ -33,6 +33,6 @@ export const acquireGeminiSlot = async () => {
 };
 
 /** Test hook: forget the reservation cursor. */
-export const resetGeminiPacing = () => {
+export const resetAiPacing = () => {
   nextSlot = 0;
 };

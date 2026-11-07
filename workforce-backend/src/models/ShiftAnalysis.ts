@@ -36,6 +36,59 @@ export interface IAnalysisMetrics {
   eventCounts: Record<string, number>;
 }
 
+/**
+ * Deterministic analytics computed in code from the raw telemetry. The model is
+ * asked to narrate these numbers rather than derive them, which keeps the long
+ * report factual and prevents arithmetic drift between paragraphs.
+ */
+export interface IAnalysisDerived {
+  timeUtilisationPercent: number;
+  breakSharePercent: number;
+  overtimeSharePercent: number;
+  idleMinutes: number;
+  trackedMinutes: number;
+  activeMinutes: number;
+  activeToWorkedPercent: number;
+  movementsPerActiveHour: number;
+  clicksPerActiveHour: number;
+  scrollsPerActiveHour: number;
+  peakHour: string;
+  quietestHour: string;
+  activeHourCount: number;
+  observedSpanHours: number;
+  longestGapMinutes: number;
+  longestGapWindow: string;
+  screenBlocks: number;
+  focusedBlocks: number;
+  mixedBlocks: number;
+  idleBlocks: number;
+  averageScreenConfidence: number;
+  topApps: string[];
+  topTasks: string[];
+}
+
+export interface IAnalysisSection {
+  attendance: string;
+  time: string;
+  productivity: string;
+  screen: string;
+  risk: string;
+  coaching: string;
+  outlook: string;
+}
+
+export interface IAnalysisTimelineEntry {
+  time: string;
+  title: string;
+  detail: string;
+}
+
+export interface IAnalysisRecommendation {
+  title: string;
+  detail: string;
+  priority: "high" | "medium" | "low";
+}
+
 export interface IAnalysisScreenBlock {
   index: number;
   startedAt: Date;
@@ -47,6 +100,9 @@ export interface IAnalysisScreenBlock {
   evidence: string;
   confidence: number;
   source: string;
+  /** Capture nearest to this window, so the PDF can pair image and narration. */
+  captureId?: mongoose.Types.ObjectId | null;
+  capturedAt?: Date | null;
 }
 
 export interface IAnalysisScreenActivity {
@@ -62,21 +118,33 @@ export interface IShiftAnalysis extends Document {
   workDate: string;
 
   status: "completed" | "failed";
-  source: "gemini" | "fallback";
+  source: "ai" | "fallback";
+  /**
+   * Internal operations data only. Never serialised to the client: users must
+   * not be able to tell which model wrote a report.
+   */
   aiModel: string;
 
   overallScore: number;
   adherenceScore: number;
 
   metrics: IAnalysisMetrics;
+  derived?: IAnalysisDerived | null;
 
   narrative: {
     headline: string;
+    /** Legacy short fields, kept so saved reports stay readable after upgrades. */
     workerSummary: string;
     workSummary: string;
     highlights: string[];
     concerns: string[];
+    executiveSummary: string;
+    verdict: string;
+    sections: IAnalysisSection;
   };
+
+  timeline: IAnalysisTimelineEntry[];
+  recommendations: IAnalysisRecommendation[];
 
   charts: {
     bar: { title: string; unit: string; series: IAnalysisChartPoint[] };
@@ -148,6 +216,66 @@ const analysisMetricsSchema = new Schema<IAnalysisMetrics>(
   { _id: false }
 );
 
+const analysisDerivedSchema = new Schema<IAnalysisDerived>(
+  {
+    timeUtilisationPercent: { type: Number, default: 0 },
+    breakSharePercent: { type: Number, default: 0 },
+    overtimeSharePercent: { type: Number, default: 0 },
+    idleMinutes: { type: Number, default: 0 },
+    trackedMinutes: { type: Number, default: 0 },
+    activeMinutes: { type: Number, default: 0 },
+    activeToWorkedPercent: { type: Number, default: 0 },
+    movementsPerActiveHour: { type: Number, default: 0 },
+    clicksPerActiveHour: { type: Number, default: 0 },
+    scrollsPerActiveHour: { type: Number, default: 0 },
+    peakHour: { type: String, default: "" },
+    quietestHour: { type: String, default: "" },
+    activeHourCount: { type: Number, default: 0 },
+    observedSpanHours: { type: Number, default: 0 },
+    longestGapMinutes: { type: Number, default: 0 },
+    longestGapWindow: { type: String, default: "" },
+    screenBlocks: { type: Number, default: 0 },
+    focusedBlocks: { type: Number, default: 0 },
+    mixedBlocks: { type: Number, default: 0 },
+    idleBlocks: { type: Number, default: 0 },
+    averageScreenConfidence: { type: Number, default: 0 },
+    topApps: { type: [String], default: [] },
+    topTasks: { type: [String], default: [] },
+  },
+  { _id: false }
+);
+
+const sectionsSchema = new Schema<IAnalysisSection>(
+  {
+    attendance: { type: String, default: "" },
+    time: { type: String, default: "" },
+    productivity: { type: String, default: "" },
+    screen: { type: String, default: "" },
+    risk: { type: String, default: "" },
+    coaching: { type: String, default: "" },
+    outlook: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const timelineEntrySchema = new Schema<IAnalysisTimelineEntry>(
+  {
+    time: { type: String, default: "" },
+    title: { type: String, default: "" },
+    detail: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const recommendationSchema = new Schema<IAnalysisRecommendation>(
+  {
+    title: { type: String, default: "" },
+    detail: { type: String, default: "" },
+    priority: { type: String, enum: ["high", "medium", "low"], default: "medium" },
+  },
+  { _id: false }
+);
+
 const screenBlockSchema = new Schema<IAnalysisScreenBlock>(
   {
     index: { type: Number, default: 0 },
@@ -160,6 +288,8 @@ const screenBlockSchema = new Schema<IAnalysisScreenBlock>(
     evidence: { type: String, default: "" },
     confidence: { type: Number, default: 0 },
     source: { type: String, default: "" },
+    captureId: { type: Schema.Types.ObjectId, default: null },
+    capturedAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -201,7 +331,7 @@ const shiftAnalysisSchema = new Schema<IShiftAnalysis>(
 
     source: {
       type: String,
-      enum: ["gemini", "fallback"],
+      enum: ["ai", "fallback"],
       default: "fallback",
     },
 
@@ -225,6 +355,11 @@ const shiftAnalysisSchema = new Schema<IShiftAnalysis>(
       required: true,
     },
 
+    derived: {
+      type: analysisDerivedSchema,
+      default: null,
+    },
+
     narrative: {
       type: {
         headline: { type: String, default: "" },
@@ -232,8 +367,24 @@ const shiftAnalysisSchema = new Schema<IShiftAnalysis>(
         workSummary: { type: String, default: "" },
         highlights: { type: [String], default: [] },
         concerns: { type: [String], default: [] },
+        executiveSummary: { type: String, default: "" },
+        verdict: { type: String, default: "" },
+        sections: {
+          type: sectionsSchema,
+          default: () => ({}),
+        },
       },
       required: true,
+    },
+
+    timeline: {
+      type: [timelineEntrySchema],
+      default: [],
+    },
+
+    recommendations: {
+      type: [recommendationSchema],
+      default: [],
     },
 
     charts: {

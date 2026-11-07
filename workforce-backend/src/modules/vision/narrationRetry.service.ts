@@ -76,9 +76,9 @@ export type RetrySweepResult = {
 };
 
 /**
- * Runs at most `VISON_RETRY_MAX_SHIFTS_PER_DAY` shifts per day, and never while
- * the daily quota is exhausted. When the 429 reset time passes this resumes on
- * its own and upgrades any report that had fallen back to the offline summary.
+ * Runs at most `VISION_RETRY_MAX_SHIFTS_PER_DAY` shifts per day, and never while
+ * the provider is throttling. When the pause expires this resumes on its own and
+ * upgrades any report that had fallen back to the offline narrative.
  */
 export const runNarrationRetrySweep = async (): Promise<RetrySweepResult> => {
   if (!visionConfig.retryEnabled) return { ran: false, reason: "disabled" };

@@ -31,8 +31,8 @@ const startServer = async () => {
   maintenanceTimer.unref();
 
   // Screenshot narration: retry shifts that failed or were cut short. The sweep
-  // is a no-op while the Gemini daily quota is exhausted, so it resumes by itself
-  // once the 429 reset instant passes.
+  // pauses while the AI provider is throttling and resumes by itself once the
+  // retry window has passed.
   const runNarrationRetry = () => {
     void runNarrationRetrySweep()
       .then((result) => {

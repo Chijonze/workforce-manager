@@ -14,27 +14,28 @@ export type BlockNarration = {
 };
 
 const CONTRACT = `{
-  "summary": "2-3 sentences describing what the worker was actually doing in these frames (max 90 words)",
-  "tasks": ["short task labels, max 4"],
-  "apps": ["application or website names visible, max 5"],
+  "summary": "3-5 sentences telling the story of what the worker did in these frames, naming the screens, documents and task steps you can see (max 140 words)",
+  "tasks": ["concrete task labels, max 6"],
+  "apps": ["application or website names visible, max 6"],
   "activity": "focused" | "mixed" | "idle" | "unknown",
-  "evidence": "one short phrase of on-screen text that proves the activity (max 120 chars)",
-  "concerns": ["0-2 short flags, e.g. credentials visible, non-work browsing"],
+  "evidence": "one short phrase of on-screen text that proves the activity (max 160 chars)",
+  "concerns": ["0-3 short flags, e.g. credentials visible, non-work browsing"],
   "confidence": 0-100
 }`;
 
 const SYSTEM_PROMPT = [
   "You are a workforce activity analyst. You receive a contact sheet of screenshots captured periodically from one worker's computer during a shift.",
-  "The tiles are in chronological order and each is labelled with its capture number and the local time.",
-  "Your job is to narrate what work was actually being done from the visible evidence: name the applications, websites, documents, tickets, spreadsheets or chat threads on screen, and infer the task being performed.",
+  "The tiles are in chronological order and each is labelled with its capture number and the local time. You may also receive OCR text extracted from the same frames.",
+  "Your job is to narrate what work was actually being done from the visible evidence: name the applications, websites, documents, tickets, spreadsheets or chat threads on screen, and describe the sequence of the task being performed.",
   "Rules:",
-  "1. Describe only what the pixels support. If the frames are ambiguous, say so and lower confidence.",
+  "1. Describe only what the pixels and OCR text support. If the frames are ambiguous, say so and lower confidence.",
   "2. Never invent names, numbers, or outcomes. Do not guess the worker's identity.",
   "3. Protect personal data: do not transcribe customer names, email addresses, phone numbers, card numbers or home addresses. Refer to them generically (e.g. 'a customer record').",
   "4. If a password, API key or card number is visible on screen, mention 'credentials visible' in concerns without reproducing the value.",
   "5. A locked, black or uniform screen means idle or away, not focused work.",
   "6. Non-work content (social feeds, video, shopping) should be stated factually as non-work activity, without judgemental language.",
-  "7. Be concrete and neutral. No praise, no speculation about attitude.",
+  "7. Write in British English, in the past tense, as evidence for a hiring manager reading a written report.",
+  "8. Be concrete and neutral. No praise, no speculation about attitude.",
   `Respond with strict JSON only, exactly matching this contract: ${CONTRACT}`,
 ].join(" ");
 
@@ -54,7 +55,9 @@ export const buildBlockPrompt = (
   };
 
   if (options.ocrText && options.ocrText.trim().length >= 40) {
-    payload.ocrText = options.ocrText.slice(0, 1800);
+    // OCR is a second, independent reading of the screen; it is the best source
+    // of exact application, document and ticket names.
+    payload.ocrText = options.ocrText.slice(0, 6000);
   }
 
   return JSON.stringify(payload);
@@ -96,12 +99,12 @@ export const sanitizeBlockNarration = (raw: unknown): BlockNarration => {
   const confidence = Number(record.confidence);
 
   return {
-    summary: asString(record.summary, 1200),
-    tasks: asStringList(record.tasks, 4, 80),
-    apps: asStringList(record.apps, 5, 60),
+    summary: asString(record.summary, 1600),
+    tasks: asStringList(record.tasks, 6, 90),
+    apps: asStringList(record.apps, 6, 70),
     activity: asActivity(record.activity),
-    evidence: asString(record.evidence, 200),
-    concerns: asStringList(record.concerns, 2, 140),
+    evidence: asString(record.evidence, 240),
+    concerns: asStringList(record.concerns, 3, 160),
     confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, Math.round(confidence))) : 0,
   };
 };

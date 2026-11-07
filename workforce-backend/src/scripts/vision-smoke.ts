@@ -3,7 +3,7 @@
  *
  * Renders a handful of synthetic "screenshots" that mimic a support agent's
  * desktop (including a deliberate duplicate and a locked screen), then runs:
- *   prepareFrames → dedupe → blocks → montage → Gemini vision → narration.
+ *   prepareFrames → dedupe → blocks → montage → multimodal narration.
  *
  * Usage: npx ts-node --transpile-only src/scripts/vision-smoke.ts
  * Artefacts are written to tmp/vision-demo/ (montage + per-block JSON).

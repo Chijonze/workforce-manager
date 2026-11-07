@@ -1,91 +1,167 @@
 import ShiftAnalysis, {
-  IAnalysisChartPoint,
   IAnalysisMetrics,
-  IShiftAnalysis,
+  IAnalysisScreenBlock,
 } from "../../models/ShiftAnalysis";
-import PeriodAnalysis, { IPeriodAnalysis } from "../../models/PeriodAnalysis";
+import PeriodAnalysis from "../../models/PeriodAnalysis";
 import ShiftEvent from "../../models/ShiftEvent";
 import ShiftSession from "../../models/ShiftSession";
 import ShiftTemplate from "../../models/shiftTemplate.model";
 import MonitoringSession from "../../models/MonitoringSession";
 import User from "../../models/User";
 import type { IActivityNarration } from "../../models/ActivityNarration";
-import { acquireGeminiSlot } from "../../utils/geminiLimiter";
-import {
-  blockQuota,
-  isQuotaBlocked,
-  isQuotaExhausted,
-  parseQuotaResetMs,
-} from "../ai/quota.service";
+import ActivityNarration from "../../models/ActivityNarration";
+import { aiConfig } from "../ai/ai.config";
+import { aiConfigured, callAiJson } from "../ai/ai.client";
 import { assertCanViewWorker, assignedAgentIdsFor, type Requester } from "./analysis.access";
 import {
   ensureActivityNarration,
   generateActivityNarration,
   getActivityNarration,
 } from "../vision/activityNarration.service";
-import { visionConfig } from "../vision/vision.config";
-import { formatWindow } from "../vision/vision.time";
+import { businessTimeZone, visionConfig } from "../vision/vision.config";
+import { formatCaptureTime, formatWindow } from "../vision/vision.time";
+import {
+  buildHourlyActivity,
+  clampScore,
+  deriveShiftMetrics,
+  toDayKey,
+} from "./analysis.metrics";
+import {
+  buildAggregatePrompt,
+  buildFallbackPeriodReport,
+  buildFallbackShiftReport,
+  buildShiftPrompt,
+  deterministicShiftCharts,
+  sanitizePeriodReport,
+  sanitizeShiftReport,
+} from "./analysis.prompts";
+import type {
+  AggregateCapture,
+  AggregateContext,
+  AggregatePeriodSummary,
+  AggregateShiftSummary,
+  AggregateStoryBeat,
+  AggregateTotals,
+  AggregateWorkerRow,
+  PeriodNarrative,
+  ShiftAnalysisContext,
+  ShiftReportPayload,
+  ShiftScreenBlock,
+} from "./analysis.types";
 
-const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
-const GEMINI_TIMEOUT_MS = 20_000;
-// Requests are paced through utils/geminiLimiter, shared with screenshot
-// narration so both features draw from one free-tier budget.
-// Bounds the automatic backfill sweep so a cold start cannot flood the quota.
+// Bounds the automatic backfill sweep so a cold start cannot flood the queue.
 const SWEEP_LOOKBACK_DAYS = 7;
 const SWEEP_MAX_SHIFTS = 150;
-const MAX_HOURLY_POINTS = 24;
-const MAX_PIE_SEGMENTS = 6;
 const PDF_CAPTURE_COUNT = 6;
+/** Shift screenshots a block may be paired with for the report's evidence grid. */
+const CAPTURE_MATCH_WINDOW_MS = 45 * 60_000;
+const AGGREGATE_MAX_DAYS = 366;
+const AGGREGATE_NARRATION_LIMIT = 60;
+const AGGREGATE_STORY_BEATS = 30;
+const AGGREGATE_CAPTURE_LIMIT = 12;
+const AGGREGATE_SHIFT_LOG_LIMIT = 150;
 
-type ShiftAnalysisContext = {
-  shift: any;
-  worker: { _id: string; name: string; email: string } | null;
-  templateName: string;
-  metrics: IAnalysisMetrics;
-  narration: IActivityNarration | null;
+// ---------------------------------------------------------------------------
+// Public serialisation — the vendor/model identity never leaves the server.
+// ---------------------------------------------------------------------------
+const normalizeSource = (value: unknown): "ai" | "fallback" =>
+  String(value || "").toLowerCase() === "fallback" ? "fallback" : "ai";
+
+const normalizeBlockSource = (value: unknown) => {
+  const source = String(value || "");
+  if (source === "deterministic" || source === "ocr") return source;
+  return "ai";
 };
 
-const clampScore = (value: unknown) => {
-  const num = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(num)) return 0;
-  return Math.max(0, Math.min(100, Math.round(num)));
+const serializeShiftAnalysis = (doc: any) => {
+  if (!doc) return null;
+  const plain = typeof doc.toObject === "function" ? doc.toObject() : doc;
+  delete plain.aiModel;
+  delete plain.error;
+  plain.source = normalizeSource(plain.source);
+  if (plain.screenActivity?.blocks) {
+    plain.screenActivity.blocks = plain.screenActivity.blocks.map((block: any) => ({
+      ...block,
+      source: normalizeBlockSource(block.source),
+    }));
+  }
+  return plain;
 };
 
-const clampCount = (value: unknown) => {
-  const num = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(num) || num < 0) return 0;
-  return Math.round(num);
+const serializePeriodAnalysis = (doc: any) => {
+  if (!doc) return null;
+  const plain = typeof doc.toObject === "function" ? doc.toObject() : doc;
+  delete plain.aiModel;
+  delete plain.error;
+  plain.source = normalizeSource(plain.source);
+  return plain;
 };
 
-const toDayKey = (date?: Date | string) => {
-  if (!date) return new Date().toISOString().slice(0, 10);
-  return new Date(date).toISOString().slice(0, 10);
+const serializeNarration = (doc: any) => {
+  if (!doc) return null;
+  const plain = typeof doc.toObject === "function" ? doc.toObject() : doc;
+  delete plain.aiModel;
+  delete plain.error;
+  plain.blocks = (plain.blocks || []).map((block: any) => ({
+    ...block,
+    source: normalizeBlockSource(block.source),
+  }));
+  plain.source =
+    plain.source === "none" ? "none" : plain.source === "ocr" ? "ocr" : normalizeSource(plain.source);
+  return plain;
 };
 
 // ---------------------------------------------------------------------------
 // Metric collection
 // ---------------------------------------------------------------------------
-const buildHourlyActivity = (mouseSamples: any[]) => {
-  const buckets = new Map<string, number>();
+const nearestCapture = (captures: any[], at: Date) => {
+  let best: any = null;
+  let bestDelta = Number.POSITIVE_INFINITY;
 
-  for (const sample of mouseSamples || []) {
-    const movements = sample.movements || 0;
-    const clicks = sample.clicks || 0;
-    const scrolls = sample.scrolls || 0;
-    // Samples are one-minute buckets; a sample with any interaction counts as
-    // an active minute.
-    if (movements <= 0 && clicks <= 0 && scrolls <= 0) continue;
-
-    const hour = new Date(sample.at).toISOString().slice(11, 13);
-    const label = `${hour}:00`;
-    buckets.set(label, (buckets.get(label) || 0) + 1);
+  for (const capture of captures || []) {
+    const delta = Math.abs(new Date(capture.capturedAt).getTime() - at.getTime());
+    if (delta < bestDelta) {
+      best = capture;
+      bestDelta = delta;
+    }
   }
 
-  return [...buckets.entries()]
-    .sort((left, right) => left[0].localeCompare(right[0]))
-    .slice(0, MAX_HOURLY_POINTS)
-    .map(([hour, activeMinutes]) => ({ hour, activeMinutes }));
+  if (!best || bestDelta > CAPTURE_MATCH_WINDOW_MS) return null;
+  return best;
+};
+
+const buildScreenBlocks = (
+  narration: IActivityNarration | null,
+  captures: any[]
+): ShiftScreenBlock[] => {
+  const timeZone = businessTimeZone();
+  const withSummary = (narration?.blocks || []).filter((block) => block.summary);
+  // Low-confidence OCR-only windows add little narrative value, but a shift
+  // where they are the only evidence should still be described.
+  const confident = withSummary.filter(
+    (block) => block.confidence >= 35 || block.activity === "idle"
+  );
+  const chosen = confident.length ? confident : withSummary;
+
+  return chosen.map((block) => {
+    const capture = nearestCapture(captures, new Date(block.startedAt));
+    return {
+      index: block.index,
+      window: formatWindow(block.startedAt, block.endedAt, timeZone),
+      startedAt: new Date(block.startedAt).toISOString(),
+      endedAt: new Date(block.endedAt).toISOString(),
+      summary: block.summary,
+      apps: block.apps || [],
+      tasks: block.tasks || [],
+      activity: block.activity,
+      evidence: block.evidence || "",
+      concerns: block.concerns || [],
+      confidence: block.confidence || 0,
+      source: block.source,
+      captureId: capture ? String(capture._id) : null,
+      capturedAt: capture ? new Date(capture.capturedAt).toISOString() : null,
+    };
+  });
 };
 
 const collectShiftAnalysisContext = async (shift: any): Promise<ShiftAnalysisContext> => {
@@ -144,364 +220,53 @@ const collectShiftAnalysisContext = async (shift: any): Promise<ShiftAnalysisCon
     eventCounts,
   };
 
+  const screenBlocks = buildScreenBlocks(
+    (narration as IActivityNarration | null) || null,
+    monitoring?.captures || []
+  );
+
+  const timeZone = businessTimeZone();
+  const workDateKey = toDayKey(shift.scheduledStartTime || shift.clockInTime);
+  const enrichedShift = {
+    ...shift,
+    workDateKey,
+    clockInLabel: shift.clockInTime ? formatCaptureTime(shift.clockInTime, timeZone) : "",
+    clockOutLabel: shift.clockOutTime ? formatCaptureTime(shift.clockOutTime, timeZone) : "",
+    shiftStartLabel: shift.scheduledStartTime
+      ? formatCaptureTime(shift.scheduledStartTime, timeZone)
+      : "",
+  };
+
   return {
-    shift,
+    shift: enrichedShift,
     worker: worker
       ? { _id: String(worker._id), name: worker.name, email: worker.email }
       : null,
     templateName: template?.name || "Unassigned shift",
     metrics,
+    derived: deriveShiftMetrics(metrics, screenBlocks),
     narration: (narration as IActivityNarration | null) || null,
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Deterministic charts — used as the fallback and as suggested chart data for
-// the Gemini prompt.
-// ---------------------------------------------------------------------------
-const deterministicBarChart = (metrics: IAnalysisMetrics) => {
-  const hourly = metrics.monitoring.hourlyActivity;
-
-  if (hourly.length) {
-    return {
-      title: "Active minutes per hour",
-      unit: "min",
-      series: hourly.map((bucket) => ({ label: bucket.hour, value: bucket.activeMinutes })),
-    };
-  }
-
-  return {
-    title: "Time allocation",
-    unit: "min",
-    series: [
-      { label: "Worked", value: metrics.workedMinutes },
-      { label: "Breaks", value: metrics.breakMinutes },
-      { label: "Overtime", value: metrics.overtimeMinutes },
-    ].filter((point) => point.value > 0),
-  };
-};
-
-const deterministicPieChart = (metrics: IAnalysisMetrics) => {
-  const segments = [
-    { label: "Worked", value: metrics.workedMinutes },
-    { label: "Breaks", value: metrics.breakMinutes },
-    { label: "Overtime", value: metrics.overtimeMinutes },
-    { label: "Missed time", value: Math.max(0, metrics.scheduledMinutes - metrics.workedMinutes - metrics.breakMinutes) },
-  ].filter((segment) => segment.value > 0);
-
-  return {
-    title: "Shift time allocation",
-    unit: "min",
-    segments: segments.length ? segments : [{ label: "No recorded time", value: 1 }],
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Deterministic narrative — used for absent shifts, when no GEMINI_API_KEY is
-// configured, or whenever the Gemini call fails.
-// ---------------------------------------------------------------------------
-const scoreBandFor = (score: number) => {
-  if (score >= 90) return "excellent";
-  if (score >= 80) return "strong";
-  if (score >= 70) return "steady";
-  if (score >= 55) return "mixed";
-  return "below expectations";
-};
-
-const formatDuration = (minutes: number) => {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (!hours) return `${rest}m`;
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
-};
-
-const buildFallbackAnalysis = (context: ShiftAnalysisContext, overallScore: number) => {
-  const { metrics, worker, templateName } = context;
-  const name = worker?.name || "The worker";
-  const band = scoreBandFor(overallScore);
-  const absent = metrics.attendanceStatus === "absent";
-
-  const highlights: string[] = [];
-  const concerns: string[] = [];
-
-  if (absent) {
-    concerns.push(`${name} did not clock in for the scheduled ${formatDuration(metrics.scheduledMinutes)} shift.`);
-  } else {
-    if (overallScore >= 80) highlights.push(`Overall performance score of ${overallScore}% (${band}).`);
-    if (metrics.lateMinutes > 0) concerns.push(`Clock-in was ${metrics.lateMinutes} minute(s) late.`);
-    else if (!absent) highlights.push("Clocked in on time.");
-    if (metrics.workScore >= 85) highlights.push(`Completed ${formatDuration(metrics.workedMinutes)} of the scheduled ${formatDuration(metrics.scheduledMinutes)}.`);
-    if (metrics.overtimeMinutes > 0) concerns.push(`Recorded ${metrics.overtimeMinutes} minute(s) of overtime.`);
-    if (metrics.activityAdherenceScore < 70) concerns.push(`Activity adherence of ${metrics.activityAdherenceScore}% drifted from the scheduled plan.`);
-    if (metrics.monitoring.activeSamplePercent >= 60) highlights.push(`Active mouse engagement on ${metrics.monitoring.activeSamplePercent}% of tracked minutes.`);
-    if (metrics.monitoring.captureCount > 0) highlights.push(`${metrics.monitoring.captureCount} periodic screenshot(s) captured during the shift.`);
-  }
-
-  const screenOverview = context.narration?.overview?.trim() || "";
-  const observedApps = [
-    ...new Set((context.narration?.blocks || []).flatMap((block) => block.apps || [])),
-  ].slice(0, 4);
-  if (screenOverview && observedApps.length) {
-    highlights.push(`Screen activity centred on ${observedApps.join(", ")}.`);
-  }
-
-  const closureLabel =
-    metrics.closureReason === "auto_closed"
-      ? "the session was closed automatically after the maximum active duration"
-      : metrics.closureReason === "missed_shift"
-        ? "the shift was missed"
-        : "normal clock-out";
-
-  const workerSummary = absent
-    ? `${name} was recorded as absent for "${templateName}". No work, break, or monitoring activity was captured, so the shift scores 0%. This shift requires follow-up with the worker or their hiring manager.`
-    : `${name} concluded "${templateName}" with an overall performance score of ${overallScore}% — ${band}. They recorded ${formatDuration(metrics.workedMinutes)} of work against ${formatDuration(metrics.scheduledMinutes)} scheduled${metrics.breakMinutes ? `, plus ${formatDuration(metrics.breakMinutes)} of breaks` : ""}. Punctuality scored ${metrics.punctualityScore}%, schedule adherence ${metrics.activityAdherenceScore}%, and time-on-task ${metrics.workScore}%.`;
-
-  const workSummary = absent
-    ? `The shift window passed with no clock-in and no monitoring session. The scheduled time of ${formatDuration(metrics.scheduledMinutes)} was fully missed.`
-    : screenOverview
-      ? `${screenOverview} ${metrics.monitoring.captureCount} screenshot(s) were reviewed at the 15-minute cadence. Closure reason: ${closureLabel}.`
-      : `The session generated ${metrics.monitoring.mouseMovements.toLocaleString()} mouse movements across ${metrics.monitoring.mouseDistancePx.toLocaleString()}px, ${metrics.monitoring.mouseClicks} click(s) and ${metrics.monitoring.mouseScrolls} scroll action(s), with screenshots captured every 15 minutes (${metrics.monitoring.captureCount} total). Closure reason: ${closureLabel}.`;
-
-  return {
-    headline: absent
-      ? `Absent shift — no work recorded (${formatDuration(metrics.scheduledMinutes)} scheduled)`
-      : `${band.charAt(0).toUpperCase()}${band.slice(1)} shift — ${overallScore}% overall performance`,
-    workerSummary,
-    workSummary,
-    highlights: highlights.slice(0, 4),
-    concerns: concerns.slice(0, 4),
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Gemini call — raw REST, mirroring the avs-frontend chat route (free-tier
-// friendly, no SDK).
-// ---------------------------------------------------------------------------
-const ANALYSIS_RESPONSE_CONTRACT = `{
-  "headline": "one short sentence (max 90 chars) summarising the shift",
-  "workerSummary": "2-4 sentence narration about the worker's performance",
-  "workSummary": "2-4 sentence narration about the work done and session activity",
-  "highlights": ["2-4 short positive observations"],
-  "concerns": ["0-3 short issues to watch (empty array if none)"],
-  "barChart": { "title": "chart title", "unit": "min", "series": [{ "label": "09:00", "value": 42 }] },
-  "pieChart": { "title": "chart title", "unit": "min", "segments": [{ "label": "Worked", "value": 420 }] }
-}`;
-
-const buildGeminiPayload = (context: ShiftAnalysisContext, overallScore: number) => {
-  const { metrics, worker, templateName, narration } = context;
-  const suggestedCharts = {
-    barChart: deterministicBarChart(metrics),
-    pieChart: deterministicPieChart(metrics),
-  };
-
-  const screenBlocks = (narration?.blocks || [])
-    // Drop the low-confidence OCR-only blocks: they add little narrative value
-    // and are the likeliest place for raw screen text to leak into a report.
-    .filter((block) => block.summary && block.confidence >= 40)
-    .map((block) => ({
-      window: formatWindow(block.startedAt, block.endedAt),
-      summary: block.summary,
-      apps: block.apps,
-      tasks: block.tasks,
-      activity: block.activity,
-      concerns: block.concerns,
-    }));
-
-  const screenActivity = screenBlocks.length
-    ? {
-        overview: narration?.overview || "",
-        coverage: {
-          screenshots: narration?.coverage?.captures || 0,
-          uniqueFrames: narration?.coverage?.uniqueFrames || 0,
-          blocks: narration?.coverage?.blocks || 0,
-        },
-        blocks: screenBlocks,
-      }
-    : null;
-
-  const systemPrompt = [
-    "You are a workforce analytics analyst for ShiftSync by Advanced Virtual Solutions.",
-    "You turn structured shift telemetry into concise, professional, factual performance narratives for hiring managers.",
-    "Use only the numbers provided; never invent metrics. Scores are percentages from 0 to 100.",
-    "Durations are in minutes. The overall performance score is computed by the platform's weighted formula and is authoritative — narrate it, do not recalculate it.",
-    "When screenActivity is present it comes from periodic screenshots of the worker's screen: use it to describe the actual work performed, naming the applications, documents and task types observed. Never claim work the screen evidence does not support, and never treat a quiet screen as proof of idleness.",
-    "Never reproduce personal data — customer names, email addresses, phone numbers or card numbers — even if it appears in screenActivity. Refer to such records generically.",
-    "For the charts, showcase volume: prefer the suggested chart data, adjusting labels or titles only when it improves clarity.",
-    `Respond with strict JSON only, exactly matching this contract: ${ANALYSIS_RESPONSE_CONTRACT}`,
-  ].join(" ");
-
-  const userPrompt = JSON.stringify({
-    worker: worker ? { name: worker.name } : { name: "Unknown worker" },
-    shift: {
-      date: toDayKey(context.shift.scheduledStartTime || context.shift.clockInTime),
-      template: templateName,
-      scheduleType: metrics.scheduleType,
-      attendanceStatus: metrics.attendanceStatus,
-      closureReason: metrics.closureReason,
-      scheduledMinutes: metrics.scheduledMinutes,
-      workedMinutes: metrics.workedMinutes,
-      breakMinutes: metrics.breakMinutes,
-      lateMinutes: metrics.lateMinutes,
-      overtimeMinutes: metrics.overtimeMinutes,
-      overallPerformanceScore: overallScore,
-      adherenceScore: metrics.activityAdherenceScore,
-      punctualityScore: metrics.punctualityScore,
-      workScore: metrics.workScore,
-    },
-    monitoredActivity: {
-      screenshotsCaptured: metrics.monitoring.captureCount,
-      mouseMovements: metrics.monitoring.mouseMovements,
-      mouseDistancePx: metrics.monitoring.mouseDistancePx,
-      mouseClicks: metrics.monitoring.mouseClicks,
-      mouseScrolls: metrics.monitoring.mouseScrolls,
-      trackedMinutes: metrics.monitoring.mouseSampleCount,
-      activeMinutesPercent: metrics.monitoring.activeSamplePercent,
-      activeMinutesPerHour: metrics.monitoring.hourlyActivity,
-    },
-    screenActivity,
-    sessionEventCounts: metrics.eventCounts,
-    suggestedCharts,
-  });
-
-  return { systemPrompt, userPrompt };
-};
-
-const callGeminiJSON = async (systemPrompt: string, userPrompt: string) => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
-
-  // Fail fast while the daily cap is exhausted: the caller falls back to the
-  // offline narrative and the retry sweep upgrades it after the reset.
-  const quota = await isQuotaBlocked();
-  if (quota.blocked) {
-    throw new Error(
-      `Gemini quota exhausted until ${quota.until?.toISOString() || "reset"}`
-    );
-  }
-
-  await acquireGeminiSlot();
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(
-      `${GEMINI_ENDPOINT}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 1400,
-            responseMimeType: "application/json",
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const detail = await response.text();
-      if (isQuotaExhausted(response.status, detail)) {
-        await blockQuota({
-          retryAfterMs: parseQuotaResetMs(detail, response.headers.get("retry-after")),
-          model: GEMINI_MODEL,
-          reason: detail.slice(0, 400),
-        });
-      }
-      throw new Error(`Gemini API error ${response.status}: ${detail.slice(0, 200)}`);
-    }
-
-    const data: any = await response.json();
-    const text = (data?.candidates?.[0]?.content?.parts || [])
-      .map((part: any) => part?.text || "")
-      .join("")
-      .trim()
-      .replace(/^```(?:json)?/i, "")
-      .replace(/```$/, "")
-      .trim();
-
-    if (!text) throw new Error("Gemini returned an empty response");
-    return JSON.parse(text);
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
-const callGemini = async (context: ShiftAnalysisContext, overallScore: number) => {
-  const { systemPrompt, userPrompt } = buildGeminiPayload(context, overallScore);
-  return callGeminiJSON(systemPrompt, userPrompt);
-};
-
-// ---------------------------------------------------------------------------
-// Sanitising — Gemini output is untrusted; clamp everything before persisting.
-// ---------------------------------------------------------------------------
-const sanitizeText = (value: unknown, maxLength: number) => {
-  if (typeof value !== "string") return "";
-  return value.trim().slice(0, maxLength);
-};
-
-const sanitizeTextList = (value: unknown, maxItems: number) => {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => sanitizeText(item, 240))
-    .filter(Boolean)
-    .slice(0, maxItems);
-};
-
-const sanitizeChartPoints = (value: unknown, maxPoints: number): IAnalysisChartPoint[] => {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((point: any) => ({
-      label: sanitizeText(point?.label, 40),
-      value: Math.max(0, Math.round((Number(point?.value) || 0) * 100) / 100),
-    }))
-    .filter((point) => point.label)
-    .slice(0, maxPoints);
-};
-
-const sanitizeGeminiResult = (raw: any, metrics: IAnalysisMetrics) => {
-  const barSeries = sanitizeChartPoints(raw?.barChart?.series, MAX_HOURLY_POINTS);
-  const pieSegments = sanitizeChartPoints(raw?.pieChart?.segments, MAX_PIE_SEGMENTS);
-  const positivePieSegments = pieSegments.filter((segment) => segment.value > 0);
-
-  return {
-    narrative: {
-      headline: sanitizeText(raw?.headline, 140),
-      workerSummary: sanitizeText(raw?.workerSummary, 1200),
-      workSummary: sanitizeText(raw?.workSummary, 1200),
-      highlights: sanitizeTextList(raw?.highlights, 4),
-      concerns: sanitizeTextList(raw?.concerns, 4),
-    },
-    charts: {
-      bar: barSeries.length >= 2
-        ? {
-            title: sanitizeText(raw?.barChart?.title, 80) || "Activity volume",
-            unit: sanitizeText(raw?.barChart?.unit, 12) || "min",
-            series: barSeries,
-          }
-        : deterministicBarChart(metrics),
-      pie: positivePieSegments.length >= 2
-        ? {
-            title: sanitizeText(raw?.pieChart?.title, 80) || "Shift volume mix",
-            unit: sanitizeText(raw?.pieChart?.unit, 12) || "min",
-            segments: positivePieSegments,
-          }
-        : deterministicPieChart(metrics),
+    screen: {
+      status: narration?.status || "none",
+      overview: narration?.overview || "",
+      coverage: {
+        screenshots: narration?.coverage?.captures || 0,
+        uniqueFrames: narration?.coverage?.uniqueFrames || 0,
+        blocks: narration?.coverage?.blocks || screenBlocks.length,
+        visionCalls: narration?.coverage?.visionCalls || 0,
+      },
+      blocks: screenBlocks,
     },
   };
 };
 
 // ---------------------------------------------------------------------------
-// Generation + queueing
+// Shift report generation
 // ---------------------------------------------------------------------------
 export const generateShiftAnalysis = async (
   shiftId: string,
   options: { force?: boolean; requester?: Requester; narrate?: boolean } = {}
-): Promise<IShiftAnalysis> => {
+): Promise<any> => {
   const shift = await ShiftSession.findById(shiftId).lean();
   if (!shift) throw new Error("Shift not found");
   if (!["completed", "expired"].includes(shift.status)) {
@@ -512,7 +277,7 @@ export const generateShiftAnalysis = async (
   }
 
   const existing = await ShiftAnalysis.findOne({ shiftSessionId: shift._id });
-  if (existing && !options.force) return existing;
+  if (existing && !options.force) return serializeShiftAnalysis(existing);
 
   // Ground the narrative in what was actually on screen. Cached per shift, so a
   // regenerated analysis reuses the existing narration instead of paying again.
@@ -526,108 +291,105 @@ export const generateShiftAnalysis = async (
   const context = await collectShiftAnalysisContext(shift);
   const overallScore = clampScore(shift.kpiScore);
   const adherenceScore = clampScore(shift.adherenceScore);
+  const absent = context.metrics.attendanceStatus === "absent";
+  const fallback = buildFallbackShiftReport(context, overallScore);
 
-  let analysis: {
-    status: "completed" | "failed";
-    source: "gemini" | "fallback";
-    aiModel: string;
-    error?: string;
-    narrative: ReturnType<typeof buildFallbackAnalysis>;
-    charts: ReturnType<typeof sanitizeGeminiResult>["charts"];
-  };
+  let report: ShiftReportPayload = fallback;
+  let charts: ReturnType<typeof deterministicShiftCharts> = deterministicShiftCharts(
+    context.metrics
+  );
+  let source: "ai" | "fallback" = "fallback";
+  let error: string | undefined;
 
-  if (context.metrics.attendanceStatus === "absent") {
-    // Absent shifts carry no telemetry worth an AI call — narrate them locally.
-    analysis = {
-      status: "completed",
-      source: "fallback",
-      aiModel: "",
-      narrative: buildFallbackAnalysis(context, 0),
-      charts: {
-        bar: deterministicBarChart(context.metrics),
-        pie: deterministicPieChart(context.metrics),
-      },
-    };
+  if (absent) {
+    // Absent shifts carry no telemetry worth a model call — narrate them locally.
+    error = undefined;
+  } else if (!aiConfigured()) {
+    error = "AI analysis is not configured";
+    console.warn("Shift analysis fell back to the offline report: no provider key configured");
   } else {
     try {
-      const raw = await callGemini(context, overallScore);
-      const sanitized = sanitizeGeminiResult(raw, context.metrics);
-      analysis = {
-        status: "completed",
-        source: "gemini",
-        aiModel: GEMINI_MODEL,
-        narrative: sanitized.narrative.headline ||
-          sanitized.narrative.workerSummary ||
-          sanitized.narrative.workSummary
-          ? sanitized.narrative
-          : buildFallbackAnalysis(context, overallScore),
-        charts: sanitized.charts,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown Gemini failure";
-      console.error("Gemini shift analysis failed, using offline summary", message);
-      analysis = {
-        status: "completed",
-        source: "fallback",
-        aiModel: GEMINI_MODEL,
-        error: message,
-        narrative: buildFallbackAnalysis(context, overallScore),
-        charts: {
-          bar: deterministicBarChart(context.metrics),
-          pie: deterministicPieChart(context.metrics),
-        },
-      };
+      const { systemPrompt, userPrompt } = buildShiftPrompt(context, overallScore);
+      const result = await callAiJson({
+        purpose: "analysis",
+        system: systemPrompt,
+        user: userPrompt,
+        maxTokens: aiConfig.analysisMaxTokens,
+        timeoutMs: aiConfig.analysisTimeoutMs,
+        userId: context.worker?._id,
+      });
+
+      const sanitized = sanitizeShiftReport(result.data, context.metrics, fallback);
+      const narrative = sanitized.report.narrative;
+      if (narrative.executiveSummary.length >= 120 || narrative.sections.screen.length >= 80) {
+        report = sanitized.report;
+        charts = sanitized.charts;
+        source = "ai";
+      } else {
+        error = "The analysis engine returned an incomplete report";
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Unknown analysis failure";
+      console.error("Shift analysis failed, using the offline report:", error);
     }
   }
 
   const narration = context.narration;
+  const screenActivityBlocks: IAnalysisScreenBlock[] = context.screen.blocks.map((block) => ({
+    index: block.index,
+    startedAt: new Date(block.startedAt),
+    endedAt: new Date(block.endedAt),
+    summary: block.summary,
+    tasks: block.tasks,
+    apps: block.apps,
+    activity: block.activity,
+    evidence: block.evidence,
+    confidence: block.confidence,
+    source: block.source,
+    captureId: block.captureId ? (block.captureId as any) : null,
+    capturedAt: block.capturedAt ? new Date(block.capturedAt) : null,
+  }));
 
-  return ShiftAnalysis.findOneAndUpdate(
+  const saved = await ShiftAnalysis.findOneAndUpdate(
     { shiftSessionId: shift._id },
     {
       userId: String(shift.userId),
-      workDate: toDayKey(shift.scheduledStartTime || shift.clockInTime),
-      status: analysis.status,
-      source: analysis.source,
-      aiModel: analysis.aiModel,
+      workDate: context.shift.workDateKey,
+      status: "completed",
+      source,
+      aiModel: aiConfig.analysisModel,
       overallScore,
       adherenceScore,
       metrics: context.metrics,
-      narrative: analysis.narrative,
-      charts: analysis.charts,
+      derived: context.derived,
+      narrative: report.narrative,
+      timeline: report.timeline,
+      recommendations: report.recommendations,
+      charts,
       screenActivity: narration
         ? {
             status: narration.status,
             overview: narration.overview,
-            blocks: (narration.blocks || []).map((block) => ({
-              index: block.index,
-              startedAt: block.startedAt,
-              endedAt: block.endedAt,
-              summary: block.summary,
-              tasks: block.tasks,
-              apps: block.apps,
-              activity: block.activity,
-              evidence: block.evidence,
-              confidence: block.confidence,
-              source: block.source,
-            })),
+            blocks: screenActivityBlocks,
             coverage: narration.coverage,
           }
         : null,
       generatedAt: new Date(),
-      error: analysis.error || null,
+      error: error || null,
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+
+  return serializeShiftAnalysis(saved);
 };
 
 const queuedShiftIds = new Set<string>();
 let analysisQueue: Promise<void> = Promise.resolve();
 
 // Fire-and-forget entry point for shift-conclusion hooks: generations run
-// sequentially (never in parallel) so the free-tier quota is respected.
+// sequentially (never in parallel) so bursts stay predictable.
 // `narrate=false` is used by the backfill sweep: narrating 150 old shifts would
-// burn the quota for days, so historical narration is an explicit CLI choice
+// be wasteful, so historical narration is an explicit CLI choice
 // (`scripts/narrate-shifts.ts`).
 export const enqueueShiftAnalysis = (shiftId: string, force = false, narrate = true) => {
   const key = `${shiftId}:${force ? "force" : "auto"}`;
@@ -741,7 +503,7 @@ export const listWorkerConcludedShifts = async (requester: Requester, targetUser
       analysis: analysis
         ? {
             status: analysis.status as string,
-            source: analysis.source as string,
+            source: normalizeSource(analysis.source),
             generatedAt: analysis.generatedAt as Date,
           }
         : null,
@@ -754,7 +516,7 @@ export const getSavedShiftAnalysis = async (requester: Requester, shiftId: strin
   if (!shift) throw new Error("Shift not found");
   await assertCanViewWorker(requester, String(shift.userId));
 
-  return ShiftAnalysis.findOne({ shiftSessionId: shift._id });
+  return serializeShiftAnalysis(await ShiftAnalysis.findOne({ shiftSessionId: shift._id }));
 };
 
 // ---------------------------------------------------------------------------
@@ -766,7 +528,7 @@ export const getShiftActivityNarration = async (requester: Requester, shiftId: s
   if (!shift) throw new Error("Shift not found");
   await assertCanViewWorker(requester, String(shift.userId));
 
-  return getActivityNarration(shiftId);
+  return serializeNarration(await getActivityNarration(shiftId));
 };
 
 export const runShiftActivityNarration = async (
@@ -779,20 +541,26 @@ export const runShiftActivityNarration = async (
   await assertCanViewWorker(requester, String(shift.userId));
 
   const narration = await generateActivityNarration(shiftId, { force });
-  return narration;
+  return serializeNarration(narration);
 };
 
 export const getAnalysisOverview = async (requester: Requester) => {
   const assignedAgentIds = await assignedAgentIdsFor(requester);
   const userFilter = assignedAgentIds ? { userId: { $in: assignedAgentIds } } : {};
 
-  const [totalAnalyses, avgResult, geminiCount, recentAnalyses] = await Promise.all([
+  const [totalAnalyses, avgResult, aiCount, recentAnalyses] = await Promise.all([
     ShiftAnalysis.countDocuments({ ...userFilter, status: "completed" }),
     ShiftAnalysis.aggregate([
       { $match: { ...userFilter, status: "completed" } },
       { $group: { _id: null, average: { $avg: "$overallScore" } } },
     ]),
-    ShiftAnalysis.countDocuments({ ...userFilter, status: "completed", source: "gemini" }),
+    ShiftAnalysis.countDocuments({
+      ...userFilter,
+      status: "completed",
+      // Legacy records predate the current source naming; anything that is not a
+      // deterministic fallback was written by the analysis engine.
+      source: { $ne: "fallback" },
+    }),
     ShiftAnalysis.countDocuments({
       ...userFilter,
       status: "completed",
@@ -803,38 +571,15 @@ export const getAnalysisOverview = async (requester: Requester) => {
   return {
     totalAnalyses,
     averageScore: avgResult.length ? clampScore(avgResult[0].average) : 0,
-    geminiAnalyses: geminiCount,
+    aiAnalyses: aiCount,
     recentAnalyses,
   };
 };
 
 // ---------------------------------------------------------------------------
 // Aggregate period analysis — per-worker rollup of saved shift analyses over a
-// date range, plus a cached Gemini narrative for the period.
+// date range, the screenshot story of the period, and a long-form narrative.
 // ---------------------------------------------------------------------------
-const AGGREGATE_MAX_DAYS = 366;
-
-export type AggregateWorkerRow = {
-  userId: string;
-  name: string;
-  email: string;
-  shiftCount: number;
-  absentCount: number;
-  averageScore: number;
-  averageAdherence: number;
-  workedMinutes: number;
-  scheduledMinutes: number;
-};
-
-export type AggregateTotals = {
-  workers: number;
-  analyses: number;
-  averageScore: number;
-  averageAdherence: number;
-  workedMinutes: number;
-  absentCount: number;
-};
-
 const normalizeRange = (startDate: string, endDate: string) => {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   if (!datePattern.test(startDate) || !datePattern.test(endDate)) {
@@ -856,14 +601,77 @@ const scopeKeyFor = (
   targetUserId?: string
 ) => `${assignedAgentIds ? requester.userId : "admin"}:${targetUserId || "all"}`;
 
-export const getAggregateAnalysis = async (
+const weekStartKey = (dayKey: string) => {
+  const date = new Date(`${dayKey}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return dayKey;
+  const offset = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - offset);
+  return date.toISOString().slice(0, 10);
+};
+
+const sampleEvenly = <T>(items: T[], limit: number): T[] => {
+  if (limit <= 0 || !items.length) return [];
+  if (limit === 1) return [items[items.length - 1]];
+  if (items.length <= limit) return items;
+  const sampled: T[] = [];
+  for (let index = 0; index < limit; index += 1) {
+    sampled.push(items[Math.round((index * (items.length - 1)) / (limit - 1))]);
+  }
+  return sampled;
+};
+
+const emptyTotals = (): AggregateTotals => ({
+  workers: 0,
+  analyses: 0,
+  averageScore: 0,
+  averageAdherence: 0,
+  workedMinutes: 0,
+  scheduledMinutes: 0,
+  absentCount: 0,
+  lateShifts: 0,
+  lateMinutes: 0,
+  overtimeMinutes: 0,
+  breakMinutes: 0,
+});
+
+const emptyPeriod = (dayCount: number): AggregatePeriodSummary => ({
+  dayCount,
+  recordedDays: 0,
+  attendance: { onTime: 0, late: 0, veryLate: 0, absent: 0, overtime: 0 },
+  closures: [],
+  hourlyActivity: [],
+  weeklyTrend: [],
+  topApps: [],
+  topTasks: [],
+  screen: { screenshots: 0, narratedShifts: 0, blocks: 0, focused: 0, mixed: 0, idle: 0 },
+  utilisationPercent: 0,
+  presencePercent: 0,
+});
+
+type AggregateBundle = {
+  range: { startDate: string; endDate: string };
+  targetUserId: string | null;
+  totals: AggregateTotals;
+  rows: AggregateWorkerRow[];
+  period: AggregatePeriodSummary;
+  story: AggregateStoryBeat[];
+  captures: AggregateCapture[];
+  shifts: AggregateShiftSummary[];
+  workerScreenNotes: Record<string, string[]>;
+};
+
+const collectAggregateContext = async (
   requester: Requester,
   startDate: string,
   endDate: string,
   targetUserId?: string
-) => {
+): Promise<AggregateBundle> => {
   const range = normalizeRange(startDate, endDate);
   const assignedAgentIds = await assignedAgentIdsFor(requester);
+  const dayCount =
+    Math.round(
+      (new Date(range.endDate).getTime() - new Date(range.startDate).getTime()) / 86_400_000
+    ) + 1;
 
   if (targetUserId) {
     // Workers outside the requester's scope (or unknown ids) are rejected here.
@@ -877,122 +685,447 @@ export const getAggregateAnalysis = async (
   if (assignedAgentIds) match.userId = { $in: assignedAgentIds };
   if (targetUserId) match.userId = targetUserId;
 
-  const grouped = await ShiftAnalysis.aggregate([
-    { $match: match },
-    {
-      $group: {
-        _id: "$userId",
-        shiftCount: { $sum: 1 },
-        absentCount: {
-          $sum: { $cond: [{ $eq: ["$metrics.attendanceStatus", "absent"] }, 1, 0] },
-        },
-        averageScore: { $avg: "$overallScore" },
-        averageAdherence: { $avg: "$adherenceScore" },
-        workedMinutes: { $sum: "$metrics.workedMinutes" },
-        scheduledMinutes: { $sum: "$metrics.scheduledMinutes" },
-      },
-    },
-    { $sort: { averageScore: -1 } },
-  ]);
+  const analyses = await ShiftAnalysis.find(match)
+    .select(
+      "shiftSessionId userId workDate overallScore adherenceScore metrics narrative.headline screenActivity.coverage"
+    )
+    .sort({ workDate: 1, generatedAt: 1 })
+    .limit(2000)
+    .lean();
 
-  const users = grouped.length
-    ? await User.find({ _id: { $in: grouped.map((row: any) => row._id) } })
-        .select("_id name email")
-        .lean()
-    : [];
+  if (!analyses.length) {
+    return {
+      range,
+      targetUserId: targetUserId || null,
+      totals: emptyTotals(),
+      rows: [],
+      period: emptyPeriod(dayCount),
+      story: [],
+      captures: [],
+      shifts: [],
+      workerScreenNotes: {},
+    };
+  }
+
+  const users = await User.find({ _id: { $in: [...new Set(analyses.map((a: any) => a.userId))] } })
+    .select("_id name email")
+    .lean();
   const userById = new Map(users.map((user: any) => [String(user._id), user]));
 
-  const rows: AggregateWorkerRow[] = grouped.map((row: any) => {
-    const user = userById.get(String(row._id));
-    return {
-      userId: String(row._id),
-      name: user?.name || "Unknown worker",
-      email: user?.email || "",
-      shiftCount: row.shiftCount,
-      absentCount: row.absentCount,
-      averageScore: clampScore(row.averageScore),
-      averageAdherence: clampScore(row.averageAdherence),
-      workedMinutes: row.workedMinutes || 0,
-      scheduledMinutes: row.scheduledMinutes || 0,
-    };
+  // Per-worker accumulators.
+  type Acc = {
+    row: AggregateWorkerRow;
+    scoreSum: number;
+    adherenceSum: number;
+    punctualitySum: number;
+    scheduledSum: number;
+    workedSum: number;
+    best: { date: string; score: number };
+    worst: { date: string; score: number };
+  };
+  const accumulators = new Map<string, Acc>();
+
+  let scoreSum = 0;
+  let adherenceSum = 0;
+  let workedMinutes = 0;
+  let scheduledMinutes = 0;
+  let breakMinutes = 0;
+  let overtimeMinutes = 0;
+  let absentCount = 0;
+  let lateShifts = 0;
+  let lateMinutes = 0;
+
+  const hourlyTotals = new Map<string, number>();
+  const weekTotals = new Map<string, { shifts: number; scoreSum: number; worked: number }>();
+  const closures = new Map<string, number>();
+  const attendance = { onTime: 0, late: 0, veryLate: 0, absent: 0, overtime: 0 };
+  const recordedDays = new Set<string>();
+
+  for (const analysis of analyses as any[]) {
+    const userId = String(analysis.userId);
+    const user = userById.get(userId);
+    const name = user?.name || "Unknown worker";
+    const score = clampScore(analysis.overallScore);
+    const adherence = clampScore(analysis.adherenceScore);
+    const metrics = analysis.metrics || {};
+    const monitoring = metrics.monitoring || {};
+    const scheduled = Number(metrics.scheduledMinutes) || 0;
+    const worked = Number(metrics.workedMinutes) || 0;
+    const breaks = Number(metrics.breakMinutes) || 0;
+    const overtime = Number(metrics.overtimeMinutes) || 0;
+    const late = Number(metrics.lateMinutes) || 0;
+    const attendanceStatus = String(metrics.attendanceStatus || "on_time");
+    const closure = String(metrics.closureReason || "manual");
+
+    scoreSum += score;
+    adherenceSum += adherence;
+    workedMinutes += worked;
+    scheduledMinutes += scheduled;
+    breakMinutes += breaks;
+    overtimeMinutes += overtime;
+    lateMinutes += late;
+    recordedDays.add(String(analysis.workDate));
+
+    if (attendanceStatus === "absent") absentCount += 1;
+    if (attendanceStatus === "late" || attendanceStatus === "very_late") lateShifts += 1;
+
+    if (attendanceStatus === "absent") attendance.absent += 1;
+    else if (attendanceStatus === "very_late") attendance.veryLate += 1;
+    else if (attendanceStatus === "late") attendance.late += 1;
+    else if (attendanceStatus === "overtime") attendance.overtime += 1;
+    else attendance.onTime += 1;
+
+    closures.set(closure, (closures.get(closure) || 0) + 1);
+
+    for (const bucket of monitoring.hourlyActivity || []) {
+      hourlyTotals.set(bucket.hour, (hourlyTotals.get(bucket.hour) || 0) + (bucket.activeMinutes || 0));
+    }
+
+    const week = weekStartKey(String(analysis.workDate));
+    const weekEntry = weekTotals.get(week) || { shifts: 0, scoreSum: 0, worked: 0 };
+    weekEntry.shifts += 1;
+    weekEntry.scoreSum += score;
+    weekEntry.worked += worked;
+    weekTotals.set(week, weekEntry);
+
+    let acc = accumulators.get(userId);
+    if (!acc) {
+      acc = {
+        row: {
+          userId,
+          name,
+          email: user?.email || "",
+          shiftCount: 0,
+          absentCount: 0,
+          averageScore: 0,
+          averageAdherence: 0,
+          workedMinutes: 0,
+          scheduledMinutes: 0,
+          breakMinutes: 0,
+          overtimeMinutes: 0,
+          lateShifts: 0,
+          lateMinutes: 0,
+          averagePunctuality: 0,
+          averageWorkedMinutes: 0,
+          screenShifts: 0,
+          screenBlocks: 0,
+          focusedBlocks: 0,
+          idleBlocks: 0,
+          bestDate: String(analysis.workDate),
+          bestScore: score,
+          worstDate: String(analysis.workDate),
+          worstScore: score,
+          firstDate: String(analysis.workDate),
+          lastDate: String(analysis.workDate),
+          scoreSpread: 0,
+        },
+        scoreSum: 0,
+        adherenceSum: 0,
+        punctualitySum: 0,
+        scheduledSum: 0,
+        workedSum: 0,
+        best: { date: String(analysis.workDate), score },
+        worst: { date: String(analysis.workDate), score },
+      };
+      accumulators.set(userId, acc);
+    }
+
+    acc.row.shiftCount += 1;
+    if (attendanceStatus === "absent") acc.row.absentCount += 1;
+    if (attendanceStatus === "late" || attendanceStatus === "very_late") acc.row.lateShifts += 1;
+    acc.row.lateMinutes += late;
+    acc.row.workedMinutes += worked;
+    acc.row.scheduledMinutes += scheduled;
+    acc.row.breakMinutes += breaks;
+    acc.row.overtimeMinutes += overtime;
+    acc.row.screenBlocks += Number(analysis.screenActivity?.coverage?.blocks) || 0;
+    if ((analysis.screenActivity?.coverage?.captures || 0) > 0) acc.row.screenShifts += 1;
+    acc.scoreSum += score;
+    acc.adherenceSum += adherence;
+    acc.punctualitySum += clampScore(metrics.punctualityScore);
+    acc.scheduledSum += scheduled;
+    acc.workedSum += worked;
+    acc.row.firstDate = String(analysis.workDate) < acc.row.firstDate ? String(analysis.workDate) : acc.row.firstDate;
+    acc.row.lastDate = String(analysis.workDate) > acc.row.lastDate ? String(analysis.workDate) : acc.row.lastDate;
+    if (score > acc.best.score) acc.best = { date: String(analysis.workDate), score };
+    if (score < acc.worst.score) acc.worst = { date: String(analysis.workDate), score };
+  }
+
+  const rows: AggregateWorkerRow[] = [...accumulators.values()].map((acc) => {
+    const row = acc.row;
+    const count = Math.max(1, row.shiftCount);
+    row.averageScore = Math.round(acc.scoreSum / count);
+    row.averageAdherence = Math.round(acc.adherenceSum / count);
+    row.averagePunctuality = Math.round(acc.punctualitySum / count);
+    row.averageWorkedMinutes = Math.round(acc.workedSum / count);
+    row.bestDate = acc.best.date;
+    row.bestScore = acc.best.score;
+    row.worstDate = acc.worst.date;
+    row.worstScore = acc.worst.score;
+    row.scoreSpread = acc.best.score - acc.worst.score;
+    return row;
   });
 
-  const analyses = rows.reduce((sum, row) => sum + row.shiftCount, 0);
+  rows.sort((left, right) => right.averageScore - left.averageScore || left.name.localeCompare(right.name));
+
+  const analysisCount = analyses.length;
   const totals: AggregateTotals = {
     workers: rows.length,
-    analyses,
-    averageScore: analyses
-      ? clampScore(rows.reduce((sum, row) => sum + row.averageScore * row.shiftCount, 0) / analyses)
-      : 0,
-    averageAdherence: analyses
-      ? clampScore(rows.reduce((sum, row) => sum + row.averageAdherence * row.shiftCount, 0) / analyses)
-      : 0,
-    workedMinutes: rows.reduce((sum, row) => sum + row.workedMinutes, 0),
-    absentCount: rows.reduce((sum, row) => sum + row.absentCount, 0),
+    analyses: analysisCount,
+    averageScore: analysisCount ? Math.round(scoreSum / analysisCount) : 0,
+    averageAdherence: analysisCount ? Math.round(adherenceSum / analysisCount) : 0,
+    workedMinutes,
+    scheduledMinutes,
+    absentCount,
+    lateShifts,
+    lateMinutes,
+    overtimeMinutes,
+    breakMinutes,
   };
 
+  // Screen narration: the storytelling layer. Only the most recent shifts in the
+  // period are loaded, so a year-long report stays fast.
+  const analysedByShiftId = new Map(
+    (analyses as any[]).map((analysis) => [String(analysis.shiftSessionId), analysis])
+  );
+  const narrationShiftIds = [...analysedByShiftId.keys()].slice(-AGGREGATE_NARRATION_LIMIT);
+  const [narrations, monitoringSessions] = await Promise.all([
+    narrationShiftIds.length
+      ? ActivityNarration.find({ shiftSessionId: { $in: narrationShiftIds } })
+          .select("shiftSessionId userId overview status blocks coverage")
+          .lean()
+      : Promise.resolve([]),
+    narrationShiftIds.length
+      ? MonitoringSession.find({ shiftSessionId: { $in: narrationShiftIds } })
+          .select("shiftSessionId captures")
+          .lean()
+      : Promise.resolve([]),
+  ]);
+
+  const capturesByShift = new Map<string, any[]>();
+  for (const session of monitoringSessions as any[]) {
+    capturesByShift.set(String(session.shiftSessionId), session.captures || []);
+  }
+
+  const storyAll: AggregateStoryBeat[] = [];
+  const appCounts = new Map<string, number>();
+  const taskCounts = new Map<string, number>();
+  const workerNotes: Record<string, string[]> = {};
+  const screenStats = { screenshots: 0, narratedShifts: 0, blocks: 0, focused: 0, mixed: 0, idle: 0 };
+  const timeZone = businessTimeZone();
+
+  for (const analysis of analyses as any[]) {
+    screenStats.screenshots += Number(analysis.metrics?.monitoring?.captureCount) || 0;
+  }
+
+  for (const narration of narrations as any[]) {
+    const shiftId = String(narration.shiftSessionId);
+    const analysis = analysedByShiftId.get(shiftId);
+    if (!analysis) continue;
+
+    const worker = userById.get(String(analysis.userId));
+    const workerName = worker?.name || "Unknown worker";
+    const blocks = (narration.blocks || []).filter((block: any) => block.summary);
+    if (!blocks.length) continue;
+
+    screenStats.narratedShifts += 1;
+    screenStats.blocks += blocks.length;
+
+    if (!workerNotes[workerName]) workerNotes[workerName] = [];
+
+    for (const block of blocks) {
+      if (block.activity === "focused") screenStats.focused += 1;
+      else if (block.activity === "mixed") screenStats.mixed += 1;
+      else if (block.activity === "idle") screenStats.idle += 1;
+
+      for (const app of block.apps || []) {
+        appCounts.set(app, (appCounts.get(app) || 0) + 1);
+      }
+      for (const task of block.tasks || []) {
+        taskCounts.set(task, (taskCounts.get(task) || 0) + 1);
+      }
+
+      if (block.summary && block.confidence >= 35) {
+        storyAll.push({
+          at: new Date(block.startedAt).toISOString(),
+          label: formatWindow(block.startedAt, block.endedAt, timeZone),
+          worker: workerName,
+          date: String(analysis.workDate),
+          summary: block.summary,
+          apps: block.apps || [],
+          tasks: block.tasks || [],
+          activity: block.activity,
+          confidence: block.confidence || 0,
+          captureId: null,
+          capturedAt: null,
+          shiftId,
+        });
+
+        if (workerNotes[workerName].length < 3) {
+          workerNotes[workerName].push(
+            `${String(analysis.workDate)} ${formatWindow(
+              block.startedAt,
+              block.endedAt,
+              timeZone
+            )}: ${block.summary}`
+          );
+        }
+      }
+    }
+  }
+
+  storyAll.sort((left, right) => left.at.localeCompare(right.at));
+  const story = sampleEvenly(storyAll, AGGREGATE_STORY_BEATS);
+
+  // Pair the sampled beats with their nearest stored screenshot.
+  for (const beat of story) {
+    const captures = capturesByShift.get(beat.shiftId) || [];
+    const nearest = nearestCapture(captures, new Date(beat.at));
+    if (nearest) {
+      beat.captureId = String(nearest._id);
+      beat.capturedAt = new Date(nearest.capturedAt).toISOString();
+    }
+  }
+
+  const captureMap = new Map<string, AggregateCapture>();
+  for (const beat of story) {
+    if (!beat.captureId || captureMap.has(beat.captureId)) continue;
+    captureMap.set(beat.captureId, {
+      captureId: beat.captureId,
+      capturedAt: beat.capturedAt || beat.at,
+      worker: beat.worker,
+      date: beat.date,
+      note: beat.summary,
+      shiftId: beat.shiftId,
+    });
+  }
+  const captures = sampleEvenly([...captureMap.values()], AGGREGATE_CAPTURE_LIMIT);
+
+  const weeklyTrend = [...weekTotals.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([week, value]) => ({
+      label: week,
+      shifts: value.shifts,
+      averageScore: value.shifts ? Math.round(value.scoreSum / value.shifts) : 0,
+      workedMinutes: value.worked,
+    }));
+
+  const period: AggregatePeriodSummary = {
+    dayCount,
+    recordedDays: recordedDays.size,
+    attendance,
+    closures: [...closures.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count),
+    hourlyActivity: [...hourlyTotals.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0]))
+      .map(([hour, activeMinutes]) => ({ hour, activeMinutes })),
+    weeklyTrend,
+    topApps: [...appCounts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 8)
+      .map(([name, count]) => ({ name, count })),
+    topTasks: [...taskCounts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count })),
+    screen: screenStats,
+    utilisationPercent: scheduledMinutes ? Math.round((workedMinutes / scheduledMinutes) * 100) : 0,
+    presencePercent: analysisCount
+      ? Math.round(((analysisCount - absentCount) / analysisCount) * 100)
+      : 0,
+  };
+
+  // Backfill focused/idle counts per worker from the narration blocks.
+  for (const narration of narrations as any[]) {
+    const shiftId = String(narration.shiftSessionId);
+    const analysis = analysedByShiftId.get(shiftId) as any;
+    if (!analysis) continue;
+    const acc = accumulators.get(String(analysis.userId));
+    if (!acc) continue;
+    for (const block of narration.blocks || []) {
+      if (block.activity === "focused") acc.row.focusedBlocks += 1;
+      else if (block.activity === "idle") acc.row.idleBlocks += 1;
+    }
+  }
+
+  const shifts: AggregateShiftSummary[] = analyses
+    .map((analysis: any) => {
+      const user = userById.get(String(analysis.userId));
+      return {
+        shiftId: String(analysis.shiftSessionId),
+        date: String(analysis.workDate),
+        worker: user?.name || "Unknown worker",
+        userId: String(analysis.userId),
+        score: clampScore(analysis.overallScore),
+        adherence: clampScore(analysis.adherenceScore),
+        attendance: String(analysis.metrics?.attendanceStatus || "on_time"),
+        closure: String(analysis.metrics?.closureReason || "manual"),
+        workedMinutes: Number(analysis.metrics?.workedMinutes) || 0,
+        scheduledMinutes: Number(analysis.metrics?.scheduledMinutes) || 0,
+        breakMinutes: Number(analysis.metrics?.breakMinutes) || 0,
+        overtimeMinutes: Number(analysis.metrics?.overtimeMinutes) || 0,
+        lateMinutes: Number(analysis.metrics?.lateMinutes) || 0,
+        activePercent: clampScore(analysis.metrics?.monitoring?.activeSamplePercent),
+        screenshots: Number(analysis.metrics?.monitoring?.captureCount) || 0,
+        screenBlocks: Number(analysis.screenActivity?.coverage?.blocks) || 0,
+        headline: String(analysis.narrative?.headline || ""),
+      };
+    })
+    .sort((left, right) => right.date.localeCompare(left.date))
+    .slice(0, AGGREGATE_SHIFT_LOG_LIMIT);
+
+  return {
+    range,
+    targetUserId: targetUserId || null,
+    totals,
+    rows,
+    period,
+    story,
+    captures,
+    shifts,
+    workerScreenNotes: workerNotes,
+  };
+};
+
+export const getAggregateAnalysis = async (
+  requester: Requester,
+  startDate: string,
+  endDate: string,
+  targetUserId?: string
+) => {
+  const bundle = await collectAggregateContext(requester, startDate, endDate, targetUserId);
+  const assignedAgentIds = await assignedAgentIdsFor(requester);
   const narrative = await PeriodAnalysis.findOne({
-    rangeStart: range.startDate,
-    rangeEnd: range.endDate,
+    rangeStart: bundle.range.startDate,
+    rangeEnd: bundle.range.endDate,
     scopeKey: scopeKeyFor(requester, assignedAgentIds, targetUserId),
   }).sort({ generatedAt: -1 });
 
-  return { ...range, targetUserId: targetUserId || null, totals, rows, narrative };
-};
-
-const buildAggregateFallback = (
-  rows: AggregateWorkerRow[],
-  totals: AggregateTotals,
-  range: { startDate: string; endDate: string }
-) => {
-  const top = rows[0];
-  const lowest = rows.length > 1 ? rows[rows.length - 1] : null;
-  const singleWorker = rows.length === 1;
-  const workerName = singleWorker ? rows[0].name : null;
-  const highlights: string[] = [];
-  const concerns: string[] = [];
-
-  if (singleWorker) {
-    highlights.push(`${workerName} completed ${totals.analyses} analysed shift(s) in this period.`);
-    if (rows[0].averageAdherence >= 80) {
-      highlights.push(`Schedule adherence averaged ${rows[0].averageAdherence}% across the period.`);
-    }
-    highlights.push(`${formatDuration(totals.workedMinutes)} of work was recorded against ${formatDuration(totals.workedMinutes ? rows[0].scheduledMinutes : 0)} scheduled.`);
-    if (rows[0].averageScore < 70) {
-      concerns.push(`The average performance score of ${rows[0].averageScore}% is below the 70% comfort line.`);
-    }
-    if (totals.absentCount > 0) {
-      concerns.push(`${totals.absentCount} absent shift(s) were recorded in this period.`);
-    }
-    return {
-      headline: `${workerName}: ${totals.averageScore}% average performance across ${totals.analyses} analysed shift(s)`,
-      summary: `Between ${range.startDate} and ${range.endDate}, ${workerName} completed ${totals.analyses} analysed concluded shift(s) with an average performance score of ${totals.averageScore}% and an average adherence of ${totals.averageAdherence}%. A combined ${formatDuration(totals.workedMinutes)} of work was recorded${totals.absentCount ? `, alongside ${totals.absentCount} absent shift(s)` : ""}.`,
-      highlights: highlights.slice(0, 4),
-      concerns: concerns.slice(0, 4),
-    };
-  }
-
-  if (top) {
-    highlights.push(`${top.name} leads the period with an average performance of ${top.averageScore}% across ${top.shiftCount} analysed shift(s).`);
-  }
-  if (totals.averageAdherence >= 80) {
-    highlights.push(`Schedule adherence averaged ${totals.averageAdherence}% for the period.`);
-  }
-  highlights.push(`${totals.analyses} concluded shift(s) were analysed, covering ${formatDuration(totals.workedMinutes)} of recorded work.`);
-  if (lowest && lowest.averageScore < 70) {
-    concerns.push(`${lowest.name} averaged ${lowest.averageScore}% — the lowest score of the period.`);
-  }
-  if (totals.absentCount > 0) {
-    concerns.push(`${totals.absentCount} absent shift(s) were recorded in this period.`);
-  }
-
   return {
-    headline: `${totals.averageScore}% average performance across ${totals.analyses} analysed shift(s)`,
-    summary: `Between ${range.startDate} and ${range.endDate}, ${totals.workers} worker(s) generated ${totals.analyses} analysed concluded shifts with an average performance score of ${totals.averageScore}% and an average adherence of ${totals.averageAdherence}%. A combined ${formatDuration(totals.workedMinutes)} of work was recorded${totals.absentCount ? `, alongside ${totals.absentCount} absent shift(s)` : ""}.`,
-    highlights: highlights.slice(0, 4),
-    concerns: concerns.slice(0, 4),
+    startDate: bundle.range.startDate,
+    endDate: bundle.range.endDate,
+    targetUserId: bundle.targetUserId,
+    totals: bundle.totals,
+    rows: bundle.rows,
+    period: bundle.period,
+    story: bundle.story,
+    captures: bundle.captures,
+    shifts: bundle.shifts,
+    narrative: serializePeriodAnalysis(narrative),
   };
 };
+
+const toPromptContext = (bundle: AggregateBundle): AggregateContext => ({
+  range: bundle.range,
+  totals: bundle.totals,
+  rows: bundle.rows,
+  period: bundle.period,
+  story: bundle.story,
+  captures: bundle.captures,
+  shifts: bundle.shifts,
+  workerScreenNotes: bundle.workerScreenNotes,
+});
 
 export const generateAggregateNarrative = async (
   requester: Requester,
@@ -1000,14 +1133,9 @@ export const generateAggregateNarrative = async (
   endDate: string,
   force = false,
   targetUserId?: string
-): Promise<IPeriodAnalysis> => {
-  const { totals, rows, ...range } = await getAggregateAnalysis(
-    requester,
-    startDate,
-    endDate,
-    targetUserId
-  );
-  if (!rows.length) {
+): Promise<any> => {
+  const bundle = await collectAggregateContext(requester, startDate, endDate, targetUserId);
+  if (!bundle.rows.length) {
     throw new Error("No analyzed shifts fall within this period");
   }
 
@@ -1015,85 +1143,61 @@ export const generateAggregateNarrative = async (
   const scopeKey = scopeKeyFor(requester, assignedAgentIds, targetUserId);
 
   const existing = await PeriodAnalysis.findOne({
-    rangeStart: range.startDate,
-    rangeEnd: range.endDate,
+    rangeStart: bundle.range.startDate,
+    rangeEnd: bundle.range.endDate,
     scopeKey,
   });
-  if (existing && !force) return existing;
+  if (existing && !force) return serializePeriodAnalysis(existing);
 
-  const AGGREGATE_CONTRACT = `{
-  "headline": "one short sentence (max 100 chars) summarising the period",
-  "summary": "3-5 sentence narrative about the worker's activities, totals and trends for the period",
-  "highlights": ["2-4 short positive observations"],
-  "concerns": ["0-4 short issues to watch (empty array if none)"]
-}`;
-
-  const singleWorker = rows.length === 1;
-  const systemPrompt = [
-    "You are a workforce analytics analyst for ShiftSync by Advanced Virtual Solutions.",
-    "You turn aggregated shift telemetry into concise, professional, factual period narratives for hiring managers.",
-    "Use only the numbers provided; never invent metrics. Scores are percentages from 0 to 100; durations are minutes.",
-    singleWorker
-      ? `The report focuses on a single worker (${rows[0].name}) — narrate their activities, work habits and performance across the whole period rather than comparing workers.`
-      : "Compare workers against each other and call out the strongest and weakest performers by name.",
-    `Respond with strict JSON only, exactly matching this contract: ${AGGREGATE_CONTRACT}`,
-  ].join(" ");
-
-  const userPrompt = JSON.stringify({
-    period: range,
-    focusWorker: targetUserId || null,
-    totals,
-    workers: rows.map((row) => ({
-      name: row.name,
-      shifts: row.shiftCount,
-      absences: row.absentCount,
-      averageScore: row.averageScore,
-      averageAdherence: row.averageAdherence,
-      workedMinutes: row.workedMinutes,
-      scheduledMinutes: row.scheduledMinutes,
-    })),
-  });
-
-  let narrative: ReturnType<typeof buildAggregateFallback>;
-  let source: "gemini" | "fallback" = "fallback";
-  let aiModel = "";
+  const context = toPromptContext(bundle);
+  const fallback = buildFallbackPeriodReport(context);
+  let narrative: PeriodNarrative = fallback;
+  let source: "ai" | "fallback" = "fallback";
   let error: string | undefined;
 
-  try {
-    const raw = await callGeminiJSON(systemPrompt, userPrompt);
-    const sanitized = {
-      headline: sanitizeText(raw?.headline, 140),
-      summary: sanitizeText(raw?.summary, 1600),
-      highlights: sanitizeTextList(raw?.highlights, 4),
-      concerns: sanitizeTextList(raw?.concerns, 4),
-    };
-    if (sanitized.headline && sanitized.summary) {
-      narrative = sanitized;
-      source = "gemini";
-      aiModel = GEMINI_MODEL;
-    } else {
-      narrative = buildAggregateFallback(rows, totals, range);
+  if (!aiConfigured()) {
+    error = "AI analysis is not configured";
+    console.warn("Period report fell back to the offline report: no provider key configured");
+  } else {
+    try {
+      const { systemPrompt, userPrompt } = buildAggregatePrompt(context);
+      const result = await callAiJson({
+        purpose: "aggregate",
+        system: systemPrompt,
+        user: userPrompt,
+        maxTokens: aiConfig.aggregateMaxTokens,
+        timeoutMs: aiConfig.aggregateTimeoutMs,
+      });
+
+      const sanitized = sanitizePeriodReport(result.data, bundle.rows, fallback);
+      if (sanitized.executiveSummary.length >= 200 || sanitized.sections.screenStory.length >= 150) {
+        narrative = sanitized;
+        source = "ai";
+      } else {
+        error = "The analysis engine returned an incomplete period report";
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Unknown analysis failure";
+      console.error("Period narrative failed, using the offline report:", error);
     }
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Unknown Gemini failure";
-    console.error("Gemini aggregate narrative failed, using offline summary", error);
-    narrative = buildAggregateFallback(rows, totals, range);
   }
 
-  return PeriodAnalysis.findOneAndUpdate(
-    { rangeStart: range.startDate, rangeEnd: range.endDate, scopeKey },
+  const saved = await PeriodAnalysis.findOneAndUpdate(
+    { rangeStart: bundle.range.startDate, rangeEnd: bundle.range.endDate, scopeKey },
     {
-      rangeStart: range.startDate,
-      rangeEnd: range.endDate,
+      rangeStart: bundle.range.startDate,
+      rangeEnd: bundle.range.endDate,
       scopeKey,
-      totals,
+      totals: bundle.totals,
       narrative,
       status: "completed",
       source,
-      aiModel,
+      aiModel: aiConfig.analysisModel,
       generatedAt: new Date(),
       error: error || null,
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+
+  return serializePeriodAnalysis(saved);
 };

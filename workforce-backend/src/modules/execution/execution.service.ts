@@ -697,7 +697,7 @@ export const runExecutionMaintenance = async (now = new Date()) => {
       kpiEvaluatedAt: now,
     });
 
-    // Absent shifts get a deterministic offline analysis (no Gemini call).
+    // Absent shifts get a deterministic offline analysis (no model call).
     enqueueShiftAnalysis(newShift._id.toString());
 
     missedShifts += 1;

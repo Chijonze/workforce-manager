@@ -69,7 +69,7 @@ export function navGroupsForRole(role: User["role"]): NavGroup[] {
           { key: "scheduling", label: "Scheduling Setup", icon: CalendarDays, description: "Templates and assignment" },
           { key: "link:assignments", label: "Assignments", icon: CalendarRange, href: "/assignments" },
           { key: "link:execution-report", label: "Execution Reports", icon: BarChart3, href: "/execution-report" },
-          { key: "link:ai-analysis", label: "AI Analysis & Summary", icon: Sparkles, href: "/ai-analysis", description: "Gemini shift insights" },
+          { key: "link:ai-analysis", label: "AI Analysis & Summary", icon: Sparkles, href: "/ai-analysis", description: "Long-form shift and period reports" },
         ],
       },
       {
@@ -96,7 +96,7 @@ export function navGroupsForRole(role: User["role"]): NavGroup[] {
         label: "Overview",
         items: [
           { key: "overview", label: "Team Overview", icon: LayoutDashboard, description: "Assigned agents today" },
-          { key: "link:ai-analysis", label: "AI Analysis & Summary", icon: Sparkles, href: "/ai-analysis", description: "Gemini shift insights" },
+          { key: "link:ai-analysis", label: "AI Analysis & Summary", icon: Sparkles, href: "/ai-analysis", description: "Long-form shift and period reports" },
         ],
       },
       {

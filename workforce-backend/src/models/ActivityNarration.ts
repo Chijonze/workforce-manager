@@ -19,7 +19,7 @@ export interface INarrationBlock {
   concerns: string[];
   confidence: number;
   /** `deterministic` marks idle/blank periods detected without a model call. */
-  source: "gemini" | "ocr" | "deterministic";
+  source: "ai" | "ocr" | "deterministic";
   model: string;
   ocrChars: number;
   imageBytes: number;
@@ -46,7 +46,8 @@ export interface IActivityNarration extends Document {
   blocks: INarrationBlock[];
   overview: string;
   coverage: INarrationCoverage;
-  source: "gemini" | "ocr" | "none";
+  source: "ai" | "ocr" | "none";
+  /** Internal operations data only; never serialised to the client. */
   aiModel: string;
   generatedAt: Date;
   error?: string | null;
@@ -73,7 +74,7 @@ const narrationBlockSchema = new Schema<INarrationBlock>(
     evidence: { type: String, default: "" },
     concerns: { type: [String], default: [] },
     confidence: { type: Number, default: 0 },
-    source: { type: String, enum: ["gemini", "ocr", "deterministic"], default: "gemini" },
+    source: { type: String, enum: ["ai", "ocr", "deterministic"], default: "ai" },
     model: { type: String, default: "" },
     ocrChars: { type: Number, default: 0 },
     imageBytes: { type: Number, default: 0 },
@@ -114,7 +115,7 @@ const activityNarrationSchema = new Schema<IActivityNarration>(
     blocks: { type: [narrationBlockSchema], default: [] },
     overview: { type: String, default: "" },
     coverage: { type: coverageSchema, default: {} },
-    source: { type: String, enum: ["gemini", "ocr", "none"], default: "none" },
+    source: { type: String, enum: ["ai", "ocr", "none"], default: "none" },
     aiModel: { type: String, default: "" },
     generatedAt: { type: Date, default: Date.now },
     error: { type: String, default: null },

@@ -325,14 +325,76 @@ export type AnalysisChartPoint = {
   value: number;
 };
 
+export type AnalysisSection = {
+  attendance: string;
+  time: string;
+  productivity: string;
+  screen: string;
+  risk: string;
+  coaching: string;
+  outlook: string;
+};
+
+export type AnalysisTimelineEntry = {
+  time: string;
+  title: string;
+  detail: string;
+};
+
+export type AnalysisRecommendation = {
+  title: string;
+  detail: string;
+  priority: "high" | "medium" | "low";
+};
+
+export type AnalysisDerived = {
+  timeUtilisationPercent: number;
+  breakSharePercent: number;
+  overtimeSharePercent: number;
+  idleMinutes: number;
+  trackedMinutes: number;
+  activeMinutes: number;
+  activeToWorkedPercent: number;
+  movementsPerActiveHour: number;
+  clicksPerActiveHour: number;
+  scrollsPerActiveHour: number;
+  peakHour: string;
+  quietestHour: string;
+  activeHourCount: number;
+  observedSpanHours: number;
+  longestGapMinutes: number;
+  longestGapWindow: string;
+  screenBlocks: number;
+  focusedBlocks: number;
+  mixedBlocks: number;
+  idleBlocks: number;
+  averageScreenConfidence: number;
+  topApps: string[];
+  topTasks: string[];
+};
+
+export type AnalysisScreenBlock = {
+  index: number;
+  startedAt: string;
+  endedAt: string;
+  summary: string;
+  tasks: string[];
+  apps: string[];
+  activity: string;
+  evidence: string;
+  confidence: number;
+  source: string;
+  captureId?: string | null;
+  capturedAt?: string | null;
+};
+
 export type ShiftAnalysis = {
   _id: string;
   shiftSessionId: string;
   userId: string;
   workDate: string;
   status: "completed" | "failed";
-  source: "gemini" | "fallback";
-  aiModel: string;
+  source: "ai" | "fallback";
   overallScore: number;
   adherenceScore: number;
   metrics: {
@@ -360,17 +422,30 @@ export type ShiftAnalysis = {
     captures: { captureId: string; capturedAt: string }[];
     eventCounts: Record<string, number>;
   };
+  derived?: AnalysisDerived | null;
   narrative: {
     headline: string;
     workerSummary: string;
     workSummary: string;
     highlights: string[];
     concerns: string[];
+    /** Present on reports written by the long-form engine. */
+    executiveSummary?: string;
+    verdict?: string;
+    sections?: Partial<AnalysisSection>;
   };
+  timeline?: AnalysisTimelineEntry[];
+  recommendations?: AnalysisRecommendation[];
   charts: {
     bar: { title: string; unit: string; series: AnalysisChartPoint[] };
     pie: { title: string; unit: string; segments: AnalysisChartPoint[] };
   };
+  screenActivity?: {
+    status: string;
+    overview: string;
+    blocks: AnalysisScreenBlock[];
+    coverage: Record<string, number>;
+  } | null;
   generatedAt: string;
   error?: string | null;
 };
@@ -400,7 +475,7 @@ export type AnalysisWorkerShift = {
 export type AnalysisOverview = {
   totalAnalyses: number;
   averageScore: number;
-  geminiAnalyses: number;
+  aiAnalyses: number;
   recentAnalyses: number;
 };
 
@@ -414,6 +489,120 @@ export type AggregateWorkerRow = {
   averageAdherence: number;
   workedMinutes: number;
   scheduledMinutes: number;
+  breakMinutes: number;
+  overtimeMinutes: number;
+  lateShifts: number;
+  lateMinutes: number;
+  averagePunctuality: number;
+  averageWorkedMinutes: number;
+  screenShifts: number;
+  screenBlocks: number;
+  focusedBlocks: number;
+  idleBlocks: number;
+  bestDate: string;
+  bestScore: number;
+  worstDate: string;
+  worstScore: number;
+  firstDate: string;
+  lastDate: string;
+  scoreSpread: number;
+};
+
+export type AggregateTotals = {
+  workers: number;
+  analyses: number;
+  averageScore: number;
+  averageAdherence: number;
+  workedMinutes: number;
+  scheduledMinutes: number;
+  absentCount: number;
+  lateShifts: number;
+  lateMinutes: number;
+  overtimeMinutes: number;
+  breakMinutes: number;
+};
+
+export type AggregatePeriodSummary = {
+  dayCount: number;
+  recordedDays: number;
+  attendance: { onTime: number; late: number; veryLate: number; absent: number; overtime: number };
+  closures: { label: string; count: number }[];
+  hourlyActivity: { hour: string; activeMinutes: number }[];
+  weeklyTrend: { label: string; shifts: number; averageScore: number; workedMinutes: number }[];
+  topApps: { name: string; count: number }[];
+  topTasks: { name: string; count: number }[];
+  screen: {
+    screenshots: number;
+    narratedShifts: number;
+    blocks: number;
+    focused: number;
+    mixed: number;
+    idle: number;
+  };
+  utilisationPercent: number;
+  presencePercent: number;
+};
+
+export type AggregateStoryBeat = {
+  at: string;
+  label: string;
+  worker: string;
+  date: string;
+  summary: string;
+  apps: string[];
+  tasks: string[];
+  activity: string;
+  confidence: number;
+  captureId: string | null;
+  capturedAt: string | null;
+  shiftId: string;
+};
+
+export type AggregateCapture = {
+  captureId: string;
+  capturedAt: string;
+  worker: string;
+  date: string;
+  note: string;
+  shiftId: string;
+};
+
+export type AggregateShiftSummary = {
+  shiftId: string;
+  date: string;
+  worker: string;
+  userId: string;
+  score: number;
+  adherence: number;
+  attendance: string;
+  closure: string;
+  workedMinutes: number;
+  scheduledMinutes: number;
+  breakMinutes: number;
+  overtimeMinutes: number;
+  lateMinutes: number;
+  activePercent: number;
+  screenshots: number;
+  screenBlocks: number;
+  headline: string;
+};
+
+export type PeriodWorkerNote = {
+  name: string;
+  summary: string;
+  strengths: string[];
+  watchouts: string[];
+  recommendation: string;
+};
+
+export type PeriodSections = {
+  performance: string;
+  attendance: string;
+  screenStory: string;
+  patterns: string;
+  risks: string;
+  recommendations: string;
+  outlook: string;
 };
 
 export type PeriodNarrative = {
@@ -421,23 +610,19 @@ export type PeriodNarrative = {
   rangeStart: string;
   rangeEnd: string;
   scopeKey: string;
-  totals: {
-    workers: number;
-    analyses: number;
-    averageScore: number;
-    averageAdherence: number;
-    workedMinutes: number;
-    absentCount: number;
-  };
+  totals: AggregateTotals;
   narrative: {
     headline: string;
     summary: string;
     highlights: string[];
     concerns: string[];
+    executiveSummary?: string;
+    verdict?: string;
+    sections?: Partial<PeriodSections>;
+    workerNotes?: PeriodWorkerNote[];
   };
   status: "completed" | "failed";
-  source: "gemini" | "fallback";
-  aiModel: string;
+  source: "ai" | "fallback";
   generatedAt: string;
   error?: string | null;
 };
@@ -445,14 +630,13 @@ export type PeriodNarrative = {
 export type AggregateAnalysis = {
   startDate: string;
   endDate: string;
-  totals: {
-    workers: number;
-    analyses: number;
-    averageScore: number;
-    averageAdherence: number;
-    workedMinutes: number;
-    absentCount: number;
-  };
+  targetUserId: string | null;
+  totals: AggregateTotals;
   rows: AggregateWorkerRow[];
+  period: AggregatePeriodSummary;
+  story: AggregateStoryBeat[];
+  captures: AggregateCapture[];
+  shifts: AggregateShiftSummary[];
   narrative: PeriodNarrative | null;
 };
+

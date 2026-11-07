@@ -1,10 +1,9 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 /**
- * Persisted Gemini quota state. The free tier enforces a daily request cap that
- * resets at midnight Pacific, and the reset instant is only discoverable from
- * the 429 body. Keeping it in Mongo means a container restart does not send the
- * retry loop straight back into an exhausted quota.
+ * Persisted AI provider state. Throttling pauses and the daily retry budget live
+ * here so a container restart does not send the retry loop straight back into a
+ * rate-limited provider.
  */
 export interface IAiQuotaState extends Document {
   scope: string;

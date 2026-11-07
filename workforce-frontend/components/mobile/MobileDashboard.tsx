@@ -635,7 +635,7 @@ export default function MobileDashboard({
                 ) : null}
                 <div className="m-ai-foot">
                   <span className="m-source-pill">
-                    {narrative.source === "gemini" ? "Gemini" : "Deterministic summary"}
+                    {narrative.source === "ai" ? "AI-written report" : "Offline summary"}
                   </span>
                   <Link className="m-text-link" href="/ai-analysis">
                     Open AI analysis

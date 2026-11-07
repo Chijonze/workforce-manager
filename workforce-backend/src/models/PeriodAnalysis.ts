@@ -1,5 +1,23 @@
 import mongoose, { Schema, Document } from "mongoose";
 
+export interface IPeriodWorkerNote {
+  name: string;
+  summary: string;
+  strengths: string[];
+  watchouts: string[];
+  recommendation: string;
+}
+
+export interface IPeriodSections {
+  performance: string;
+  attendance: string;
+  screenStory: string;
+  patterns: string;
+  risks: string;
+  recommendations: string;
+  outlook: string;
+}
+
 export interface IPeriodAnalysis extends Document {
   rangeStart: string;
   rangeEnd: string;
@@ -17,13 +35,19 @@ export interface IPeriodAnalysis extends Document {
 
   narrative: {
     headline: string;
+    /** Legacy short summary, kept for existing saved reports. */
     summary: string;
     highlights: string[];
     concerns: string[];
+    executiveSummary: string;
+    verdict: string;
+    sections: IPeriodSections;
+    workerNotes: IPeriodWorkerNote[];
   };
 
   status: "completed" | "failed";
-  source: "gemini" | "fallback";
+  source: "ai" | "fallback";
+  /** Internal operations data only; never serialised to the client. */
   aiModel: string;
 
   generatedAt: Date;
@@ -41,6 +65,30 @@ const periodTotalsSchema = new Schema<IPeriodAnalysis["totals"]>(
     averageAdherence: { type: Number, default: 0 },
     workedMinutes: { type: Number, default: 0 },
     absentCount: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const periodSectionsSchema = new Schema<IPeriodSections>(
+  {
+    performance: { type: String, default: "" },
+    attendance: { type: String, default: "" },
+    screenStory: { type: String, default: "" },
+    patterns: { type: String, default: "" },
+    risks: { type: String, default: "" },
+    recommendations: { type: String, default: "" },
+    outlook: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const workerNoteSchema = new Schema<IPeriodWorkerNote>(
+  {
+    name: { type: String, default: "" },
+    summary: { type: String, default: "" },
+    strengths: { type: [String], default: [] },
+    watchouts: { type: [String], default: [] },
+    recommendation: { type: String, default: "" },
   },
   { _id: false }
 );
@@ -71,6 +119,10 @@ const periodAnalysisSchema = new Schema<IPeriodAnalysis>(
         summary: { type: String, default: "" },
         highlights: { type: [String], default: [] },
         concerns: { type: [String], default: [] },
+        executiveSummary: { type: String, default: "" },
+        verdict: { type: String, default: "" },
+        sections: { type: periodSectionsSchema, default: () => ({}) },
+        workerNotes: { type: [workerNoteSchema], default: [] },
       },
       required: true,
     },
@@ -81,7 +133,7 @@ const periodAnalysisSchema = new Schema<IPeriodAnalysis>(
     },
     source: {
       type: String,
-      enum: ["gemini", "fallback"],
+      enum: ["ai", "fallback"],
       default: "fallback",
     },
     aiModel: {

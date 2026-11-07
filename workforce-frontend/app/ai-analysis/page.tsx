@@ -8,30 +8,65 @@ import {
   BarChart3,
   CalendarRange,
   CheckCircle2,
+  Clock3,
   Download,
   FileText,
   Home,
   RefreshCw,
   ScanEye,
   Sparkles,
+  Target,
   Users,
 } from "lucide-react";
 import { apiRequest, formatDate, formatDateTime, getApiUrl } from "@/lib/api";
 import type {
   AggregateAnalysis,
+  AggregateStoryBeat,
   AnalysisOverview,
+  AnalysisRecommendation,
+  AnalysisSection,
   AnalysisWorker,
   AnalysisWorkerShift,
+  PeriodSections,
   ShiftAnalysis,
   User,
 } from "@/types/workforce";
 import { dateKeyFromParts, londonDateParts } from "@/components/shared";
 import { formatMinutes } from "@/lib/charts";
 import { BarChart, PieChart, ScoreDonut } from "@/components/charts/Charts";
-import { AIAnalysisPDF, buildAnalysisPdfData } from "@/components/AIAnalysisPDF";
-import { AggregateAnalysisPDF, buildAggregatePdfData } from "@/components/AggregateAnalysisPDF";
+import {
+  AIAnalysisPDF,
+  buildAnalysisPdfData,
+  collectAnalysisCaptureIds,
+} from "@/components/AIAnalysisPDF";
+import {
+  AggregateAnalysisPDF,
+  buildAggregatePdfData,
+  collectAggregateCaptureIds,
+} from "@/components/AggregateAnalysisPDF";
 
-const MAX_PDF_CAPTURES = 4;
+const MAX_SHIFT_CAPTURES = 8;
+const MAX_AGGREGATE_CAPTURES = 12;
+
+const SECTION_ORDER: { key: keyof AnalysisSection; title: string }[] = [
+  { key: "attendance", title: "Attendance & punctuality" },
+  { key: "time", title: "Time & schedule adherence" },
+  { key: "productivity", title: "Productivity & engagement" },
+  { key: "screen", title: "What the screenshots show" },
+  { key: "risk", title: "Risks & compliance" },
+  { key: "coaching", title: "Coaching plan" },
+  { key: "outlook", title: "Outlook" },
+];
+
+const PERIOD_SECTION_ORDER: { key: keyof PeriodSections; title: string }[] = [
+  { key: "performance", title: "Performance across the period" },
+  { key: "attendance", title: "Attendance, punctuality & time" },
+  { key: "screenStory", title: "The working story: what the screenshots recorded" },
+  { key: "patterns", title: "Working patterns & productivity signals" },
+  { key: "risks", title: "Risks, inconsistencies & compliance" },
+  { key: "recommendations", title: "Recommendations for the hiring manager" },
+  { key: "outlook", title: "Outlook" },
+];
 
 async function fetchLogoDataUri(): Promise<string | undefined> {
   try {
@@ -95,11 +130,51 @@ async function pdfCompatibleDataUri(blob: Blob): Promise<string | undefined> {
   }
 }
 
+async function loadCaptureImages(
+  token: string,
+  ids: string[],
+  cache: Record<string, string>
+): Promise<Record<string, string>> {
+  const images: Record<string, string> = {};
+  for (const captureId of ids) {
+    const uri = cache[captureId] || (await fetchCaptureDataUri(token, captureId));
+    if (uri) images[captureId] = uri;
+  }
+  return images;
+}
+
 const londonParts = londonDateParts();
 const TODAY_KEY = dateKeyFromParts(londonParts.year, londonParts.month, londonParts.day);
 const MONTH_START_KEY = dateKeyFromParts(londonParts.year, londonParts.month, 1);
 
+const clockFormatter = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const clockLabel = (iso?: string | null) => {
+  if (!iso) return "--:--";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "--:--" : clockFormatter.format(date);
+};
+
 type AnalysisMode = "shift" | "aggregate";
+
+const priorityClass = (priority: AnalysisRecommendation["priority"]) =>
+  `ai-priority ai-priority-${priority}`;
+
+function NarrativeText({ value, className }: { value?: string; className?: string }) {
+  if (!value) return null;
+  const paragraphs = value.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  return (
+    <div className={className || "ai-report-prose"}>
+      {(paragraphs.length ? paragraphs : [value]).map((paragraph, index) => (
+        <p key={index}>{paragraph}</p>
+      ))}
+    </div>
+  );
+}
 
 export default function AiAnalysisPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -124,10 +199,13 @@ export default function AiAnalysisPage() {
   const [aggLoading, setAggLoading] = useState(false);
   const [aggGenerating, setAggGenerating] = useState(false);
   const [aggDownloading, setAggDownloading] = useState(false);
+  const [aggCapturePreviews, setAggCapturePreviews] = useState<Record<string, string>>({});
 
   const [hiringManagers, setHiringManagers] = useState<User[]>([]);
   const [hiringManagerId, setHiringManagerId] = useState("");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const selectedWorker = useMemo(
     () => workers.find((worker) => worker._id === workerId),
@@ -140,6 +218,10 @@ export default function AiAnalysisPage() {
   const selectedHiringManager = hiringManagers.find(
     (manager) => manager._id === hiringManagerId
   );
+  // Supervisors cannot list other managers, so their own account is the billing
+  // party. This keeps the one-click "generate + download" flow working for
+  // everyone instead of silently skipping the PDF.
+  const reportRecipient = selectedHiringManager || currentUser;
 
   const loadOverview = useCallback(async (authToken: string) => {
     try {
@@ -209,6 +291,7 @@ export default function AiAnalysisPage() {
         }
         setToken(savedToken);
         setRole(currentUser.role);
+        setCurrentUser(currentUser);
         const [workerList, allUsers] = await Promise.all([
           loadWorkers(savedToken),
           // /api/auth/users is admin-only. Hiring managers can still use the
@@ -239,31 +322,40 @@ export default function AiAnalysisPage() {
     })();
   }, [loadAnalysis, loadOverview, loadShifts, loadWorkers]);
 
-  // Screenshot evidence thumbnails for the on-screen strip.
+  // Screenshot thumbnails for the on-screen evidence strip.
   useEffect(() => {
-    const captures = analysis?.metrics.captures.slice(-MAX_PDF_CAPTURES) || [];
-    if (!token || !captures.length) return;
+    const ids = analysis ? collectAnalysisCaptureIds(analysis, MAX_SHIFT_CAPTURES) : [];
+    if (!token || !ids.length) return;
 
     let cancelled = false;
     void (async () => {
-      const entries = await Promise.all(
-        captures.map(async (capture) => [
-          capture.captureId,
-          await fetchCaptureDataUri(token, capture.captureId),
-        ] as const)
-      );
+      const images = await loadCaptureImages(token, ids, capturePreviews);
       if (cancelled) return;
-      setCapturePreviews(
-        Object.fromEntries(
-          entries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
-        )
-      );
+      setCapturePreviews(images);
     })();
 
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysis, token]);
+
+  // Period screenshot thumbnails.
+  useEffect(() => {
+    const ids = aggregate ? collectAggregateCaptureIds(aggregate, MAX_AGGREGATE_CAPTURES) : [];
+    if (!token || !ids.length) return;
+
+    let cancelled = false;
+    void (async () => {
+      const images = await loadCaptureImages(token, ids, {});
+      if (cancelled) return;
+      setAggCapturePreviews(images);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aggregate, token]);
 
   async function selectWorker(nextWorkerId: string) {
     if (!token) return;
@@ -321,6 +413,7 @@ export default function AiAnalysisPage() {
     if (!token) return;
     setAggLoading(true);
     setError("");
+    setNotice("");
     try {
       await loadAggregate(token, aggStart, aggEnd, targetWorkerId);
     } catch (err) {
@@ -364,6 +457,7 @@ export default function AiAnalysisPage() {
     if (!token || !shiftId) return;
     setGenerating(true);
     setError("");
+    setNotice("");
     try {
       const data = await apiRequest<ShiftAnalysis>(`/api/analysis/shift/${shiftId}/generate`, {
         method: "POST",
@@ -372,6 +466,7 @@ export default function AiAnalysisPage() {
       });
       setAnalysis(data);
       await Promise.all([loadOverview(token), loadShifts(token, workerId)]);
+      setNotice("Full report generated. Download it below to share the branded PDF.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate the AI analysis.");
     } finally {
@@ -383,14 +478,20 @@ export default function AiAnalysisPage() {
     if (!token) return;
     setAggGenerating(true);
     setError("");
+    setNotice("");
     try {
       await apiRequest<AggregateAnalysis["narrative"]>("/api/analysis/aggregate/narrative", {
         method: "POST",
         token,
         body: { startDate: aggStart, endDate: aggEnd, userId: aggWorkerId || undefined, force: true },
       });
-      await loadAggregate(token, aggStart, aggEnd, aggWorkerId);
+      const fresh = await loadAggregate(token, aggStart, aggEnd, aggWorkerId);
       await loadOverview(token);
+      setNotice("Period report generated. Preparing the PDF download…");
+      // The button is the whole workflow: generate the long-form report and hand
+      // the hiring manager the finished PDF in one click.
+      await downloadAggregatePdf(fresh);
+      setNotice("Period report generated and PDF downloaded.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate the period summary.");
     } finally {
@@ -399,24 +500,20 @@ export default function AiAnalysisPage() {
   }
 
   async function downloadPdf() {
-    if (!analysis || !selectedHiringManager || !token) return;
+    if (!analysis || !reportRecipient || !token) return;
     setDownloading(true);
     setError("");
     try {
       const logoSrc = await fetchLogoDataUri();
-      const captures = analysis.metrics.captures.slice(-MAX_PDF_CAPTURES);
-      const captureImages: Record<string, string> = {};
-      for (const capture of captures) {
-        const uri = capturePreviews[capture.captureId] || (await fetchCaptureDataUri(token, capture.captureId));
-        if (uri) captureImages[capture.captureId] = uri;
-      }
+      const ids = collectAnalysisCaptureIds(analysis, MAX_SHIFT_CAPTURES);
+      const captureImages = await loadCaptureImages(token, ids, capturePreviews);
 
       const data = buildAnalysisPdfData({
         analysis,
         worker: selectedWorker
           ? { name: selectedWorker.name, email: selectedWorker.email }
           : { name: "Unknown worker", email: "" },
-        hiringManager: selectedHiringManager,
+        hiringManager: reportRecipient,
         logoSrc,
         captureImages,
       });
@@ -434,24 +531,28 @@ export default function AiAnalysisPage() {
     }
   }
 
-  async function downloadAggregatePdf() {
-    if (!aggregate || !selectedHiringManager) return;
+  async function downloadAggregatePdf(source?: AggregateAnalysis) {
+    const report = source || aggregate;
+    if (!report || !reportRecipient || !token) return;
     setAggDownloading(true);
     setError("");
     try {
       const logoSrc = await fetchLogoDataUri();
+      const ids = collectAggregateCaptureIds(report, MAX_AGGREGATE_CAPTURES);
+      const captureImages = await loadCaptureImages(token, ids, aggCapturePreviews);
       const data = buildAggregatePdfData({
-        aggregate,
+        aggregate: report,
         worker: aggSelectedWorker ? { name: aggSelectedWorker.name, email: aggSelectedWorker.email } : null,
-        hiringManager: selectedHiringManager,
+        hiringManager: reportRecipient,
         logoSrc,
+        captureImages,
       });
       const blob = await pdf(<AggregateAnalysisPDF data={data} />).toBlob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       const workerSlug = aggSelectedWorker ? `-${aggSelectedWorker.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : "";
-      link.download = `ai-period-analysis${workerSlug}-${aggStart}-to-${aggEnd}.pdf`;
+      link.download = `ai-period-analysis${workerSlug}-${report.startDate}-to-${report.endDate}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -465,20 +566,20 @@ export default function AiAnalysisPage() {
   const aggregateDownloadReady = Boolean(aggregate?.rows.length);
   const downloadDisabled =
     mode === "shift"
-      ? !shiftDownloadReady || !selectedHiringManager || downloading
-      : !aggregateDownloadReady || !selectedHiringManager || aggDownloading;
+      ? !shiftDownloadReady || !reportRecipient || downloading || generating
+      : !aggregateDownloadReady || !reportRecipient || aggDownloading || aggGenerating;
   const downloadHint =
     mode === "shift"
       ? shiftDownloadReady
-        ? selectedHiringManager
+        ? reportRecipient
           ? "Download this analysis as a branded PDF report"
-          : "Select a hiring manager to bill before downloading"
+          : "Sign in to download the report"
         : "Select a worker and a concluded shift with a saved analysis"
       : aggregateDownloadReady
-        ? selectedHiringManager
+        ? reportRecipient
           ? "Download the period analysis as a branded PDF report"
-          : "Select a hiring manager to bill before downloading"
-        : "No analyzed shifts in the selected period yet";
+          : "Sign in to download the report"
+        : "No analysed shifts in the selected period yet";
   const busy = downloading || aggDownloading;
 
   const aggregateChartSeries =
@@ -486,6 +587,11 @@ export default function AiAnalysisPage() {
       label: row.name.split(" ")[0],
       value: row.averageScore,
     })) || [];
+
+  const periodSections = aggregate?.narrative?.narrative.sections || {};
+  const periodWorkerNotes = aggregate?.narrative?.narrative.workerNotes || [];
+  const storyBeats: AggregateStoryBeat[] = aggregate?.story || [];
+  const aggCaptures = aggregate?.captures || [];
 
   return (
     <main className="app-shell standalone-page ai-analysis-page">
@@ -495,7 +601,9 @@ export default function AiAnalysisPage() {
             <img alt="" className="panel-title-logo" src="/shiftsync-icon.png" />
             <div>
               <h1>AI Analysis &amp; Summary</h1>
-              <p className="panel-subtitle">Gemini-powered performance analysis for concluded shifts</p>
+              <p className="panel-subtitle">
+                Long-form performance reports for concluded shifts and pay periods
+              </p>
             </div>
           </div>
           <div className="review-actions">
@@ -563,7 +671,7 @@ export default function AiAnalysisPage() {
                 {!shifts.length && <option value="">No concluded shifts recorded</option>}
                 {shifts.map((shift) => (
                   <option key={shift.shiftId} value={shift.shiftId}>
-                    {formatDate(shift.workDate)} — {shift.kpiScore}% · {shift.analysis ? shift.analysis.source === "gemini" ? "AI analysis saved" : "summary saved" : "no analysis yet"}
+                    {formatDate(shift.workDate)} — {shift.kpiScore}% · {shift.analysis ? shift.analysis.source === "ai" ? "AI report saved" : "summary saved" : "no report yet"}
                   </option>
                 ))}
               </select>
@@ -588,7 +696,7 @@ export default function AiAnalysisPage() {
               disabled={!shiftId || generating}
               onClick={() => void generateAnalysis()}
             >
-              <Sparkles size={17} />{generating ? "Analysing with Gemini…" : analysis ? "Regenerate analysis" : "Generate analysis"}
+              <Sparkles size={17} />{generating ? "Analysing shift…" : analysis ? "Regenerate analysis" : "Generate analysis"}
             </button>
           </div>
         ) : (
@@ -648,25 +756,32 @@ export default function AiAnalysisPage() {
               <CalendarRange size={17} />Apply period
             </button>
             <button
-              className="button secondary"
+              className="button"
               type="button"
-              disabled={aggGenerating || !aggregate?.rows.length}
-              title={aggregate?.rows.length ? "Regenerate the AI narrative for this period" : "No analyzed shifts in this period yet"}
+              disabled={aggGenerating || aggLoading || !aggregate?.rows.length}
+              title={aggregate?.rows.length ? "Generate the long-form report and download the PDF" : "No analysed shifts in this period yet"}
               onClick={() => void generatePeriodSummary()}
             >
-              <Sparkles size={17} />{aggGenerating ? "Analysing with Gemini…" : "Generate period summary"}
+              <Sparkles size={17} />{aggGenerating ? "Writing period report…" : "Generate period summary"}
             </button>
           </div>
+        )}
+        {mode === "aggregate" && (
+          <p className="ai-action-hint">
+            Generating a period summary writes the full report and downloads the branded PDF in the same click —
+            one section per worker, with the screenshots that support it.
+          </p>
         )}
       </section>
 
       {error && <section className="panel"><p className="muted">{error}</p></section>}
+      {notice && <section className="panel ai-notice"><p className="muted">{notice}</p></section>}
 
       {overview && (
         <section className="metrics admin-metrics report-metrics">
-          <div className="metric"><span>Analyses saved</span><strong>{overview.totalAnalyses}</strong></div>
+          <div className="metric"><span>Reports saved</span><strong>{overview.totalAnalyses}</strong></div>
           <div className="metric"><span>Average score</span><strong>{overview.averageScore}%</strong></div>
-          <div className="metric"><span>Gemini-powered</span><strong>{overview.geminiAnalyses}</strong></div>
+          <div className="metric"><span>AI-written</span><strong>{overview.aiAnalyses}</strong></div>
           <div className="metric"><span>Last 7 days</span><strong>{overview.recentAnalyses}</strong></div>
         </section>
       )}
@@ -727,14 +842,13 @@ export default function AiAnalysisPage() {
                     </div>
                   </div>
                   <div className="stack">
-                    <div>
-                      <h3 className="ai-narrative-heading">Worker performance</h3>
-                      <p>{analysis.narrative.workerSummary || "—"}</p>
-                    </div>
-                    <div>
-                      <h3 className="ai-narrative-heading">Work done</h3>
-                      <p>{analysis.narrative.workSummary || "—"}</p>
-                    </div>
+                    <NarrativeText value={analysis.narrative.executiveSummary || analysis.narrative.workerSummary} />
+                    {analysis.narrative.verdict && (
+                      <div className="ai-verdict">
+                        <h3 className="ai-narrative-heading">Analyst verdict</h3>
+                        <p>{analysis.narrative.verdict}</p>
+                      </div>
+                    )}
                     {analysis.narrative.highlights.length > 0 && (
                       <ul className="ai-finding-list">
                         {analysis.narrative.highlights.map((highlight) => (
@@ -753,6 +867,107 @@ export default function AiAnalysisPage() {
                 </section>
               </div>
 
+              {analysis.timeline?.length ? (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <Clock3 size={20} />
+                      <div>
+                        <h2>Shift timeline</h2>
+                        <p className="panel-subtitle">How the shift unfolded, from clock-in to reports</p>
+                      </div>
+                    </div>
+                  </div>
+                  <ol className="ai-timeline">
+                    {analysis.timeline.map((entry, index) => (
+                      <li key={`${entry.time}-${index}`}>
+                        <span className="ai-timeline-time">{entry.time}</span>
+                        <div>
+                          <strong>{entry.title}</strong>
+                          <p>{entry.detail}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
+
+              {(analysis.narrative.sections && Object.values(analysis.narrative.sections).some(Boolean)) ? (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <FileText size={20} />
+                      <div>
+                        <h2>Detailed analysis</h2>
+                        <p className="panel-subtitle">The full written report, section by section</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ai-report-sections">
+                    {SECTION_ORDER.map((section) => {
+                      const body = analysis.narrative.sections?.[section.key];
+                      if (!body) return null;
+                      return (
+                        <article key={section.key} className="ai-report-section">
+                          <h3>{section.title}</h3>
+                          <NarrativeText value={body} />
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <FileText size={20} />
+                      <div>
+                        <h2>Work done</h2>
+                        <p className="panel-subtitle">Summary of the recorded activity</p>
+                      </div>
+                    </div>
+                  </div>
+                  <NarrativeText value={analysis.narrative.workSummary} />
+                </section>
+              )}
+
+              {analysis.derived && (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <Target size={20} />
+                      <div>
+                        <h2>Measured behaviour</h2>
+                        <p className="panel-subtitle">Deterministic figures behind the narrative</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ai-measure-grid">
+                    {[
+                      ["Time utilisation", `${analysis.derived.timeUtilisationPercent}%`],
+                      ["Break share", `${analysis.derived.breakSharePercent}%`],
+                      ["Overtime", formatMinutes(analysis.metrics.overtimeMinutes)],
+                      ["Active vs worked", `${analysis.derived.activeToWorkedPercent}%`],
+                      ["Tracked minutes", `${analysis.derived.trackedMinutes}`],
+                      ["Active minutes", `${analysis.derived.activeMinutes}`],
+                      ["Peak hour", analysis.derived.peakHour || "—"],
+                      ["Longest gap", analysis.derived.longestGapMinutes ? formatMinutes(analysis.derived.longestGapMinutes) : "None"],
+                      ["Screen windows", `${analysis.derived.screenBlocks}`],
+                      ["Focused windows", `${analysis.derived.focusedBlocks}`],
+                    ].map(([label, value]) => (
+                      <div key={label} className="ai-measure"><span>{label}</span><strong>{value}</strong></div>
+                    ))}
+                  </div>
+                  {analysis.derived.topApps.length > 0 && (
+                    <p className="ai-chip-row">
+                      {analysis.derived.topApps.map((app) => (
+                        <span key={app} className="ai-chip">{app}</span>
+                      ))}
+                    </p>
+                  )}
+                </section>
+              )}
+
               <div className="dashboard-grid ai-analysis-grid">
                 <section className="panel">
                   <BarChart
@@ -770,7 +985,32 @@ export default function AiAnalysisPage() {
                 </section>
               </div>
 
-              {analysis.metrics.captures.length > 0 && (
+              {analysis.recommendations?.length ? (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <CheckCircle2 size={20} />
+                      <div>
+                        <h2>Recommended actions</h2>
+                        <p className="panel-subtitle">What the hiring manager should do next</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ai-recommendations">
+                    {analysis.recommendations.map((recommendation, index) => (
+                      <article key={`${recommendation.title}-${index}`} className="ai-recommendation">
+                        <header>
+                          <strong>{recommendation.title}</strong>
+                          <span className={priorityClass(recommendation.priority)}>{recommendation.priority}</span>
+                        </header>
+                        <p>{recommendation.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {(analysis.screenActivity?.blocks.length || analysis.metrics.captures.length) ? (
                 <section className="panel">
                   <div className="panel-header">
                     <div className="panel-title">
@@ -778,23 +1018,47 @@ export default function AiAnalysisPage() {
                       <div>
                         <h2>Screenshot evidence</h2>
                         <p className="panel-subtitle">
-                          Latest {Math.min(MAX_PDF_CAPTURES, analysis.metrics.captures.length)} of {analysis.metrics.monitoring.captureCount} periodic captures (included in the PDF)
+                          {analysis.screenActivity?.blocks.length
+                            ? `${analysis.screenActivity.blocks.length} narrated window(s) from ${analysis.metrics.monitoring.captureCount} periodic captures`
+                            : `Latest ${Math.min(MAX_SHIFT_CAPTURES, analysis.metrics.captures.length)} of ${analysis.metrics.monitoring.captureCount} periodic captures`}
                         </p>
                       </div>
                     </div>
                   </div>
+                  <div className="ai-story-list">
+                    {(analysis.screenActivity?.blocks || []).slice(0, 6).map((block) => (
+                      <article key={`${block.index}-${block.startedAt}`} className="ai-story-beat">
+                        <header>
+                          <span className="ai-story-time">{clockLabel(block.startedAt)}–{clockLabel(block.endedAt)}</span>
+                          <span className="ai-story-activity">{block.activity}</span>
+                        </header>
+                        <p>{block.summary}</p>
+                        {block.apps.length > 0 && (
+                          <p className="ai-chip-row">{block.apps.map((app) => <span key={app} className="ai-chip">{app}</span>)}</p>
+                        )}
+                      </article>
+                    ))}
+                  </div>
                   <div className="ai-capture-strip">
-                    {analysis.metrics.captures.slice(-MAX_PDF_CAPTURES).map((capture) => (
+                    {Object.entries(capturePreviews).slice(0, MAX_SHIFT_CAPTURES).map(([captureId, uri]) => {
+                      const block = analysis.screenActivity?.blocks.find((item) => item.captureId === captureId);
+                      const capture = analysis.metrics.captures.find((item) => item.captureId === captureId);
+                      return (
+                        <figure key={captureId} className="ai-capture-card">
+                          <img alt="Captured screenshot" src={uri} />
+                          <figcaption>{formatDateTime(block?.startedAt || capture?.capturedAt)}</figcaption>
+                        </figure>
+                      );
+                    })}
+                    {!Object.keys(capturePreviews).length && analysis.metrics.captures.slice(-4).map((capture) => (
                       <figure key={capture.captureId} className="ai-capture-card">
-                        {capturePreviews[capture.captureId]
-                          ? <img alt={`Screenshot taken at ${formatDateTime(capture.capturedAt)}`} src={capturePreviews[capture.captureId]} />
-                          : <div className="ai-capture-placeholder">Loading…</div>}
+                        <div className="ai-capture-placeholder">Loading…</div>
                         <figcaption>{formatDateTime(capture.capturedAt)}</figcaption>
                       </figure>
                     ))}
                   </div>
                 </section>
-              )}
+              ) : null}
             </>
           )}
 
@@ -852,10 +1116,18 @@ export default function AiAnalysisPage() {
                   </div>
                   {aggregate.narrative ? (
                     <div className="stack">
-                      <div>
-                        <h3 className="ai-narrative-heading">Period overview</h3>
-                        <p>{aggregate.narrative.narrative.summary || "—"}</p>
-                      </div>
+                      <NarrativeText
+                        value={
+                          aggregate.narrative.narrative.executiveSummary ||
+                          aggregate.narrative.narrative.summary
+                        }
+                      />
+                      {aggregate.narrative.narrative.verdict && (
+                        <div className="ai-verdict">
+                          <h3 className="ai-narrative-heading">Analyst verdict</h3>
+                          <p>{aggregate.narrative.narrative.verdict}</p>
+                        </div>
+                      )}
                       {aggregate.narrative.narrative.highlights.length > 0 && (
                         <ul className="ai-finding-list">
                           {aggregate.narrative.narrative.highlights.map((highlight) => (
@@ -873,19 +1145,185 @@ export default function AiAnalysisPage() {
                     </div>
                   ) : (
                     <p className="muted">
-                      No narrative yet for this period. Use “Generate period summary” to have Gemini write one — it is saved and reused until you regenerate it.
+                      No narrative yet for this period. Press “Generate period summary” to write the long-form report and
+                      download the PDF in one step — it is saved and reused until you regenerate it.
                     </p>
                   )}
                 </section>
               </div>
 
+              <div className="dashboard-grid ai-analysis-grid">
+                <section className="panel">
+                  <BarChart
+                    title="Average performance score per worker"
+                    unit="%"
+                    series={aggregateChartSeries}
+                  />
+                </section>
+                <section className="panel">
+                  <BarChart
+                    title="Average score by week"
+                    unit="%"
+                    series={(aggregate.period?.weeklyTrend || []).map((week) => ({ label: week.label.slice(5), value: week.averageScore }))}
+                  />
+                </section>
+              </div>
+
+              {aggregate.period && (
               <section className="panel">
-                <BarChart
-                  title="Average performance score per worker"
-                  unit="%"
-                  series={aggregateChartSeries}
-                />
+                <div className="panel-header">
+                  <div className="panel-title">
+                    <BarChart3 size={20} />
+                    <div>
+                      <h2>Period at a glance</h2>
+                      <p className="panel-subtitle">Attendance, time and screen coverage across the period</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="ai-measure-grid">
+                  {[
+                    ["Calendar days", `${aggregate.period.dayCount}`],
+                    ["Days recorded", `${aggregate.period.recordedDays}`],
+                    ["Utilisation", `${aggregate.period.utilisationPercent}%`],
+                    ["Presence", `${aggregate.period.presencePercent}%`],
+                    ["On time", `${aggregate.period.attendance.onTime}`],
+                    ["Late", `${aggregate.period.attendance.late}`],
+                    ["Very late", `${aggregate.period.attendance.veryLate}`],
+                    ["Absent", `${aggregate.period.attendance.absent}`],
+                    ["Overtime shifts", `${aggregate.period.attendance.overtime}`],
+                    ["Screenshots stored", `${aggregate.period.screen.screenshots}`],
+                    ["Narrated shifts", `${aggregate.period.screen.narratedShifts}`],
+                    ["Screen windows", `${aggregate.period.screen.blocks}`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="ai-measure"><span>{label}</span><strong>{value}</strong></div>
+                  ))}
+                </div>
+                {aggregate.period.topApps.length > 0 && (
+                  <p className="ai-chip-row">
+                    {aggregate.period.topApps.map((app) => (
+                      <span key={app.name} className="ai-chip">{app.name} · {app.count}</span>
+                    ))}
+                  </p>
+                )}
               </section>
+              )}
+
+              {(aggregate.narrative?.narrative.sections && Object.values(aggregate.narrative.narrative.sections).some(Boolean)) ? (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <FileText size={20} />
+                      <div>
+                        <h2>Detailed period report</h2>
+                        <p className="panel-subtitle">The full written report, section by section</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ai-report-sections">
+                    {PERIOD_SECTION_ORDER.map((section) => {
+                      const body = periodSections[section.key];
+                      if (!body) return null;
+                      return (
+                        <article key={section.key} className="ai-report-section">
+                          <h3>{section.title}</h3>
+                          <NarrativeText value={body} />
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {periodWorkerNotes.length > 0 && (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <Users size={20} />
+                      <div>
+                        <h2>Individual worker profiles</h2>
+                        <p className="panel-subtitle">A written profile and next step for every worker in the period</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ai-worker-profiles">
+                    {periodWorkerNotes.map((note) => (
+                      <article key={note.name} className="ai-worker-profile">
+                        <header>
+                          <strong>{note.name}</strong>
+                        </header>
+                        <NarrativeText value={note.summary} />
+                        {note.strengths.length > 0 && (
+                          <ul className="ai-finding-list">
+                            {note.strengths.map((item) => <li key={item}><CheckCircle2 size={15} />{item}</li>)}
+                          </ul>
+                        )}
+                        {note.watchouts.length > 0 && (
+                          <ul className="ai-finding-list concerns">
+                            {note.watchouts.map((item) => <li key={item}><AlertTriangle size={15} />{item}</li>)}
+                          </ul>
+                        )}
+                        <p className="ai-worker-next"><strong>Next step:</strong> {note.recommendation}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {storyBeats.length > 0 && (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <Clock3 size={20} />
+                      <div>
+                        <h2>The working story</h2>
+                        <p className="panel-subtitle">
+                          {storyBeats.length} chronological windows narrated from the stored screenshots
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <ol className="ai-timeline">
+                    {storyBeats.map((beat, index) => (
+                      <li key={`${beat.shiftId}-${beat.at}-${index}`}>
+                        <span className="ai-timeline-time">{beat.date.slice(5)} · {beat.label || beat.at.slice(11, 16)}</span>
+                        <div>
+                          <strong>{beat.worker} · {beat.activity}</strong>
+                          <p>{beat.summary}</p>
+                          {beat.apps.length > 0 && (
+                            <p className="ai-chip-row">{beat.apps.slice(0, 4).map((app) => <span key={app} className="ai-chip">{app}</span>)}</p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              )}
+
+              {aggCaptures.length > 0 && (
+                <section className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <ScanEye size={20} />
+                      <div>
+                        <h2>Screenshot evidence</h2>
+                        <p className="panel-subtitle">
+                          {aggCaptures.length} captures across the period (included in the PDF)
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ai-capture-strip">
+                    {aggCaptures.map((capture) => (
+                      <figure key={capture.captureId} className="ai-capture-card">
+                        {aggCapturePreviews[capture.captureId]
+                          ? <img alt={`${capture.worker} screenshot`} src={aggCapturePreviews[capture.captureId]} />
+                          : <div className="ai-capture-placeholder">Loading…</div>}
+                        <figcaption>{capture.worker} · {formatDateTime(capture.capturedAt)}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               <section className="panel">
                 <div className="panel-header">
@@ -904,7 +1342,7 @@ export default function AiAnalysisPage() {
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
-                      <tr><th>Worker</th><th>Shifts</th><th>Absent</th><th>Avg score</th><th>Adherence</th><th>Worked</th></tr>
+                      <tr><th>Worker</th><th>Shifts</th><th>Absent</th><th>Avg score</th><th>Adherence</th><th>Worked</th><th>Screen windows</th></tr>
                     </thead>
                     <tbody>
                       {aggregate.rows.map((row) => (
@@ -915,6 +1353,7 @@ export default function AiAnalysisPage() {
                           <td>{row.averageScore}%</td>
                           <td>{row.averageAdherence}%</td>
                           <td>{formatMinutes(row.workedMinutes)}</td>
+                          <td>{row.screenBlocks}</td>
                         </tr>
                       ))}
                     </tbody>

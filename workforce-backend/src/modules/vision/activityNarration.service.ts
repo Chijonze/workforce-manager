@@ -133,9 +133,11 @@ export type GenerateNarrationOptions = {
 /**
  * Builds (or returns) the per-shift screen narration:
  *   capture set → perceptual dedupe → chronological blocks → contact sheet per
- *   block → Gemini vision (OCR text provider as fallback) → persisted summary.
+ *   block + local OCR → multimodal narration (text-only OCR as fallback) →
+ *   persisted summary.
  *
- * Output is cached per shift so a shift is only ever paid for once.
+ * Output is cached per shift so a shift is only ever paid for once, and the
+ * blocks become the storytelling layer of the period report.
  */
 export const generateActivityNarration = async (
   shiftId: string,
@@ -263,7 +265,7 @@ export const generateActivityNarration = async (
         evidence: "",
         concerns: [],
         confidence: 0,
-        source: "gemini",
+        source: "ai",
         model: visionConfig.model,
         ocrChars: 0,
         imageBytes: 0,
@@ -301,7 +303,7 @@ export const generateActivityNarration = async (
           record.model = routed.model;
           record.latencyMs = routed.latencyMs;
           record.ocrChars = ocrText.length;
-          if (routed.source === "gemini") coverage.visionCalls += 1;
+          if (routed.source === "ai") coverage.visionCalls += 1;
         } catch (error) {
           // Vision failed: OCR the frames, then ask the text provider.
           if (!ocrText) ocrText = await ocrForBlock(block, ocrSession, ocrCounter);
@@ -367,8 +369,8 @@ export const generateActivityNarration = async (
     blocks: orderedBlocks,
     overview: composeOverview(orderedBlocks, timeZone),
     coverage,
-    source: narratedBlocks.some((block) => block.source === "gemini")
-      ? "gemini"
+    source: narratedBlocks.some((block) => block.source === "ai")
+      ? "ai"
       : narratedBlocks.some((block) => block.source === "ocr")
         ? "ocr"
         : "none",

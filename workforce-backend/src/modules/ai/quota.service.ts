@@ -1,7 +1,11 @@
 import AiQuotaState from "../../models/AiQuotaState";
 
-const DEFAULT_SCOPE = "gemini";
-const MIN_BLOCK_MS = 30_000;
+const DEFAULT_SCOPE = "ai";
+// A throttle is almost always a concurrency burst, not an account-level cap, so
+// the pause is short: long enough to let the provider drain, short enough that
+// the retry sweep resumes without a manual restart.
+const MIN_BLOCK_MS = 15_000;
+const DEFAULT_RETRY_MS = 60_000;
 
 const dayKey = (timeZone = process.env.BUSINESS_TIME_ZONE || "Africa/Lagos") => {
   try {
@@ -17,31 +21,28 @@ const dayKey = (timeZone = process.env.BUSINESS_TIME_ZONE || "Africa/Lagos") => 
 };
 
 /**
- * Google reports the reset instant inside the 429 message, e.g.
- * "Please retry in 17h49m44.501618946s". Fall back to Retry-After, then to a
- * conservative six hours when the body only says "per day".
+ * Provider throttling responses carry the wait either in a Retry-After header or
+ * inside the error body ("retry after 12 seconds"). Anything else gets a
+ * conservative one-minute pause instead of a hard failure.
  */
-export const parseQuotaResetMs = (body: string, retryAfterHeader?: string | null) => {
+export const parseRetryDelayMs = (body: string, retryAfterHeader?: string | null) => {
   const headerSeconds = Number(retryAfterHeader);
   if (Number.isFinite(headerSeconds) && headerSeconds > 0) return headerSeconds * 1000;
 
-  const match = body.match(/retry in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*([\d.]+)\s*s/i);
-  if (match) {
-    const hours = Number(match[1] || 0);
-    const minutes = Number(match[2] || 0);
-    const seconds = Number(match[3] || 0);
-    const total = ((hours * 60 + minutes) * 60 + seconds) * 1000;
-    if (total > 0) return total;
-  }
+  const seconds = body.match(/retry(?:\s+after)?\s*(?:in)?\s*(\d+(?:\.\d+)?)\s*(?:s\b|sec|second)/i);
+  if (seconds) return Math.max(1000, Number(seconds[1]) * 1000);
 
-  if (/per day|daily/i.test(body)) return 6 * 60 * 60 * 1000;
-  return 0;
+  const millis = body.match(/retry(?:\s+after)?\s*(?:in)?\s*(\d+)\s*ms/i);
+  if (millis) return Math.max(500, Number(millis[1]));
+
+  return DEFAULT_RETRY_MS;
 };
 
-export const isQuotaExhausted = (status: number, body: string) =>
-  status === 429 || /RESOURCE_EXHAUSTED/.test(body);
+export const isThrottled = (status: number, body: string) =>
+  status === 429 ||
+  /rate.?limit|too many requests|concurrency|overloaded/i.test(body);
 
-export const blockQuota = async (options: {
+export const noteProviderThrottle = async (options: {
   retryAfterMs: number;
   model: string;
   reason: string;
@@ -59,10 +60,10 @@ export const blockQuota = async (options: {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).catch((error) => {
     // Never let bookkeeping break a request path.
-    console.error("Could not persist Gemini quota state", error);
+    console.error("Could not persist AI throttle state", error);
   });
   console.warn(
-    `Gemini quota exhausted (${options.model}); blocking calls until ${until.toISOString()} — ${options.reason.slice(
+    `AI provider throttled (${options.model}); pausing calls until ${until.toISOString()} — ${options.reason.slice(
       0,
       160
     )}`
@@ -92,7 +93,7 @@ export const isQuotaBlocked = async () => {
   };
 };
 
-/** Daily narration-attempt budget, so a reset cannot burn the whole cap at once. */
+/** Daily narration-attempt budget, so a retry sweep cannot run away. */
 export const consumeDailyAttempt = async (limit: number) => {
   const key = dayKey();
   const state = await AiQuotaState.findOne({ scope: DEFAULT_SCOPE });
@@ -115,14 +116,17 @@ export const consumeDailyAttempt = async (limit: number) => {
   return { allowed: true, used: used + 1, limit };
 };
 
+/**
+ * Diagnostic view for operators. Deliberately omits the model name: this payload
+ * is reachable from the dashboard and the vendor must stay internal.
+ */
 export const quotaSnapshot = async () => {
   const state = await getQuotaState();
   const blocked = await isQuotaBlocked();
   const key = dayKey();
   return {
-    model: state?.aiModel || "",
     blocked: blocked.blocked,
-    blockedUntil: blocked.blocked ? blocked.until?.toISOString() : null,
+    pausedUntil: blocked.blocked ? blocked.until?.toISOString() : null,
     reason: blocked.blocked ? blocked.reason : null,
     attemptsToday: state?.attemptsDayKey === key ? state.attemptsToday : 0,
     dayKey: key,
