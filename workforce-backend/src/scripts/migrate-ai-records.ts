@@ -40,6 +40,9 @@ const migrate = async () => {
     source: { $nin: reportSources },
   });
   summary.narrationBlocks = await ActivityNarration.countDocuments({
+    // An empty blocks array has no `source` to normalise; excluding it keeps the
+    // counter honest.
+    "blocks.0": { $exists: true },
     "blocks.source": { $nin: narrationSources },
   });
   summary.shiftModel = await ShiftAnalysis.countDocuments({
@@ -76,7 +79,7 @@ const migrate = async () => {
 
   if (summary.narrationBlocks) {
     await ActivityNarration.updateMany(
-      { "blocks.source": { $nin: narrationSources } },
+      { "blocks.0": { $exists: true }, "blocks.source": { $nin: narrationSources } },
       [
         {
           $set: {
