@@ -5,9 +5,12 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, Menu, X } from "lucide-react";
 import { AnnouncementBar } from "@/components/announcement-bar";
-import { AssistantBotIcon } from "@/components/assistant-bot-icon";
+import { AssistantChatIcon } from "@/components/assistant-chat-icon";
 import { useAssistant } from "@/components/assistant-provider";
 import { navigation, site } from "@/lib/site-content";
+
+const assistantButtonClass =
+  "grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-brand-blue to-cyan-500 text-white shadow-[0_10px_24px_rgba(58,108,244,0.35)] ring-1 ring-white/60 transition duration-200 hover:-translate-y-0.5 hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue";
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
@@ -44,13 +47,19 @@ export function SiteHeader() {
           <div className="hidden items-center gap-3 lg:flex">
             <button
               type="button"
-              aria-label={isOpen ? "Close AVS assistant" : "Search with the AVS assistant"}
+              aria-label={isOpen ? "Close the AVS AI assistant" : "Chat with the AVS AI assistant"}
               aria-expanded={isOpen}
-              title="Search with the AVS assistant"
-              className="grid h-11 w-11 place-items-center rounded-full border border-slate-200 text-navy transition hover:border-brand-blue/40 hover:bg-blue-50 hover:text-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+              aria-haspopup="dialog"
+              aria-controls="avs-ai-assistant"
+              title={isOpen ? "Close the AVS AI assistant" : "Chat with the AVS AI assistant"}
+              className={assistantButtonClass}
               onClick={() => (isOpen ? closeAssistant() : openAssistant())}
             >
-              {isOpen ? <X size={18} aria-hidden="true" /> : <AssistantBotIcon size={20} />}
+              {isOpen ? (
+                <X size={18} aria-hidden="true" />
+              ) : (
+                <AssistantChatIcon size={24} />
+              )}
             </button>
             <a
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-brand-blue px-5 py-3 text-sm font-semibold text-white shadow-cta transition duration-200 hover:bg-brand-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
@@ -66,13 +75,19 @@ export function SiteHeader() {
           <div className="flex items-center gap-2 lg:hidden">
             <button
               type="button"
-              aria-label={isOpen ? "Close AVS assistant" : "Search with the AVS assistant"}
+              aria-label={isOpen ? "Close the AVS AI assistant" : "Chat with the AVS AI assistant"}
               aria-expanded={isOpen}
-              title="Search with the AVS assistant"
-              className="grid h-11 w-11 place-items-center rounded-full border border-slate-200 text-navy transition hover:border-brand-blue/40 hover:bg-blue-50 hover:text-brand-blue"
+              aria-haspopup="dialog"
+              aria-controls="avs-ai-assistant"
+              title={isOpen ? "Close the AVS AI assistant" : "Chat with the AVS AI assistant"}
+              className={assistantButtonClass}
               onClick={() => (isOpen ? closeAssistant() : openAssistant())}
             >
-              {isOpen ? <X size={18} aria-hidden="true" /> : <AssistantBotIcon size={20} />}
+              {isOpen ? (
+                <X size={18} aria-hidden="true" />
+              ) : (
+                <AssistantChatIcon size={24} />
+              )}
             </button>
             <button
               className="grid h-11 w-11 place-items-center rounded-full border border-slate-200 text-navy"

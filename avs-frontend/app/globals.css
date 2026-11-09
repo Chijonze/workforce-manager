@@ -90,3 +90,67 @@ textarea:focus {
     width: min(100% - 24px, 1180px);
   }
 }
+
+/* AVS AI assistant launcher ------------------------------------------------
+   A slow glow pulse (never a hard blink) draws the eye to the prompt beside
+   the floating launcher while staying inside accessibility guidance. All
+   motion is disabled for people who prefer reduced motion. */
+@keyframes avs-teaser-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes avs-teaser-flash {
+  0%,
+  100% {
+    box-shadow:
+      0 18px 45px rgba(7, 23, 57, 0.18),
+      0 0 0 0 rgba(58, 108, 244, 0);
+  }
+  45% {
+    box-shadow:
+      0 18px 45px rgba(7, 23, 57, 0.18),
+      0 0 0 8px rgba(58, 108, 244, 0.2);
+  }
+}
+
+@keyframes avs-fab-pulse {
+  0% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+.avs-teaser {
+  animation:
+    avs-teaser-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both,
+    avs-teaser-flash 3.2s ease-in-out 0.9s infinite;
+}
+
+.avs-fab-pulse {
+  animation: avs-fab-pulse 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avs-teaser {
+    animation: none;
+    box-shadow: 0 18px 45px rgba(7, 23, 57, 0.18);
+  }
+
+  .avs-fab-pulse {
+    animation: none;
+    opacity: 0.18;
+  }
+}
+
