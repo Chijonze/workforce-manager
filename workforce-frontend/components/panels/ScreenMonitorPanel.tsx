@@ -423,6 +423,12 @@ export default function ScreenMonitorPanel({
             </div>
           )}
           {!isMonitoring && <span className="screen-placeholder">No active stream</span>}
+          {isMonitoring && !isSwitching && status !== "Live" && (
+            <span className="screen-status-note" role="status">
+              <i aria-hidden="true" className="presence-dot break" />
+              {status}
+            </span>
+          )}
           {isMonitoring && (
             <button
               aria-label="Close stream"

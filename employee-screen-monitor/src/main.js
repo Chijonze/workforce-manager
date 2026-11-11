@@ -1,4 +1,12 @@
-const { app, BrowserWindow, ipcMain, nativeImage, screen, desktopCapturer } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  nativeImage,
+  powerSaveBlocker,
+  screen,
+  desktopCapturer,
+} = require("electron");
 const fs = require("fs");
 const path = require("path");
 const screenshot = require("screenshot-desktop");
@@ -10,6 +18,17 @@ const DEFAULT_CONFIG = {
   jpegQuality: 60,
 };
 
+// Live streaming hardening. The admin viewer is only as reliable as the capture
+// loop below, so every capture is bounded in time, a transient failure retries
+// with backoff instead of ending the stream, and black frames (display off,
+// session locked, capture-protected content) are reported rather than relayed.
+const CAPTURE_TIMEOUT_MS = 8000;
+const CAPTURE_RETRY_BASE_MS = 500;
+const CAPTURE_RETRY_MAX_MS = 30000;
+const STREAM_MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
+const BLANK_FRAME_PIXEL_THRESHOLD = 16;
+const BLANK_FRAME_MIN_RATIO = 0.98;
+
 let mainWindow;
 let socket = null;
 let monitorId = "";
@@ -19,6 +38,11 @@ let captureTimer = null;
 let captureInFlight = false;
 let streaming = false;
 let lastPongAt = 0;
+let cachedConfig = null;
+let captureGeneration = 0;
+let captureFailures = 0;
+let displaySleepBlockerId = null;
+let reportedStreamState = "";
 let currentStatus = {
   status: "Disconnected",
   detail: "",
@@ -61,12 +85,23 @@ function getConfigPath() {
   return path.join(__dirname, "..", "screen-monitor.config.json");
 }
 
+// Re-read on each connect, then serve from memory: the capture loop reads the
+// config several times a second and must not hit the disk on that path.
 function getConfig() {
-  return {
-    ...DEFAULT_CONFIG,
-    ...(readJson(getConfigPath()) || {}),
-    serverUrl: process.env.WF_SCREEN_MONITOR_WS_URL || (readJson(getConfigPath()) || {}).serverUrl || DEFAULT_CONFIG.serverUrl,
-  };
+  if (!cachedConfig) {
+    const fileConfig = readJson(getConfigPath()) || {};
+
+    cachedConfig = {
+      ...DEFAULT_CONFIG,
+      ...fileConfig,
+      serverUrl:
+        process.env.WF_SCREEN_MONITOR_WS_URL ||
+        fileConfig.serverUrl ||
+        DEFAULT_CONFIG.serverUrl,
+    };
+  }
+
+  return cachedConfig;
 }
 
 function getStatePath() {
@@ -105,11 +140,17 @@ function stopHeartbeat() {
 
 function stopCapture() {
   streaming = false;
+  captureInFlight = false;
+  captureGeneration += 1;
+  captureFailures = 0;
 
   if (captureTimer) {
-    clearInterval(captureTimer);
+    clearTimeout(captureTimer);
     captureTimer = null;
   }
+
+  allowDisplaySleep();
+  reportStreamState("idle");
 }
 
 function closeSocket() {
@@ -139,38 +180,219 @@ function scheduleReconnect() {
   }, 3000);
 }
 
-async function captureFrame() {
-  if (!socket || socket.readyState !== WebSocket.OPEN || captureInFlight) return;
+// The capture helper is a child process (cmd.exe -> a .NET BitBlt snapshotted to
+// a temp file on Windows). It can hang on a locked session, a first-run compile,
+// or an antivirus scan. Without a timeout the in-flight flag would stay set and
+// the stream would freeze forever while the UI still claimed to be live.
+function withTimeout(promise, timeoutMs, message) {
+  // Mark the source promise handled: when the timeout wins, the original
+  // operation may still settle later and must not surface as unhandled.
+  promise.catch(() => undefined);
 
+  let timer = null;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+// Stream state is deduplicated so a display that stays off does not flood the
+// relay, while the dashboard still learns why frames are not moving.
+function reportStreamState(state, detail = "") {
+  const key = `${state}|${detail}`;
+  if (reportedStreamState === key) return false;
+
+  reportedStreamState = key;
+  sendMonitoringJson({
+    type: "stream-state",
+    state,
+    detail: String(detail || "").slice(0, 180),
+  });
+
+  return true;
+}
+
+// Without this the worker's display follows the OS power plan (often 10-15
+// minutes) and the observer sees the screen go black mid-session.
+function preventDisplaySleep() {
+  if (displaySleepBlockerId !== null) return;
+
+  try {
+    displaySleepBlockerId = powerSaveBlocker.start("prevent-display-sleep");
+  } catch {
+    displaySleepBlockerId = null;
+  }
+}
+
+function allowDisplaySleep() {
+  if (displaySleepBlockerId === null) return;
+
+  try {
+    if (powerSaveBlocker.isStarted(displaySleepBlockerId)) {
+      powerSaveBlocker.stop(displaySleepBlockerId);
+    }
+  } catch {
+    // Nothing left to release.
+  }
+
+  displaySleepBlockerId = null;
+}
+
+// A frame where nearly every sampled pixel is black means the display is off,
+// asleep or the session is locked (capture-protected windows also read black).
+// Relaying it would replace the last useful frame with a black rectangle.
+function isBlankFrame(image) {
+  try {
+    const original = image.getSize();
+    if (!original.width || !original.height) return true;
+
+    // Sample a thumbnail: toBitmap() on a 4K frame would copy ~33MB per frame
+    // just to look at a few hundred pixels.
+    const sample = original.width > 160 ? image.resize({ width: 160 }) : image;
+    const { width, height } = sample.getSize();
+    const bitmap = sample.toBitmap();
+    const stepX = Math.max(1, Math.floor(width / 32));
+    const stepY = Math.max(1, Math.floor(height / 24));
+    let samples = 0;
+    let blank = 0;
+
+    for (let y = 0; y < height; y += stepY) {
+      for (let x = 0; x < width; x += stepX) {
+        const offset = (y * width + x) * 4;
+        if (offset + 2 >= bitmap.length) continue;
+
+        samples += 1;
+        if (
+          bitmap[offset] <= BLANK_FRAME_PIXEL_THRESHOLD &&
+          bitmap[offset + 1] <= BLANK_FRAME_PIXEL_THRESHOLD &&
+          bitmap[offset + 2] <= BLANK_FRAME_PIXEL_THRESHOLD
+        ) {
+          blank += 1;
+        }
+      }
+    }
+
+    return samples > 0 && blank / samples >= BLANK_FRAME_MIN_RATIO;
+  } catch {
+    return false;
+  }
+}
+
+function getCaptureIntervalMs() {
+  const fps = Math.max(1, Math.min(5, Number(getConfig().captureFps) || 5));
+  return Math.max(200, Math.floor(1000 / fps));
+}
+
+async function captureFrame() {
+  if (!streaming || !socket || socket.readyState !== WebSocket.OPEN || captureInFlight) {
+    return true;
+  }
+
+  // The viewer is behind: dropping this beat is cheaper than queueing frames in
+  // memory on the worker's machine.
+  if (socket.bufferedAmount > STREAM_MAX_BUFFERED_BYTES) return true;
+
+  const generation = captureGeneration;
   captureInFlight = true;
 
   try {
     const config = getConfig();
-    const png = await screenshot({ format: "png" });
+    const png = await withTimeout(
+      screenshot({ format: "png" }),
+      CAPTURE_TIMEOUT_MS,
+      "Screen capture timed out"
+    );
+
+    // Stop/restart happened while the capture was in flight: drop the frame.
+    if (generation !== captureGeneration || !streaming) return true;
+
     const image = nativeImage.createFromBuffer(png);
 
     if (image.isEmpty()) {
       throw new Error("Screen capture returned an empty image");
     }
 
+    if (isBlankFrame(image)) {
+      if (reportStreamState("blank", "Worker display is off or the session is locked")) {
+        setStatus("Waiting", "Screen is off or locked");
+      }
+
+      captureFailures = 0;
+      return true;
+    }
+
+    if (reportStreamState("live")) {
+      setStatus("Live", "Screen is live on the monitoring dashboard.");
+    }
+
     const jpeg = image.toJPEG(Math.max(1, Math.min(100, Number(config.jpegQuality) || 60)));
-    socket.send(jpeg, { binary: true });
+
+    try {
+      socket.send(jpeg, { binary: true });
+    } catch {
+      // Socket is closing; its close handler restarts the loop on reconnect.
+      return true;
+    }
+
+    captureFailures = 0;
+    return true;
   } catch (error) {
-    stopCapture();
-    setStatus("Waiting", getCaptureErrorMessage(error));
+    if (generation !== captureGeneration) return true;
+
+    captureFailures += 1;
+    const detail = getCaptureErrorMessage(error);
+    setStatus("Waiting", detail);
+    reportStreamState("error", detail);
+    return false;
   } finally {
-    captureInFlight = false;
+    // A stop/restart may have already cleared the flag; do not let this stale
+    // capture clobber the in-flight state of the new loop.
+    if (generation === captureGeneration) {
+      captureInFlight = false;
+    }
   }
+}
+
+function scheduleNextCapture(delayMs) {
+  if (!streaming) return;
+
+  if (captureTimer) clearTimeout(captureTimer);
+
+  captureTimer = setTimeout(() => {
+    captureTimer = null;
+    if (!streaming) return;
+
+    void captureFrame().then((ok) => {
+      if (!streaming) return;
+
+      if (ok) {
+        scheduleNextCapture(getCaptureIntervalMs());
+        return;
+      }
+
+      // Exponential backoff (500ms -> 30s) keeps a consistently failing capture
+      // from hammering the machine, while still recovering on its own when the
+      // worker unlocks the screen again.
+      const backoff = Math.min(
+        CAPTURE_RETRY_MAX_MS,
+        CAPTURE_RETRY_BASE_MS * Math.pow(2, Math.min(6, captureFailures))
+      );
+      scheduleNextCapture(backoff);
+    });
+  }, delayMs);
 }
 
 function startCapture() {
   if (streaming) return;
 
-  const config = getConfig();
-  const fps = Math.max(1, Math.min(10, Number(config.captureFps) || 5));
   streaming = true;
-  captureFrame();
-  captureTimer = setInterval(captureFrame, Math.floor(1000 / fps));
+  captureFailures = 0;
+  captureGeneration += 1;
+  preventDisplaySleep();
+  scheduleNextCapture(0);
 }
 
 function getCaptureErrorMessage(error) {
@@ -466,6 +688,8 @@ function startHeartbeat(activeSocket) {
 
 function connect(id) {
   monitorId = id.trim();
+  // Pick up config edits (server URL, fps) on every reconnect.
+  cachedConfig = null;
 
   if (!monitorId) {
     setStatus("Disconnected", "Monitor ID is required");

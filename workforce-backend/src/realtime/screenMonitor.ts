@@ -27,7 +27,18 @@ type ScreenClient = {
   allowedEmployeeIds?: Set<string> | null;
   userId?: string;
   monitoringCaptureMeta?: { shiftId: string; width: number; height: number; protocol: number };
+  missedHeartbeats?: number;
+  // Last capture health reported by the desktop agent, replayed to a viewer
+  // that joins while the worker's display is already off or failing.
+  streamState?: { state: string; detail: string };
 };
+
+// A watching browser that stops reading (background tab, slow link) must not
+// make the relay buffer frames without bound.
+const MAX_RELAY_BUFFERED_BYTES = 4 * 1024 * 1024;
+// The worker's desktop agent is also busy capturing, so one slow pong is not
+// proof the socket is dead; only two consecutive misses are.
+const MAX_MISSED_HEARTBEATS = 2;
 
 type EmployeeActivityState =
   | "available"
@@ -144,9 +155,10 @@ function monitorIdMatchesAgent(monitorId: string, agent: any) {
 }
 
 function sendJson(socket: WebSocket, value: unknown) {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(safeJson(value));
-  }
+  if (socket.readyState !== WebSocket.OPEN) return;
+  if (socket.bufferedAmount > MAX_RELAY_BUFFERED_BYTES) return;
+
+  socket.send(safeJson(value));
 }
 
 function getVisibleEmployeeIds(admin: ScreenClient) {
@@ -417,6 +429,13 @@ function broadcastPresence() {
 
 function closeClient(client: ScreenClient) {
   if (client.type === "employee") {
+    // A reconnect closes the previous socket, and that close event can arrive
+    // after the replacement has registered under the same id. Only the socket
+    // that still owns the id may clear presence, mark the desktop agent gone,
+    // or tell watching admins the worker went offline - otherwise a reconnect
+    // drops the live agent from presence and kills the manager's viewer.
+    if (employees.get(client.id) !== client) return;
+
     employees.delete(client.id);
 
     if (client.userId) {
@@ -476,9 +495,13 @@ async function getMonitorAuth(token: string | null) {
 
 function sendToWatchingAdmins(employeeId: string, frame: Buffer) {
   for (const admin of admins) {
-    if (admin.watchingId === employeeId && admin.socket.readyState === WebSocket.OPEN) {
-      admin.socket.send(frame, { binary: true });
-    }
+    if (admin.watchingId !== employeeId || admin.socket.readyState !== WebSocket.OPEN) continue;
+
+    // Drop frames for a viewer that is not draining instead of growing the
+    // relay process's memory with a backlog nobody will watch.
+    if (admin.socket.bufferedAmount > MAX_RELAY_BUFFERED_BYTES) continue;
+
+    admin.socket.send(frame, { binary: true });
   }
 }
 
@@ -494,6 +517,7 @@ async function registerEmployee(client: ScreenClient) {
   if (client.socket.readyState !== WebSocket.OPEN) return;
 
   const existing = employees.get(client.id);
+  const isNewRegistration = existing !== client;
 
   if (existing && existing !== client) {
     existing.socket.close(1000, "Employee reconnected");
@@ -501,6 +525,21 @@ async function registerEmployee(client: ScreenClient) {
 
   employees.set(client.id, client);
   broadcastPresence();
+
+  // A manager may still be watching this worker when the agent reconnects. Ask
+  // the fresh agent to resume streaming right away so the viewer is not left
+  // frozen on its last frame until someone restarts the monitor by hand.
+  const watchers = [...admins].filter(
+    (admin) => admin.watchingId === client.id && admin.socket.readyState === WebSocket.OPEN
+  );
+
+  if (isNewRegistration && watchers.length) {
+    sendJson(client.socket, { action: "START_STREAM" });
+
+    for (const admin of watchers) {
+      sendJson(admin.socket, { type: "stream", event: "resumed", id: client.id });
+    }
+  }
 
   // Desktop-wide activity monitoring handoff: if this worker has an active
   // monitored shift, the freshly connected agent takes over the remaining
@@ -544,11 +583,19 @@ export function attachScreenMonitorServer(server: http.Server) {
   const heartbeat = setInterval(() => {
     for (const client of [...employees.values(), ...admins]) {
       if (!client.isAlive) {
+        client.missedHeartbeats = (client.missedHeartbeats || 0) + 1;
+
+        if (client.missedHeartbeats < MAX_MISSED_HEARTBEATS) {
+          client.socket.ping();
+          continue;
+        }
+
         client.socket.terminate();
         closeClient(client);
         continue;
       }
 
+      client.missedHeartbeats = 0;
       client.isAlive = false;
       client.socket.ping();
     }
@@ -663,6 +710,24 @@ export function attachScreenMonitorServer(server: http.Server) {
             return;
           }
 
+          if (message?.type === "stream-state") {
+            // Capture health from the desktop agent (live / blank / error /
+            // idle) is remembered and forwarded to whoever is watching this
+            // worker, so the dashboard can explain a frozen frame instead of
+            // looking broken.
+            const state = String(message.state || "");
+            const detail = String(message.detail || "").slice(0, 180);
+
+            client.streamState = { state, detail };
+
+            for (const admin of admins) {
+              if (admin.watchingId !== client.id) continue;
+
+              sendJson(admin.socket, { type: "stream-state", state, detail });
+            }
+            return;
+          }
+
           if (client.userId && message?.type === "monitoring-mouse") {
             try {
               await addMouseSamples(
@@ -742,6 +807,13 @@ export function attachScreenMonitorServer(server: http.Server) {
           client.watchingId = employee.id;
           sendJson(employee.socket, { action: "START_STREAM" });
           sendJson(socket, { type: "stream", event: "started", id: employee.id });
+
+          // A viewer that joins mid-blackout still learns why frames are not
+          // moving: the agent only announces state changes.
+          if (employee.streamState) {
+            sendJson(socket, { type: "stream-state", ...employee.streamState });
+          }
+
           return;
         }
 

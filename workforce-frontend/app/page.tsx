@@ -67,6 +67,14 @@ const STRONG_PASSWORD_PATTERN = "(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
 const STRONG_PASSWORD_HINT = "Use at least 12 characters, including uppercase, lowercase, a number, and a symbol.";
 
+// Live screen monitor resilience: how long the viewer tolerates silence before
+// it assumes the feed stalled, how many times it asks the agent to resume, and
+// how long it keeps the view open while a reconnecting agent comes back.
+const MONITOR_WATCHDOG_INTERVAL_MS = 5_000;
+const MONITOR_FRAME_STALE_MS = 15_000;
+const MONITOR_STREAM_MAX_RETRIES = 3;
+const MONITOR_OFFLINE_GRACE_MS = 30_000;
+
 type MfaSetup = { manualKey: string; otpauthUrl: string };
 
 type AuthResponse = {
@@ -182,6 +190,14 @@ export default function Home() {
   const switchTargetRef = useRef("");
   const switchTimeoutRef = useRef<number | null>(null);
   const awaitingSwitchFrameRef = useRef(false);
+  const monitorFrameAtRef = useRef(0);
+  const monitorStreamStartedAtRef = useRef(0);
+  const monitorStreamRetryRef = useRef(0);
+  const monitorOfflineTimerRef = useRef<number | null>(null);
+  // Capture health last reported by the agent: while the worker's display is
+  // off or the capture is failing, silence is expected and must not be
+  // relabelled as a stalled stream.
+  const monitorCaptureStateRef = useRef<"live" | "blank" | "error">("live");
 
   const isAdmin = user?.role === "admin";
   const isSupervisor = user?.role === "supervisor";
@@ -364,6 +380,44 @@ export default function Home() {
 
     return () => window.clearInterval(timer);
   }, [canMonitorWorkforce, isSupervisor, overviewDate, token]);
+
+  // Live-feed watchdog. A desktop agent can stop sending frames without closing
+  // its socket (locked session, hung capture helper, reconnect), which used to
+  // leave the viewer frozen on its last frame while the header still said
+  // "Live" - reported by managers as the screen "going off". Nudge the agent
+  // and surface the stall; the relay resumes the stream by itself once the
+  // agent is back.
+  useEffect(() => {
+    if (!isMonitoring) return;
+
+    const timer = window.setInterval(() => {
+      const socket = monitorSocketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || isSwitchingStream) return;
+
+      // The agent already explained the silence (display off, capture error);
+      // retrying would only overwrite a truthful status with "stalled".
+      if (monitorCaptureStateRef.current !== "live") return;
+
+      const lastActivityAt = Math.max(
+        monitorFrameAtRef.current,
+        monitorStreamStartedAtRef.current
+      );
+
+      if (!lastActivityAt || Date.now() - lastActivityAt < MONITOR_FRAME_STALE_MS) return;
+
+      if (monitorStreamRetryRef.current >= MONITOR_STREAM_MAX_RETRIES) {
+        setMonitorStatus("Stream stalled");
+        return;
+      }
+
+      monitorStreamRetryRef.current += 1;
+      monitorStreamStartedAtRef.current = Date.now();
+      setMonitorStatus("Reconnecting stream…");
+      socket.send(JSON.stringify({ action: "START_STREAM", id: selectedMonitorId }));
+    }, MONITOR_WATCHDOG_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [isMonitoring, isSwitchingStream, selectedMonitorId]);
 
   // Shift monitoring runs for the whole active shift: mouse tracking from
   // Available to End shift plus one screenshot every 15 minutes over the same
@@ -966,6 +1020,11 @@ export default function Home() {
     monitorObjectUrlRef.current = objectUrl;
 
     image.onload = () => {
+      // Any decoded frame proves the feed is alive: reset the stall watchdog.
+      monitorFrameAtRef.current = Date.now();
+      monitorStreamRetryRef.current = 0;
+      clearMonitorOfflineTimer();
+
       canvas.width = image.naturalWidth || 1280;
       canvas.height = image.naturalHeight || 720;
       context.clearRect(0, 0, canvas.width, canvas.height);
@@ -993,10 +1052,22 @@ export default function Home() {
     image.src = objectUrl;
   }
 
+  function clearMonitorOfflineTimer() {
+    if (monitorOfflineTimerRef.current !== null) {
+      window.clearTimeout(monitorOfflineTimerRef.current);
+      monitorOfflineTimerRef.current = null;
+    }
+  }
+
   function stopScreenMonitor() {
     const socket = monitorSocketRef.current;
 
     clearStreamSwitch();
+    clearMonitorOfflineTimer();
+    monitorFrameAtRef.current = 0;
+    monitorStreamStartedAtRef.current = 0;
+    monitorStreamRetryRef.current = 0;
+    monitorCaptureStateRef.current = "live";
 
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ action: "STOP_STREAM", id: selectedMonitorId }));
@@ -1085,6 +1156,10 @@ export default function Home() {
     socket.binaryType = "blob";
 
     socket.onopen = () => {
+      monitorFrameAtRef.current = 0;
+      monitorStreamStartedAtRef.current = Date.now();
+      monitorStreamRetryRef.current = 0;
+      monitorCaptureStateRef.current = "live";
       setIsMonitoring(true);
       setMonitorStatus("Live");
       socket.send(JSON.stringify({ action: "START_STREAM", id: selectedMonitorId }));
@@ -1100,6 +1175,8 @@ export default function Home() {
         const message = JSON.parse(String(event.data)) as {
           type?: string;
           event?: string;
+          state?: string;
+          detail?: string;
           message?: string;
           employees?: string[];
           assignedEmployees?: ScreenMonitorEmployee[];
@@ -1116,17 +1193,61 @@ export default function Home() {
           return;
         }
 
-        if (message.type === "stream" && message.event === "started") {
+        if (
+          message.type === "stream" &&
+          (message.event === "started" || message.event === "resumed")
+        ) {
           // The server has re-targeted the watcher; frames from here on belong
           // to the new worker. The switch overlay clears on the first frame.
           if (switchTargetRef.current) {
             awaitingSwitchFrameRef.current = true;
           }
+
+          monitorStreamStartedAtRef.current = Date.now();
+          monitorStreamRetryRef.current = 0;
           setMonitorStatus("Live");
           return;
         }
 
-        if (message.event === "employee_unavailable" || message.event === "employee_offline") {
+        if (message.type === "stream-state") {
+          // Capture health reported by the desktop agent: a worker whose display
+          // is off or locked must read as such instead of looking like a frozen
+          // or broken viewer.
+          if (message.state === "blank") {
+            monitorCaptureStateRef.current = "blank";
+            setMonitorStatus("Display off or locked");
+          } else if (message.state === "error") {
+            monitorCaptureStateRef.current = "error";
+            setMonitorStatus("Capture interrupted");
+          } else if (message.state === "live") {
+            monitorCaptureStateRef.current = "live";
+            setMonitorStatus("Live");
+          }
+          return;
+        }
+
+        if (message.event === "employee_offline") {
+          // The agent dropped its socket but usually reconnects within seconds,
+          // and the relay asks it to resume streaming automatically. Keep the
+          // view open instead of tearing it down on the first blip.
+          setMonitorStatus("Agent offline – reconnecting…");
+          clearMonitorOfflineTimer();
+          monitorOfflineTimerRef.current = window.setTimeout(() => {
+            if (monitorSocketRef.current !== socket) return;
+            notify("error", "Agent went offline; live view closed");
+            stopScreenMonitor();
+          }, MONITOR_OFFLINE_GRACE_MS);
+          return;
+        }
+
+        if (message.event === "employee_unavailable") {
+          if (monitorFrameAtRef.current) {
+            // The worker vanished mid-stream (agent closed, shift ended); give
+            // the reconnect grace before declaring the view dead.
+            setMonitorStatus("Agent offline – reconnecting…");
+            return;
+          }
+
           notify("error", "Selected employee is not available for monitoring");
           stopScreenMonitor();
           return;
@@ -1149,6 +1270,7 @@ export default function Home() {
       if (monitorSocketRef.current === socket) {
         monitorSocketRef.current = null;
       }
+      clearMonitorOfflineTimer();
       setIsMonitoring(false);
       setMonitorStatus("Disconnected");
       clearMonitorCanvas();
