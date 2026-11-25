@@ -10,9 +10,11 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   assistantProfiles,
+  deliveryPlatform,
   faqs,
   industries,
   processSteps,
+  reportSections,
   serviceGuarantees,
   services,
   site,
@@ -21,14 +23,14 @@ import {
 export const metadata: Metadata = {
   title: "Virtual Assistant Services",
   description:
-    "Explore virtual assistant services: administrative support, executive assistance, customer support, marketing, lead generation, website management, content creation, and project coordination.",
+    "Explore managed virtual assistant services with planned shifts, verified hours, screen-backed reporting and itemised invoicing — across administrative, executive, customer support, marketing, lead generation, website, content and project coordination.",
 };
 
 const serviceSpecs = [
-  { icon: Clock, label: "Hours", detail: "UK/EU business hours with flexibility for urgent tasks" },
+  { icon: Clock, label: "Hours", detail: "Agreed shift patterns in your time zone, with breaks, meetings and coverage planned and tracked" },
   { icon: Wrench, label: "Tools", detail: "We work in your stack: Slack, HubSpot, Shopify, Notion, Asana, Trello, Google Workspace, and more" },
-  { icon: UsersRound, label: "Team", detail: "One dedicated assistant, backed by account management and cover support" },
-  { icon: CreditCard, label: "Billing", detail: "Flexible hourly rates with transparent tracking and reporting" },
+  { icon: UsersRound, label: "Team", detail: "One dedicated assistant, backed by an account manager and planned cover" },
+  { icon: CreditCard, label: "Billing", detail: "£4.50/hr from recorded hours, with itemised invoices you can reconcile line by line" },
 ];
 
 export default function ServicesPage() {
@@ -36,7 +38,7 @@ export default function ServicesPage() {
     <PageFrame
       eyebrow="Services"
       title="Virtual Assistant Services Built Around Growth"
-      summary="Eight specialised service lines delivered by dedicated, vetted assistants — supported by managed onboarding, SOP-driven execution, and transparent reporting. Mix and match services as your needs change."
+      summary="Eight specialised service lines delivered by dedicated, vetted assistants — supported by managed onboarding, verified hours, SOP-driven execution and transparent reporting. Mix and match services as your needs change."
     >
       {/* Detailed services */}
       <MotionSection className="section-shell py-20">
@@ -108,6 +110,66 @@ export default function ServicesPage() {
           </div>
         </div>
       </section>
+
+      {/* Delivery platform */}
+      <MotionSection className="section-shell py-20">
+        <SectionHeading
+          eyebrow="Inside the Account"
+          title="The Delivery System Behind Your Assistant"
+          summary="You are not buying hours and hoping. Every engagement includes planned shifts, verified attendance, screen-backed evidence, written reports and itemised invoices."
+        />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {deliveryPlatform.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm" key={item.title}>
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-brand-blue">
+                  <Icon size={20} />
+                </span>
+                <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  {item.tag}
+                </p>
+                <h3 className="mt-1 font-heading text-base font-bold text-navy">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-12 grid gap-6 lg:grid-cols-2">
+          <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-blue">
+              Inside a shift report
+            </p>
+            <ul className="mt-5 grid gap-4">
+              {reportSections.map((section) => (
+                <li className="flex gap-3" key={section.title}>
+                  <CheckCircle2 className="mt-0.5 shrink-0 text-brand-green" size={16} />
+                  <div>
+                    <p className="text-sm font-bold text-navy">{section.title}</p>
+                    <p className="text-sm leading-6 text-slate-600">{section.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-3xl bg-navy p-7 text-white">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-green">
+              What lands in your inbox
+            </p>
+            <ul className="mt-5 grid gap-3 text-sm leading-6 text-slate-300">
+              <li>Shift reports with attendance, activity evidence and coaching notes</li>
+              <li>A weekly or monthly review with recommendations for the next period</li>
+              <li>An itemised invoice built from the hours recorded on shift</li>
+              <li>Advance notice of leave, handover notes and the cover plan</li>
+              <li>A direct line to your account manager for escalations</li>
+            </ul>
+            <p className="mt-6 text-xs font-semibold text-slate-400">
+              You do not manage the system — we do. You get the evidence, the reports and the decisions.
+            </p>
+          </div>
+        </div>
+      </MotionSection>
 
       {/* Assistant profiles */}
       <MotionSection className="section-shell py-20">
@@ -189,7 +251,7 @@ export default function ServicesPage() {
                 <ShieldCheck className="mt-0.5 shrink-0 text-brand-green" size={18} />
                 <p className="text-sm leading-6 text-slate-300">
                   <span className="font-bold text-white">Onboarding: </span>
-                  5-day typical onboarding with clear handover documentation
+                  shift schedule, SOPs, tool access and reporting set up in week one
                 </p>
               </div>
             </div>
@@ -252,7 +314,20 @@ export default function ServicesPage() {
           summary="The details most clients want before choosing their service mix."
         />
         <div className="mx-auto mt-12 max-w-3xl">
-          <FAQAccordion items={faqs} />
+          <FAQAccordion
+            items={faqs.filter((faq) =>
+              [
+                "How is work planned and scheduled?",
+                "What reporting will I receive?",
+                "Do you monitor your assistants' screens?",
+                "How do you keep quality consistent?",
+                "What happens if my assistant is on leave or off sick?",
+                "Can assistants use our software?",
+                "Which industries do you support?",
+                "Do you offer legal services or legal advice?",
+              ].includes(faq.question),
+            )}
+          />
         </div>
       </MotionSection>
 

@@ -21,7 +21,7 @@ export function RagChatWidget({ open, onClose }: RagChatWidgetProps) {
     {
       role: "assistant",
       content:
-        "Hi there! 👋 I'm the AVS assistant. Ask me anything about our virtual assistant services — pricing, onboarding, security, or what you can delegate.",
+        "Hi there! 👋 I'm the AVS assistant. Ask me anything about our virtual assistant services — pricing, onboarding, how delivery and reporting work, security, or what you can delegate.",
     },
   ]);
   const [input, setInput] = useState("");

@@ -24,6 +24,11 @@ export default function AboutPage() {
               trained virtual assistants with clear process design and managed execution.
              By putting people at the heart of our operations, we ensure your daily support feels calm, and deeply human.
           </p>
+          <p className="mt-5 text-base leading-8 text-slate-600">
+            Every engagement runs on a managed delivery platform that plans shifts, verifies attendance, captures
+            screen-backed evidence and turns it into plain-English reports for hiring managers. That means our people
+            are accountable, and you are never guessing what you are paying for.
+          </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           {values.map((value) => (

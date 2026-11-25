@@ -11,12 +11,15 @@ export const metadata: Metadata = {
     template: "%s | Advanced Virtual Solutions",
   },
   description:
-    "Dedicated virtual assistant services for founders, agencies, coaches, eCommerce brands, and growing teams. Executive virtual assistance, remote assistants, and virtual staffing from £4.50/hr with fast onboarding.",
+    "Managed virtual assistant services for founders, agencies, coaches, eCommerce brands and growing teams — planned shifts, verified hours, screen-backed reporting and itemised invoicing from £4.50/hr.",
   keywords: [
     "virtual assistant services",
     "executive virtual assistant",
     "remote assistant",
     "virtual staffing",
+    "managed virtual assistant services",
+    "virtual assistant reporting",
+    "verified timesheets",
     "business support services",
     "administrative support",
     "lead generation support",
@@ -25,7 +28,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Advanced Virtual Solutions | Scale Without the Day-to-Day",
     description:
-      "Dedicated virtual assistants helping founders and growing teams save 20+ hours a week. Book a free consultation.",
+      "Dedicated virtual assistants helping founders and growing teams save 20+ hours a week — with every shift scheduled, verified and reported. Book a free consultation.",
     url: site.domain,
     siteName: site.name,
     images: [site.logo],

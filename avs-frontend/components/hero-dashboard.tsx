@@ -3,12 +3,11 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Bell,
+  BadgeCheck,
   CalendarCheck2,
-  CheckCheck,
   Clock3,
+  FileText,
   TrendingUp,
-  Video,
 } from "lucide-react";
 
 const weekDays = ["M", "T", "W", "T", "F", "S", "S"];
@@ -23,16 +22,16 @@ const calendarDays = [
 ];
 
 const tasks = [
-  { label: "Inbox triage", progress: 92, tag: "Done daily" },
-  { label: "Client report draft", progress: 68, tag: "Due 4pm" },
-  { label: "Lead list build", progress: 45, tag: "In progress" },
+  { label: "Shift adherence", progress: 98, tag: "On schedule" },
+  { label: "Attendance", progress: 100, tag: "On time" },
+  { label: "Hours verified", progress: 92, tag: "32.5 hrs" },
 ];
 
 const notifications = [
-  { icon: CheckCheck, title: "12 emails answered", detail: "Inbox zero reached", tone: "bg-brand-green" },
-  { icon: CalendarCheck2, title: "Meeting scheduled", detail: "Client sync — Thu 10:30", tone: "bg-brand-blue" },
-  { icon: Video, title: "Interview confirmed", detail: "Candidate pack prepared", tone: "bg-navy" },
-  { icon: Bell, title: "Follow-up sent", detail: "3 leads contacted", tone: "bg-brand-green" },
+  { icon: BadgeCheck, title: "Shift verified", detail: "09:00–17:00 · on time", tone: "bg-brand-green" },
+  { icon: FileText, title: "Shift report ready", detail: "Attendance, activity, coaching", tone: "bg-navy" },
+  { icon: CalendarCheck2, title: "Cover confirmed", detail: "Leave Thu — replacement briefed", tone: "bg-brand-blue" },
+  { icon: Clock3, title: "Hours reconciled", detail: "32.5 hrs · invoice ready", tone: "bg-brand-green" },
 ];
 
 export function HeroDashboard() {
@@ -56,14 +55,14 @@ export function HeroDashboard() {
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
             <p className="font-heading text-sm font-bold text-navy">This week at a glance</p>
-            <p className="text-xs font-medium text-slate-500">Managed by your dedicated AVS assistant</p>
+            <p className="text-xs font-medium text-slate-500">Managed and verified by the AVS delivery platform</p>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-brand-green-dark">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-green opacity-60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-green" />
             </span>
-            Assistant online
+            Shift verified
           </span>
         </div>
 
@@ -98,7 +97,7 @@ export function HeroDashboard() {
 
           <div className="rounded-2xl border border-slate-100 bg-white p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Task progress</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Delivery health</p>
               <TrendingUp className="text-brand-green" size={16} />
             </div>
             <ul className="mt-3 grid gap-3">
@@ -139,13 +138,13 @@ export function HeroDashboard() {
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center">
               <Clock3 className="mx-auto text-brand-blue" size={16} />
-              <p className="mt-1 font-heading text-lg font-extrabold text-navy">22.5</p>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Hrs saved</p>
+              <p className="mt-1 font-heading text-lg font-extrabold text-navy">32.5</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Hrs verified</p>
             </div>
             <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center">
-              <CheckCheck className="mx-auto text-brand-green" size={16} />
-              <p className="mt-1 font-heading text-lg font-extrabold text-navy">46</p>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Tasks done</p>
+              <FileText className="mx-auto text-brand-green" size={16} />
+              <p className="mt-1 font-heading text-lg font-extrabold text-navy">8</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Reports sent</p>
             </div>
           </div>
         </div>
@@ -184,9 +183,9 @@ export function HeroDashboard() {
         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
         className="absolute -bottom-8 -left-4 hidden w-60 rounded-2xl border border-slate-100 bg-white p-3 shadow-card sm:block lg:-left-12"
       >
-        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Weekly report</p>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Weekly review</p>
         <p className="mt-1 text-xs font-semibold text-navy">
-          Client approved this week&apos;s deliverables ✅
+          98% adherence · 2 coaching actions for next week
         </p>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
           <div className="h-full w-[86%] rounded-full bg-brand-green" />

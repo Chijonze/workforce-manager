@@ -17,6 +17,7 @@ import { Card } from "@/components/ui/card";
 import {
   caseStudies,
   delegationTasks,
+  deliveryPlatform,
   faqs,
   heroContent,
   industries,
@@ -263,6 +264,45 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* Managed delivery platform */}
+        <section className="bg-navy py-20 text-white">
+          <div className="section-shell">
+            <SectionHeading
+              dark
+              eyebrow="What You Get"
+              title="Know Exactly What You're Paying For"
+              summary="Every engagement runs on a managed delivery platform: planned shifts, verified hours, screen-backed evidence and reports written for hiring managers."
+            />
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {deliveryPlatform.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur transition hover:-translate-y-1 hover:border-brand-green/40 hover:bg-white/10"
+                    key={item.title}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-blue/20 text-brand-green">
+                        <Icon size={20} />
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                        {item.tag}
+                      </span>
+                    </div>
+                    <h3 className="mt-4 font-heading text-base font-bold">{item.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{item.description}</p>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-10 text-center">
+              <Button asChild size="lg" variant="green">
+                <Link href="/services">See how delivery works</Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+
         {/* Comparison */}
         <MotionSection className="section-shell py-20">
           <SectionHeading
@@ -446,11 +486,11 @@ export default function HomePage() {
             <SectionHeading
               eyebrow="FAQ"
               title="Frequently Asked Questions"
-              summary="Everything clients usually ask before their first consultation. Something else on your mind? Ask us directly."
+              summary="Pricing, delivery, reporting, cover and security — the questions hiring managers ask before their first consultation. Something else on your mind? Ask us directly."
             />
             <div className="mt-12 grid items-start gap-8 lg:grid-cols-2">
-              <FAQAccordion items={faqs.slice(0, 4)} />
-              <FAQAccordion items={faqs.slice(4)} />
+              <FAQAccordion items={faqs.slice(0, Math.ceil(faqs.length / 2))} />
+              <FAQAccordion items={faqs.slice(Math.ceil(faqs.length / 2))} />
             </div>
           </div>
         </section>
